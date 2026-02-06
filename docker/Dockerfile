@@ -22,7 +22,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Create minimal pyproject and install Python deps via uv add in /opt (not shadowed by bind mounts)
 WORKDIR /opt/ad-viz
-RUN printf '[project]\nname = "ad-viz-deps"\nversion = "0.0.0"\nrequires-python = ">=3.10"\n' > pyproject.toml && \
+RUN uv init && \
     uv venv --python /usr/bin/python3 && \
     uv add numpy matplotlib
 
