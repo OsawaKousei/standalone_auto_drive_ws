@@ -39,6 +39,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+# 4. matplotlib-cpp (header-only)
+FetchContent_Declare(
+  matplotlibcpp
+  GIT_REPOSITORY https://github.com/lava/matplotlib-cpp.git
+  GIT_TAG        master
+)
+FetchContent_MakeAvailable(matplotlibcpp)
+
+find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
+
 enable_testing()
 
 # --- ビルド設定 ---
@@ -63,6 +73,9 @@ endif()
 
 target_link_libraries(ad_core PUBLIC fmt::fmt tl::expected)
 target_include_directories(ad_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(ad_core PUBLIC Python3::Python Python3::NumPy)
+target_include_directories(ad_core PUBLIC ${Python3_NumPy_INCLUDE_DIRS})
+target_include_directories(ad_core PUBLIC ${matplotlibcpp_SOURCE_DIR})
 
 add_executable(app src/main.cpp)
 target_link_libraries(app PRIVATE ad_core)
@@ -80,6 +93,16 @@ target_compile_options(simulation_tests PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
     target_compile_options(simulation_tests PRIVATE -fsanitize=address,undefined)
     target_link_options(simulation_tests PRIVATE -fsanitize=address,undefined)
+endif()
+
+add_executable(visualization_demo
+  test/visualization_demo.cpp
+)
+target_link_libraries(visualization_demo PRIVATE ad_core fmt::fmt)
+target_compile_options(visualization_demo PRIVATE ${COMMON_COMPILE_OPTIONS})
+if(ENABLE_SANITIZER)
+    target_compile_options(visualization_demo PRIVATE -fsanitize=address,undefined)
+    target_link_options(visualization_demo PRIVATE -fsanitize=address,undefined)
 endif()
 
 include(GoogleTest)
