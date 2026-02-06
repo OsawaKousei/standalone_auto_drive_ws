@@ -52,17 +52,14 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
   }
 
   const auto gridImage = [&]() {
-    auto rows = std::vector<std::vector<double>>(
-        static_cast<std::size_t>(map.height),
-        std::vector<double>(static_cast<std::size_t>(map.width), 0.0));
+    auto data = std::vector<float>(static_cast<std::size_t>(map.width * map.height), 0.0F);
     for (int r = 0; r < map.height; ++r) {
       for (int c = 0; c < map.width; ++c) {
         const auto idx = static_cast<std::size_t>(r * map.width + c);
-        rows[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)] =
-            static_cast<double>(map.grid[idx] > 0 ? 1.0 : 0.0);
+        data[idx] = static_cast<float>(map.grid[idx] > 0 ? 1.0 : 0.0);
       }
     }
-    return rows;
+    return data;
   }();
 
   const auto toCell = [&](double value) { return value / map.resolution; };
@@ -105,7 +102,7 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
   const auto extentY = static_cast<double>(map.height);
 
   matplotlibcpp::clf();
-  matplotlibcpp::imshow(gridImage, {{"origin", "lower"}});
+  matplotlibcpp::imshow(gridImage.data(), map.height, map.width, 1, {{"origin", "lower"}});
   matplotlibcpp::xlim(0.0, extentX);
   matplotlibcpp::ylim(0.0, extentY);
 
@@ -113,7 +110,8 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
     matplotlibcpp::plot(makePathXY.first, makePathXY.second, "b-");
   }
 
-  matplotlibcpp::scatter({toCell(pose.x)}, {toCell(pose.y)}, 40.0, {{"color", "red"}});
+  matplotlibcpp::scatter(std::vector<double>{toCell(pose.x)}, std::vector<double>{toCell(pose.y)},
+                         40.0, {{"color", "red"}});
   matplotlibcpp::plot({toCell(pose.x), heading.first}, {toCell(pose.y), heading.second}, "r-");
 
   matplotlibcpp::scatter(scanPoints.first, scanPoints.second, 10.0, {{"color", "green"}});

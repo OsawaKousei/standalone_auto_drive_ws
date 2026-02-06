@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <fmt/core.h>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -37,32 +38,35 @@ auto main() -> int {
   const ad::simulation::LidarSim lidar;
   const ad::visualization::Visualizer viz;
 
-  auto state = ad::simulation::MotionState{{0.0, 0.0, 0.0}, {0.0, 0.0}};
+  auto state = std::optional<ad::simulation::MotionState>{
+      ad::simulation::MotionState{{0.0, 0.0, 0.0}, {0.0, 0.0}}};
   constexpr auto dt = 0.5;
   const ad::types::Twist command{1.2, 0.6};
 
   for (int step = 0; step < 8; ++step) {
     fmt::print("\n=== Step {} ===\n", step);
 
-    const auto scanResult = lidar.simulate(map, state.pose);
+    const auto &current = *state;
+
+    const auto scanResult = lidar.simulate(map, current.pose);
     if (!scanResult) {
       fmt::print(stderr, "Lidar error: {}\n", scanResult.error().message);
       return 1;
     }
 
-    const auto renderStatus = viz.renderFrame(map, state.pose, std::span{path}, *scanResult);
+    const auto renderStatus = viz.renderFrame(map, current.pose, std::span{path}, *scanResult);
     if (!renderStatus) {
       fmt::print(stderr, "Render error: {}\n", renderStatus.error().message);
       return 1;
     }
 
-    const auto nextState = model.propagate(state, command, dt);
+    const auto nextState = model.propagate(current, command, dt);
     if (!nextState) {
       fmt::print(stderr, "Propagate error: {}\n", nextState.error().message);
       return 1;
     }
 
-    state = ad::simulation::MotionState{nextState->pose, nextState->twist};
+    state.emplace(ad::simulation::MotionState{nextState->pose, nextState->twist});
   }
 
   fmt::print("\nSimulation finished.\n");
