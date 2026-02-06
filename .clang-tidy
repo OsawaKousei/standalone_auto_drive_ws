@@ -1,0 +1,46 @@
+---
+# .clang-tidy
+Checks: >
+  -*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  readability-*,
+  -readability-convert-member-functions-to-static,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-owning-memory,
+  modernize-make-unique,
+  modernize-make-shared,
+  misc-const-correctness,
+  readability-make-member-function-const,
+  modernize-loop-convert,
+  modernize-use-ranges,
+  readability-identifier-naming
+
+CheckOptions:
+  # 命名規則の設定
+  - key: readability-identifier-naming.ClassCase
+    value: PascalCase
+  - key: readability-identifier-naming.StructCase
+    value: PascalCase
+  - key: readability-identifier-naming.FunctionCase
+    value: camelCase
+  - key: readability-identifier-naming.VariableCase
+    value: camelCase
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: kPascalCase
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+
+  # const化の推奨設定
+  - key: misc-const-correctness.AnalyzeValues
+    value: true
+  - key: misc-const-correctness.WarnPointersAsValues
+    value: true
+
+  # スマートポインタの強制
+  - key: modernize-make-unique.MakeSmartPtrFunction
+    value: std::make_unique
+  - key: modernize-make-shared.MakeSmartPtrFunction
+    value: std::make_shared

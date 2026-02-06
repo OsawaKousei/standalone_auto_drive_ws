@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "oderwat.indent-rainbow",
+    "ms-azuretools.vscode-docker",
+    "ms-vscode-remote.remote-containers",
+    "esbenp.prettier-vscode",
+    "redhat.vscode-yaml",
+    "exiasr.hadolint"
+  ]
+}

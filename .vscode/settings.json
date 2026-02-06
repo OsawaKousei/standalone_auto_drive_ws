@@ -1,0 +1,30 @@
+{
+  "editor.tabSize": 2,
+  "editor.formatOnSave": true,
+
+  // C++ 設定
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": true
+  },
+
+  "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+  "C_Cpp.codeAnalysis.clangTidy.args": [
+    "--header-filter=${workspaceFolder}/src/.*",
+    "--extra-arg=-std=c++20",
+    "--config-file=${workspaceFolder}/.clang-tidy"
+  ],
+  "C_Cpp.codeAnalysis.runAutomatically": true,
+  "C_Cpp.codeAnalysis.exclude": {
+    "build/**": true,
+    "external/**": true,
+    "tests/**": true
+  },
+
+  // 既存の他言語設定
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "hadolint.hadolintPath": "hadolint"
+}
