@@ -47,6 +47,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(matplotlibcpp)
 
+if(DEFINED ENV{VIRTUAL_ENV})
+  set(Python3_ROOT_DIR "$ENV{VIRTUAL_ENV}")
+  set(Python3_FIND_VIRTUALENV FIRST)
+endif()
+
 find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
 
 enable_testing()
