@@ -22,7 +22,6 @@ FetchContent_Declare(
   GIT_TAG        v1.3.1
 )
 FetchContent_MakeAvailable(expected)
-
 # 2. fmt
 FetchContent_Declare(
   fmt
@@ -66,14 +65,12 @@ add_library(ad_core
   src/features/visualization/visualizer.cpp
 )
 
-# Sanitizer のオプション化
-option(ENABLE_SANITIZER "Enable address and undefined sanitizer" ON)
 
 target_compile_options(ad_core PRIVATE ${COMMON_COMPILE_OPTIONS})
 
 if(ENABLE_SANITIZER)
-    target_compile_options(ad_core PRIVATE -fsanitize=address,undefined)
-    target_link_options(ad_core PRIVATE -fsanitize=address,undefined)
+    target_compile_options(ad_core PRIVATE -fsanitize=address,undefined,leak)
+    target_link_options(ad_core PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
 target_link_libraries(ad_core PUBLIC fmt::fmt tl::expected)
@@ -101,8 +98,8 @@ add_executable(app src/main.cpp)
 target_link_libraries(app PRIVATE ad_core)
 target_compile_options(app PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
-    target_compile_options(app PRIVATE -fsanitize=address,undefined)
-    target_link_options(app PRIVATE -fsanitize=address,undefined)
+    target_compile_options(app PRIVATE -fsanitize=address,undefined,leak)
+    target_link_options(app PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
 add_executable(simulation_tests
@@ -111,8 +108,8 @@ add_executable(simulation_tests
 target_link_libraries(simulation_tests PRIVATE ad_core GTest::gtest_main)
 target_compile_options(simulation_tests PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
-    target_compile_options(simulation_tests PRIVATE -fsanitize=address,undefined)
-    target_link_options(simulation_tests PRIVATE -fsanitize=address,undefined)
+    target_compile_options(simulation_tests PRIVATE -fsanitize=address,undefined,leak)
+    target_link_options(simulation_tests PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
 add_executable(visualization_demo
@@ -121,8 +118,8 @@ add_executable(visualization_demo
 target_link_libraries(visualization_demo PRIVATE ad_core fmt::fmt)
 target_compile_options(visualization_demo PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
-    target_compile_options(visualization_demo PRIVATE -fsanitize=address,undefined)
-    target_link_options(visualization_demo PRIVATE -fsanitize=address,undefined)
+  target_compile_options(visualization_demo PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(visualization_demo PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
 include(GoogleTest)

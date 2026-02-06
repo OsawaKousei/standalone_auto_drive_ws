@@ -2,12 +2,47 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fmt/core.h>
 #include <numbers>
 #include <ranges>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace ad::visualization {
+
+namespace {
+
+[[nodiscard]] auto setEnvValue(const std::string &key, const std::string &value) -> Status {
+  if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+    return tl::make_unexpected(
+        Error{ErrorCode::InvalidInput, fmt::format("Failed to set {} for matplotlib", key)});
+  }
+  return {};
+}
+
+[[nodiscard]] auto ensurePathContains(const std::string &key, const std::string &value) -> Status {
+  const auto current = std::getenv(key.c_str());
+  if (current == nullptr) {
+    return setEnvValue(key, value);
+  }
+
+  const auto currentValue = std::string{current};
+  if (currentValue.find(value) != std::string::npos) {
+    return {};
+  }
+
+  const auto merged = fmt::format("{}:{}", value, currentValue);
+  return setEnvValue(key, merged);
+}
+
+[[nodiscard]] auto sitePackagesPath(std::string_view root) -> std::string {
+  const auto pythonVersion = fmt::format("{}.{}", PY_MAJOR_VERSION, PY_MINOR_VERSION);
+  return fmt::format("{}/lib/python{}/site-packages", root, pythonVersion);
+}
+
+} // namespace
 
 auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status {
   if (path.empty()) {
@@ -36,6 +71,11 @@ auto Visualizer::renderScan(std::span<const double> ranges) const -> Status {
 auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
                              std::span<const types::Point> path,
                              std::span<const double> ranges) const -> Status {
+  const auto envStatus = configurePythonEnvironment();
+  if (!envStatus) {
+    return envStatus;
+  }
+
   if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
     return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Invalid map geometry."});
   }
@@ -117,6 +157,28 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
   matplotlibcpp::scatter(scanPoints.first, scanPoints.second, 10.0, {{"color", "green"}});
   matplotlibcpp::pause(0.001);
   matplotlibcpp::show(false);
+  return {};
+}
+
+auto Visualizer::configurePythonEnvironment() -> Status {
+  const auto pythonHome = std::getenv("PYTHONHOME");
+  const auto virtualEnv = std::getenv("VIRTUAL_ENV");
+
+  if (pythonHome == nullptr && virtualEnv == nullptr) {
+    return tl::make_unexpected(Error{ErrorCode::InvalidInput,
+                                     "Python environment is missing. Set VIRTUAL_ENV or "
+                                     "PYTHONHOME to a Python with numpy and matplotlib."});
+  }
+
+  const auto pythonRoot = pythonHome != nullptr ? std::string{pythonHome} : std::string{virtualEnv};
+
+  // Do not override PYTHONHOME for embedded interpreter; setting only PYTHONPATH keeps stdlib
+  // resolution intact while ensuring site-packages are reachable inside the venv.
+  const auto pathStatus = ensurePathContains("PYTHONPATH", sitePackagesPath(pythonRoot));
+  if (!pathStatus) {
+    return pathStatus;
+  }
+
   return {};
 }
 

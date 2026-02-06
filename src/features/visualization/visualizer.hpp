@@ -18,6 +18,9 @@ public:
   [[nodiscard]] auto renderFrame(const types::MapData &map, const types::Pose &pose,
                                  std::span<const types::Point> path,
                                  std::span<const double> ranges) const -> Status;
+
+private:
+  [[nodiscard]] static auto configurePythonEnvironment() -> Status;
 };
 
 } // namespace ad::visualization
