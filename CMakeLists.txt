@@ -52,7 +52,7 @@ if(DEFINED ENV{VIRTUAL_ENV})
   set(Python3_FIND_VIRTUALENV FIRST)
 endif()
 
-find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 
 enable_testing()
 
@@ -78,9 +78,24 @@ endif()
 
 target_link_libraries(ad_core PUBLIC fmt::fmt tl::expected)
 target_include_directories(ad_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(ad_core PUBLIC Python3::Python Python3::NumPy)
-target_include_directories(ad_core PUBLIC ${Python3_NumPy_INCLUDE_DIRS})
+target_link_libraries(ad_core PUBLIC Python3::Python)
 target_include_directories(ad_core PUBLIC ${matplotlibcpp_SOURCE_DIR})
+
+if(NOT Python3_NumPy_INCLUDE_DIRS)
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import numpy; print(numpy.get_include())"
+    OUTPUT_VARIABLE Python3_NumPy_INCLUDE_DIRS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_VARIABLE _numpy_err
+    RESULT_VARIABLE _numpy_status
+  )
+  if(NOT _numpy_status EQUAL 0 OR Python3_NumPy_INCLUDE_DIRS STREQUAL "")
+    message(FATAL_ERROR "NumPy headers not found. Ensure numpy is installed in the active Python (e.g., uv pip install numpy).
+Error: ${_numpy_err}")
+  endif()
+endif()
+
+target_include_directories(ad_core PUBLIC ${Python3_NumPy_INCLUDE_DIRS})
 
 add_executable(app src/main.cpp)
 target_link_libraries(app PRIVATE ad_core)
