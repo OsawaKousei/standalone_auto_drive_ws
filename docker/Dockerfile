@@ -20,15 +20,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH="/root/.local/bin:${PATH}"
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create minimal pyproject and install Python deps via uv add
-WORKDIR /workspace
+# Create minimal pyproject and install Python deps via uv add in /opt (not shadowed by bind mounts)
+WORKDIR /opt/ad-viz
 RUN printf '[project]\nname = "ad-viz-deps"\nversion = "0.0.0"\nrequires-python = ">=3.10"\n' > pyproject.toml && \
     uv venv --python /usr/bin/python3 && \
     uv add numpy matplotlib
 
-ENV VIRTUAL_ENV=/workspace/.venv
-ENV PATH="/workspace/.venv/bin:/root/.local/bin:${PATH}"
-ENV Python3_ROOT_DIR=/workspace/.venv
+ENV VIRTUAL_ENV=/opt/ad-viz/.venv
+ENV PATH="/opt/ad-viz/.venv/bin:/root/.local/bin:${PATH}"
+ENV Python3_ROOT_DIR=/opt/ad-viz/.venv
 
 ENV CC=gcc-12 \
     CXX=g++-12 \
