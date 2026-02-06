@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CppTemplate LANGUAGES CXX)
+project(AutonomousDrivingModern LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,9 +26,14 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(fmt)
 
 # --- ビルド設定 ---
-add_executable(app 
-    src/main.cpp 
-    src/features/greeting/greeting_service.cpp
+add_executable(app
+  src/main.cpp
+  src/features/planning/astar_planner.cpp
+  src/features/control/pure_pursuit.cpp
+  src/features/localization/ransac_localizer.cpp
+  src/features/simulation/unicycle_model.cpp
+  src/features/simulation/lidar_sim.cpp
+  src/features/visualization/visualizer.cpp
 )
 
 # Sanitizer のオプション化
@@ -45,3 +50,5 @@ if(ENABLE_SANITIZER)
 endif()
 
 target_link_libraries(app PRIVATE fmt::fmt tl::expected)
+
+target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
