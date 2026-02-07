@@ -16,11 +16,17 @@ struct LocalizerEstimate {
 class ILocalizer {
 public:
   virtual ~ILocalizer() = default;
-  [[nodiscard]] virtual Status reset(const types::Pose &initialPose,
-                                     const std::array<double, 9> &initialCovariance) = 0;
-  [[nodiscard]] virtual Status predict(const types::Twist &control, double dt) = 0;
-  [[nodiscard]] virtual Status update(const types::LidarScan &scan, const types::MapData &map) = 0;
-  [[nodiscard]] virtual Result<LocalizerEstimate> estimate() const = 0;
+  ILocalizer() = default;
+  ILocalizer(const ILocalizer &) = delete;
+  auto operator=(const ILocalizer &) -> ILocalizer & = delete;
+  ILocalizer(ILocalizer &&) = delete;
+  auto operator=(ILocalizer &&) -> ILocalizer & = delete;
+  [[nodiscard]] virtual auto reset(const types::Pose &initialPose,
+                                   const std::array<double, 9> &initialCovariance) -> Status = 0;
+  [[nodiscard]] virtual auto predict(const types::Twist &control, double deltaT) -> Status = 0;
+  [[nodiscard]] virtual auto update(const types::LidarScan &scan, const types::MapData &map)
+      -> Status = 0;
+  [[nodiscard]] virtual auto estimate() const -> Result<LocalizerEstimate> = 0;
 };
 
 } // namespace ad::localization

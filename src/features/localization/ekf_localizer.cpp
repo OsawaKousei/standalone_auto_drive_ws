@@ -1,4 +1,4 @@
-#include "pure_ekf_localizer.hpp"
+#include "ekf_localizer.hpp"
 
 #include "localizer_util.hpp"
 #include "shared/math_utils.hpp"
@@ -267,7 +267,7 @@ PureEkfLocalizer::PureEkfLocalizer(std::vector<MapLine> mapLines, MapSignature s
 }
 
 auto PureEkfLocalizer::create(const types::MapData &map, PureEkfLocalizerConfig config)
-    -> Result<PureEkfLocalizer> {
+    -> Result<std::unique_ptr<PureEkfLocalizer>> {
   const auto signature = mapSignatureFromMap(map);
   if (!signature) {
     return tl::make_unexpected(signature.error());
@@ -278,7 +278,9 @@ auto PureEkfLocalizer::create(const types::MapData &map, PureEkfLocalizerConfig 
     return tl::make_unexpected(mapLines.error());
   }
 
-  return PureEkfLocalizer{std::move(*mapLines), *signature, config};
+  auto localizer = std::unique_ptr<PureEkfLocalizer>(
+      new PureEkfLocalizer(std::move(*mapLines), *signature, config));
+  return Result<std::unique_ptr<PureEkfLocalizer>>(std::move(localizer));
 }
 
 auto PureEkfLocalizer::mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
