@@ -4,10 +4,12 @@
 #include "shared/result.hpp"
 #include "shared/types.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <fmt/core.h>
 #include <optional>
 #include <span>
+#include <thread>
 #include <vector>
 
 namespace ad::demo {
@@ -43,7 +45,9 @@ auto main() -> int {
   constexpr auto dt = 0.5;
   const ad::types::Twist command{1.2, 0.6};
 
-  for (int step = 0; step < 8; ++step) {
+  constexpr int kSteps = 60;
+  constexpr auto kFrameDelay = std::chrono::milliseconds{120};
+  for (int step = 0; step < kSteps; ++step) {
     fmt::print("\n=== Step {} ===\n", step);
 
     const auto &current = *state;
@@ -67,6 +71,7 @@ auto main() -> int {
     }
 
     state.emplace(ad::simulation::MotionState{nextState->pose, nextState->twist});
+    std::this_thread::sleep_for(kFrameDelay);
   }
 
   fmt::print("\nSimulation finished.\n");
