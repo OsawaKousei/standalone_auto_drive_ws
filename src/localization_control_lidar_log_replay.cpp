@@ -21,6 +21,21 @@ struct LogRecord {
   int step = 0;
   types::Pose truePose{};
   types::Pose estPose{};
+  std::vector<double> ranges;
+};
+
+struct ScanMeta {
+  double minAngle = 0.0;
+  double angleIncrement = 0.0;
+  double maxRange = 0.0;
+  std::size_t count = 0;
+};
+
+struct LogData {
+  std::vector<LogRecord> records;
+  types::Footprint footprint;
+  std::vector<types::Point> path;
+  std::optional<ScanMeta> scanMeta;
 };
 
 [[nodiscard]] auto makeFootprint() -> types::Footprint {
@@ -36,7 +51,60 @@ struct LogRecord {
   return output;
 }
 
-[[nodiscard]] auto parseLogFile(const std::string &path) -> Result<std::vector<LogRecord>> {
+[[nodiscard]] auto splitDelimited(std::string_view input, char delimiter)
+    -> std::vector<std::string> {
+  auto output = std::vector<std::string>{};
+  std::stringstream ss{std::string{input}};
+  for (std::string cell; std::getline(ss, cell, delimiter);) {
+    if (!cell.empty()) {
+      output.push_back(cell);
+    }
+  }
+  return output;
+}
+
+[[nodiscard]] auto parsePoints(std::string_view input) -> Result<std::vector<types::Point>> {
+  auto points = std::vector<types::Point>{};
+  if (input.empty()) {
+    return points;
+  }
+
+  for (const auto &token : splitDelimited(input, ';')) {
+    const auto pair = splitDelimited(token, ':');
+    if (pair.size() != 2U) {
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse point list."});
+    }
+    try {
+      points.push_back(types::Point{std::stod(pair[0]), std::stod(pair[1])});
+    } catch (const std::exception &) {
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse point values."});
+    }
+  }
+
+  return points;
+}
+
+[[nodiscard]] auto parseScanMeta(std::string_view input) -> Result<ScanMeta> {
+  const auto parts = splitDelimited(input, ';');
+  if (parts.size() != 4U) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse scan meta."});
+  }
+
+  try {
+    return ScanMeta{.minAngle = std::stod(parts[0]),
+                    .angleIncrement = std::stod(parts[1]),
+                    .maxRange = std::stod(parts[2]),
+                    .count = static_cast<std::size_t>(std::stoul(parts[3]))};
+  } catch (const std::exception &) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse scan meta values."});
+  }
+}
+
+[[nodiscard]] auto parseLogFile(const std::string &path) -> Result<LogData> {
   auto file = std::ifstream{path};
   if (!file.is_open()) {
     return tl::make_unexpected(
@@ -44,14 +112,41 @@ struct LogRecord {
   }
 
   auto records = std::vector<LogRecord>{};
+  auto footprint = std::optional<types::Footprint>{};
+  auto pathPoints = std::optional<std::vector<types::Point>>{};
+  auto scanMeta = std::optional<ScanMeta>{};
   std::string line;
   while (std::getline(file, line)) {
     if (line.empty() || line.starts_with('#') || line.starts_with("step,")) {
+      if (line.starts_with("# footprint=")) {
+        const auto payload = std::string_view{line}.substr(std::string_view{"# footprint="}.size());
+        const auto parsed = parsePoints(payload);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        footprint.emplace(types::Footprint{*parsed});
+      }
+      if (line.starts_with("# path=")) {
+        const auto payload = std::string_view{line}.substr(std::string_view{"# path="}.size());
+        const auto parsed = parsePoints(payload);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        pathPoints.emplace(*parsed);
+      }
+      if (line.starts_with("# scan_meta=")) {
+        const auto payload = std::string_view{line}.substr(std::string_view{"# scan_meta="}.size());
+        const auto parsed = parseScanMeta(payload);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        scanMeta = *parsed;
+      }
       continue;
     }
 
     const auto cells = splitCsvLine(line);
-    if (cells.size() != 14U) {
+    if (cells.size() < 14U) {
       return tl::make_unexpected(
           Error{.code = ErrorCode::SizeMismatch, .message = "Unexpected column count."});
     }
@@ -62,7 +157,21 @@ struct LogRecord {
           types::Pose{std::stod(cells[6]), std::stod(cells[7]), std::stod(cells[8])};
       const auto estPose =
           types::Pose{std::stod(cells[9]), std::stod(cells[10]), std::stod(cells[11])};
-      records.push_back(LogRecord{.step = step, .truePose = truePose, .estPose = estPose});
+      auto ranges = std::vector<double>{};
+      if (cells.size() >= 15U) {
+        for (const auto &value : splitDelimited(cells[14], ';')) {
+          if (value.empty()) {
+            continue;
+          }
+          ranges.push_back(std::stod(value));
+        }
+      }
+      if (scanMeta && !ranges.empty() && scanMeta->count != ranges.size()) {
+        return tl::make_unexpected(
+            Error{.code = ErrorCode::SizeMismatch, .message = "Scan range count mismatch."});
+      }
+      records.push_back(LogRecord{
+          .step = step, .truePose = truePose, .estPose = estPose, .ranges = std::move(ranges)});
     } catch (const std::exception &) {
       return tl::make_unexpected(
           Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse log row."});
@@ -74,7 +183,13 @@ struct LogRecord {
         Error{.code = ErrorCode::EmptyCollection, .message = "Log has no records."});
   }
 
-  return records;
+  const auto footprintValue = footprint ? *footprint : makeFootprint();
+  const auto pathValue = pathPoints ? *pathPoints : std::vector<types::Point>{};
+
+  return LogData{.records = std::move(records),
+                 .footprint = footprintValue,
+                 .path = pathValue,
+                 .scanMeta = scanMeta};
 }
 
 struct Args {
@@ -139,13 +254,14 @@ auto main(int argc, char **argv) -> int {
     return 1;
   }
 
-  const auto logResult = ad::demo::parseLogFile(args.logPath);
-  if (!logResult) {
-    fmt::print(stderr, "Log parse error: {}\n", logResult.error().message);
+  const auto logDataResult = ad::demo::parseLogFile(args.logPath);
+  if (!logDataResult) {
+    fmt::print(stderr, "Log parse error: {}\n", logDataResult.error().message);
     return 1;
   }
+  const auto &logData = *logDataResult;
 
-  const auto footprint = ad::demo::makeFootprint();
+  const auto &footprint = logData.footprint;
   const ad::visualization::Visualizer viz;
   const auto preparedMapResult = ad::visualization::Visualizer::prepareMap(*mapResult);
   if (!preparedMapResult) {
@@ -157,14 +273,22 @@ auto main(int argc, char **argv) -> int {
 
   auto trueTrail = std::vector<ad::types::Point>{};
   auto estTrail = std::vector<ad::types::Point>{};
-  trueTrail.reserve(logResult->size());
-  estTrail.reserve(logResult->size());
+  trueTrail.reserve(logData.records.size());
+  estTrail.reserve(logData.records.size());
 
-  for (const auto &record : *logResult) {
+  for (const auto &record : logData.records) {
     const auto frameStatus = viz.renderFrame(preparedMap);
     if (!frameStatus) {
       fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
       return 1;
+    }
+
+    if (!logData.path.empty()) {
+      const auto plannedPathStatus = viz.renderPath(std::span{logData.path}, mapGeometry, "k--");
+      if (!plannedPathStatus) {
+        fmt::print(stderr, "Render error: {}\n", plannedPathStatus.error().message);
+        return 1;
+      }
     }
 
     trueTrail.push_back(ad::types::Point{record.truePose.x, record.truePose.y});
@@ -186,6 +310,18 @@ auto main(int argc, char **argv) -> int {
     if (!robotStatus) {
       fmt::print(stderr, "Render error: {}\n", robotStatus.error().message);
       return 1;
+    }
+
+    if (logData.scanMeta && !record.ranges.empty()) {
+      const auto scan = ad::types::LidarScan{.ranges = record.ranges,
+                                             .minAngle = logData.scanMeta->minAngle,
+                                             .angleIncrement = logData.scanMeta->angleIncrement,
+                                             .maxRange = logData.scanMeta->maxRange};
+      const auto scanStatus = viz.renderScan(record.truePose, scan, mapGeometry);
+      if (!scanStatus) {
+        fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
+        return 1;
+      }
     }
 
     const auto estMarkerStatus = viz.renderMarker(

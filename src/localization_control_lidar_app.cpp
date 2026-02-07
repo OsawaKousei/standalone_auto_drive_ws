@@ -19,6 +19,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -35,6 +36,28 @@ namespace ad::demo {
     angle += 2.0 * kPi;
   }
   return angle - kPi;
+}
+
+[[nodiscard]] auto serializePoints(std::span<const types::Point> points) -> std::string {
+  auto output = std::string{};
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    if (index != 0) {
+      output.push_back(';');
+    }
+    output += fmt::format("{}:{}", points[index].x, points[index].y);
+  }
+  return output;
+}
+
+[[nodiscard]] auto serializeRanges(std::span<const double> ranges) -> std::string {
+  auto output = std::string{};
+  for (std::size_t index = 0; index < ranges.size(); ++index) {
+    if (index != 0) {
+      output.push_back(';');
+    }
+    output += fmt::format("{}", ranges[index]);
+  }
+  return output;
 }
 
 } // namespace ad::demo
@@ -119,11 +142,21 @@ auto main() -> int {
   logFile << "# localization_control_lidar_demo log\n";
   logFile << "# dt=" << dt << ", goal_tolerance=" << kGoalTolerance << ", max_steps=" << kMaxSteps
           << "\n";
+  logFile << "# footprint=" << ad::demo::serializePoints(footprint.vertices) << "\n";
+  logFile << "# path=" << ad::demo::serializePoints(std::span{*pathResult}) << "\n";
   logFile << "# columns: "
              "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w\n";
+             "est_y,est_theta,v,w,scan_ranges\n";
   logFile << "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w\n";
+             "est_y,est_theta,v,w,scan_ranges\n";
+
+  const auto scanMetaResult = lidar.simulate(map, trueState->pose);
+  if (!scanMetaResult) {
+    fmt::print(stderr, "Log scan meta error: {}\n", scanMetaResult.error().message);
+    return 1;
+  }
+  logFile << "# scan_meta=" << scanMetaResult->minAngle << ';' << scanMetaResult->angleIncrement
+          << ';' << scanMetaResult->maxRange << ';' << scanMetaResult->ranges.size() << '\n';
 
   auto failure = std::optional<ad::Error>{};
 
@@ -265,7 +298,8 @@ auto main() -> int {
             << headingError << ',' << updatedEstimate->score << ',' << trueState->pose.x << ','
             << trueState->pose.y << ',' << trueState->pose.theta << ',' << updatedEstimate->pose.x
             << ',' << updatedEstimate->pose.y << ',' << updatedEstimate->pose.theta << ','
-            << appliedCommand.v << ',' << appliedCommand.w << '\n';
+            << appliedCommand.v << ',' << appliedCommand.w << ','
+            << ad::demo::serializeRanges(scanResult->ranges) << '\n';
 
     std::this_thread::sleep_for(kFrameDelay);
     return distanceAfter <= kGoalTolerance;

@@ -25,7 +25,7 @@ def parse_log(path: Path):
 
     records = []
     for row in csv.reader(rows):
-        if len(row) != 14:
+        if len(row) < 14:
             raise ValueError(f"Unexpected column count: {len(row)}")
         record = {
             "step": int(row[0]),
