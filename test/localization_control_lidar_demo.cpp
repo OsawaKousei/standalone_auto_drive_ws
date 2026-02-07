@@ -22,10 +22,16 @@
 
 namespace ad::demo {
 
-struct ErrorSample {
+struct StepLog {
   int step;
+  double distanceBefore;
+  double distanceAfter;
   double position;
   double heading;
+  double score;
+  types::Pose truePose;
+  types::Pose estimatedPose;
+  types::Twist command;
 };
 
 [[nodiscard]] auto makeFootprint() -> types::Footprint {
@@ -107,8 +113,8 @@ auto main() -> int {
   constexpr int kMaxSteps = 250;
 
   auto failure = std::optional<ad::Error>{};
-  auto errorHistory = std::vector<ad::demo::ErrorSample>{};
-  errorHistory.reserve(kMaxSteps);
+  auto logHistory = std::vector<ad::demo::StepLog>{};
+  logHistory.reserve(kMaxSteps);
 
   const auto reachedGoal = std::ranges::any_of(std::views::iota(0, kMaxSteps), [&](int step) {
     if (failure) {
@@ -157,7 +163,7 @@ auto main() -> int {
     const auto positionError = std::hypot(dx, dy);
     const auto headingError =
         std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
-    errorHistory.push_back(ad::demo::ErrorSample{step, positionError, headingError});
+    const auto distanceBefore = std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
 
     const auto frameStatus = viz.renderFrame(preparedMap);
     if (!frameStatus) {
@@ -208,39 +214,61 @@ auto main() -> int {
 
     trueState.emplace(ad::simulation::MotionState{nextState->pose, nextState->twist});
 
-    const auto distanceToGoal = std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
-    fmt::print("Step {:03d}: distance to goal = {:.3f}\n", step, distanceToGoal);
+    const auto distanceAfter = std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
+
+    logHistory.push_back(ad::demo::StepLog{.step = step,
+                                           .distanceBefore = distanceBefore,
+                                           .distanceAfter = distanceAfter,
+                                           .position = positionError,
+                                           .heading = headingError,
+                                           .score = updatedEstimate->score,
+                                           .truePose = trueState->pose,
+                                           .estimatedPose = updatedEstimate->pose,
+                                           .command = *commandResult});
+
+    fmt::print("Step {:03d}: dist {:.3f}->{:.3f}, pos_err {:.3f}, head_err {:.3f}, score {:.3f}, v "
+               "{:.2f}, w {:.2f}\n",
+               step, distanceBefore, distanceAfter, positionError, headingError,
+               updatedEstimate->score, commandResult->v, commandResult->w);
 
     std::this_thread::sleep_for(kFrameDelay);
-    return distanceToGoal <= kGoalTolerance;
+    return distanceAfter <= kGoalTolerance;
   });
 
-  if (!errorHistory.empty()) {
-    fmt::print("Localization error timeline (step, position_m, heading_rad):\n");
-    for (const auto &sample : errorHistory) {
-      fmt::print("  {:03d}, {:.4f}, {:.4f}\n", sample.step, sample.position, sample.heading);
+  if (!logHistory.empty()) {
+    fmt::print(
+        "Localization timeline (step, dist_before, dist_after, pos_m, head_rad, score, v, w):\n");
+    for (const auto &sample : logHistory) {
+      fmt::print("  {:03d}, {:.4f}, {:.4f}, {:.4f}, {:.4f}, {:.3f}, {:.2f}, {:.2f}\n", sample.step,
+                 sample.distanceBefore, sample.distanceAfter, sample.position, sample.heading,
+                 sample.score, sample.command.v, sample.command.w);
     }
 
     double sumPos = 0.0;
     double sumPosSq = 0.0;
     double sumHeading = 0.0;
     double sumHeadingSq = 0.0;
-    for (const auto &sample : errorHistory) {
+    double maxPos = 0.0;
+    double maxHeading = 0.0;
+    for (const auto &sample : logHistory) {
       sumPos += sample.position;
       sumPosSq += sample.position * sample.position;
       sumHeading += sample.heading;
       sumHeadingSq += sample.heading * sample.heading;
+      maxPos = std::max(maxPos, sample.position);
+      maxHeading = std::max(maxHeading, sample.heading);
     }
 
-    const auto count = static_cast<double>(errorHistory.size());
+    const auto count = static_cast<double>(logHistory.size());
     const auto meanPos = sumPos / count;
     const auto rmsPos = std::sqrt(sumPosSq / count);
     const auto meanHeading = sumHeading / count;
     const auto rmsHeading = std::sqrt(sumHeadingSq / count);
 
-    fmt::print("Localization accuracy over {} steps:\n", errorHistory.size());
+    fmt::print("Localization accuracy over {} steps:\n", logHistory.size());
     fmt::print("  Position mean = {:.4f} m, RMS = {:.4f} m\n", meanPos, rmsPos);
     fmt::print("  Heading  mean = {:.4f} rad, RMS = {:.4f} rad\n", meanHeading, rmsHeading);
+    fmt::print("  Position max  = {:.4f} m, Heading max = {:.4f} rad\n", maxPos, maxHeading);
   }
 
   if (failure) {
