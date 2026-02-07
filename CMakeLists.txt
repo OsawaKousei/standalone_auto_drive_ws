@@ -65,6 +65,7 @@ add_library(ad_core
   src/features/simulation/unicycle_model.cpp
   src/features/simulation/lidar_sim.cpp
   src/features/visualization/visualizer.cpp
+  src/shared/map_loader.cpp
 )
 
 
