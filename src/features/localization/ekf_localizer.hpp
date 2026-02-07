@@ -31,7 +31,7 @@ public:
 
   [[nodiscard]] auto reset(const types::Pose &initialPose,
                            const std::array<double, 9> &initialCovariance) -> Status override;
-  [[nodiscard]] auto predict(const types::Twist &control, double dt) -> Status override;
+  [[nodiscard]] auto predict(const types::Twist &control, double deltaT) -> Status override;
   [[nodiscard]] auto update(const types::LidarScan &scan, const types::MapData &map)
       -> Status override;
   [[nodiscard]] auto estimate() const -> Result<LocalizerEstimate> override;
