@@ -33,28 +33,17 @@ public:
   [[nodiscard]] auto estimate() const -> Result<LocalizerEstimate> override;
 
 private:
-  struct MapSignature {
-    int width;
-    int height;
-    double resolution;
-    std::size_t gridSize;
-  };
-
   struct State {
     double x;
     double y;
     double theta;
   };
 
-  EkfLocalizer(std::vector<util::MapLine> mapLines, MapSignature signature,
+  EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                EkfLocalizerConfig config);
-
-  [[nodiscard]] static auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
-  [[nodiscard]] static auto signatureMatches(const MapSignature &signature,
-                                             const types::MapData &map) -> bool;
   EkfLocalizerConfig config_;
   std::vector<util::MapLine> mapLines_;
-  MapSignature mapSignature_;
+  util::MapSignature mapSignature_;
   State state_;
   std::array<double, 9> covariance_;
   double score_ = 0.0;

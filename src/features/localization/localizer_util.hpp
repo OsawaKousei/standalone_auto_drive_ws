@@ -42,6 +42,13 @@ struct LineObservation {
   double angleVariance;
 };
 
+struct MapSignature {
+  int width;
+  int height;
+  double resolution;
+  std::size_t gridSize;
+};
+
 [[nodiscard]] auto normalizeAngle(double angle) -> double;
 [[nodiscard]] auto mapHasConsistentGrid(const types::MapData &map) -> bool;
 [[nodiscard]] auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Point>;
@@ -52,6 +59,9 @@ struct LineObservation {
     -> LineObservation;
 [[nodiscard]] auto gateLineObservation(const LineObservation &observation,
                                        const std::array<double, 9> &covariance, double threshold)
+    -> bool;
+[[nodiscard]] auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
+[[nodiscard]] auto signatureMatches(const MapSignature &signature, const types::MapData &map)
     -> bool;
 [[nodiscard]] auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
     -> Result<std::vector<MapLine>>;

@@ -186,6 +186,27 @@ auto gateLineObservation(const LineObservation &observation,
   return maha <= threshold;
 }
 
+auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
+  if (!mapHasConsistentGrid(map)) {
+    return tl::make_unexpected(
+        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
+  }
+
+  if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
+    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Map dimensions must be positive."});
+  }
+
+  return MapSignature{.width = map.width,
+                      .height = map.height,
+                      .resolution = map.resolution,
+                      .gridSize = map.grid.size()};
+}
+
+auto signatureMatches(const MapSignature &signature, const types::MapData &map) -> bool {
+  return signature.width == map.width && signature.height == map.height &&
+         signature.resolution == map.resolution && signature.gridSize == map.grid.size();
+}
+
 auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
     -> Result<std::vector<MapLine>> {
   if (!mapHasConsistentGrid(map)) {

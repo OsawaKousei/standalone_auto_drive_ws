@@ -113,7 +113,7 @@ auto EkfLocalizer::defaultConfig() -> EkfLocalizerConfig {
                             .minObservations = 3U};
 }
 
-EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, MapSignature signature,
+EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                            EkfLocalizerConfig config)
     : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
       state_{0.0, 0.0, 0.0}, covariance_{}, score_(0.0), hasState_(false) {
@@ -122,7 +122,7 @@ EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, MapSignature sig
 
 auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
     -> Result<std::unique_ptr<EkfLocalizer>> {
-  const auto signature = mapSignatureFromMap(map);
+  const auto signature = util::mapSignatureFromMap(map);
   if (!signature) {
     return tl::make_unexpected(signature.error());
   }
@@ -135,28 +135,6 @@ auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
   auto localizer =
       std::unique_ptr<EkfLocalizer>(new EkfLocalizer(std::move(*mapLines), *signature, config));
   return Result<std::unique_ptr<EkfLocalizer>>(std::move(localizer));
-}
-
-auto EkfLocalizer::mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
-  if (!util::mapHasConsistentGrid(map)) {
-    return tl::make_unexpected(
-        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
-  }
-
-  if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Map dimensions must be positive."});
-  }
-
-  return MapSignature{.width = map.width,
-                      .height = map.height,
-                      .resolution = map.resolution,
-                      .gridSize = map.grid.size()};
-}
-
-auto EkfLocalizer::signatureMatches(const MapSignature &signature, const types::MapData &map)
-    -> bool {
-  return signature.width == map.width && signature.height == map.height &&
-         signature.resolution == map.resolution && signature.gridSize == map.grid.size();
 }
 
 auto EkfLocalizer::reset(const types::Pose &initialPose,
@@ -211,7 +189,7 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
   }
 
-  if (!signatureMatches(mapSignature_, map)) {
+  if (!util::signatureMatches(mapSignature_, map)) {
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Map does not match precomputed line features."});
   }
