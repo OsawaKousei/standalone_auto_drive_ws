@@ -146,6 +146,16 @@ if(ENABLE_SANITIZER)
   target_link_options(planning_visualization_demo PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
+add_executable(planning_control_demo
+  test/planning_control_demo.cpp
+)
+target_link_libraries(planning_control_demo PRIVATE ad_core fmt::fmt)
+target_compile_options(planning_control_demo PRIVATE ${COMMON_COMPILE_OPTIONS})
+if(ENABLE_SANITIZER)
+  target_compile_options(planning_control_demo PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(planning_control_demo PRIVATE -fsanitize=address,undefined,leak)
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(simulation_tests)
 gtest_discover_tests(planning_tests)

@@ -7,12 +7,15 @@
 
 namespace ad::control {
 
+struct ControlInput {
+  const std::span<const types::Point> path;
+  const types::Pose currentPose;
+};
+
 class IController {
 public:
   virtual ~IController() = default;
-  [[nodiscard]] virtual Result<types::Twist> computeCommand(std::span<const types::Point> path,
-                                                            const types::Pose &currentPose,
-                                                            double lookaheadDistance) const = 0;
+  [[nodiscard]] virtual Result<types::Twist> computeCommand(const ControlInput &input) const = 0;
 };
 
 } // namespace ad::control

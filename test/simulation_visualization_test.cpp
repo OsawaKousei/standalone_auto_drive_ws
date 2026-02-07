@@ -89,6 +89,9 @@ TEST(VisualizerTest, RendersScanSummary) {
 
   const auto status = viz.renderScan(pose, ranges, preparedMap->geometry);
   EXPECT_TRUE(status.has_value());
+
+  const auto presentStatus = viz.presentFrame();
+  EXPECT_TRUE(presentStatus.has_value());
 }
 
 } // namespace ad::simulation

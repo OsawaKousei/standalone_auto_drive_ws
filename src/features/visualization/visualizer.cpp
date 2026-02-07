@@ -197,6 +197,10 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
   }
 
   matplotlibcpp::scatter(xValues, yValues, kScanMarkerSize, {{"color", "green"}});
+  return {};
+}
+
+auto Visualizer::presentFrame() const -> Status {
   matplotlibcpp::pause(kUiPauseSeconds);
   matplotlibcpp::show(false);
   return {};

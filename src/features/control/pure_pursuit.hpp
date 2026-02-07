@@ -4,12 +4,19 @@
 
 namespace ad::control {
 
+struct PurePursuitConfig {
+  const double lookaheadDistance;
+  const double desiredLinearVelocity;
+};
+
 class PurePursuitController final : public IController {
 public:
-  PurePursuitController() = default;
-  [[nodiscard]] auto computeCommand(std::span<const types::Point> path,
-                                    const types::Pose &currentPose, double lookaheadDistance) const
+  explicit PurePursuitController(PurePursuitConfig config);
+  [[nodiscard]] auto computeCommand(const ControlInput &input) const
       -> Result<types::Twist> override;
+
+private:
+  const PurePursuitConfig config_;
 };
 
 } // namespace ad::control

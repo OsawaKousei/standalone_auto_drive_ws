@@ -95,6 +95,12 @@ auto main() -> int {
       return 1;
     }
 
+    const auto presentStatus = viz.presentFrame();
+    if (!presentStatus) {
+      fmt::print(stderr, "Render error: {}\n", presentStatus.error().message);
+      return 1;
+    }
+
     const auto nextState = model.propagate(current, command, dt);
     if (!nextState) {
       fmt::print(stderr, "Propagate error: {}\n", nextState.error().message);
