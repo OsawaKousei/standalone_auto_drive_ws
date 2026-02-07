@@ -119,6 +119,16 @@ if(ENABLE_SANITIZER)
   target_link_options(localization_control_lidar_app PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
+add_executable(localization_control_lidar_log_replay
+  src/localization_control_lidar_log_replay.cpp
+)
+target_link_libraries(localization_control_lidar_log_replay PRIVATE ad_core fmt::fmt)
+target_compile_options(localization_control_lidar_log_replay PRIVATE ${COMMON_COMPILE_OPTIONS})
+if(ENABLE_SANITIZER)
+  target_compile_options(localization_control_lidar_log_replay PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(localization_control_lidar_log_replay PRIVATE -fsanitize=address,undefined,leak)
+endif()
+
 add_executable(simulation_tests
   test/simulation_visualization_test.cpp
 )

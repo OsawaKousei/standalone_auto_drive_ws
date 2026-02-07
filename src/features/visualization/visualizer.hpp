@@ -30,8 +30,12 @@ public:
   [[nodiscard]] auto renderFrame(const PreparedMap &prepared) const -> Status;
   [[nodiscard]] auto renderPath(std::span<const types::Point> path, const MapGeometry &map) const
       -> Status;
+  [[nodiscard]] auto renderPath(std::span<const types::Point> path, const MapGeometry &map,
+                                std::string_view style) const -> Status;
   [[nodiscard]] auto renderRobot(const types::Pose &pose, const types::Footprint &footprint,
                                  const MapGeometry &map) const -> Status;
+  [[nodiscard]] auto renderMarker(const types::Point &point, const MapGeometry &map, double size,
+                                  std::string_view color) const -> Status;
   [[nodiscard]] auto renderScan(const types::Pose &pose, const types::LidarScan &scan,
                                 const MapGeometry &map) const -> Status;
   [[nodiscard]] auto presentFrame() const -> Status;

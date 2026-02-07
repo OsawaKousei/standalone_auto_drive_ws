@@ -117,6 +117,11 @@ auto Visualizer::renderFrame(const PreparedMap &prepared) const -> Status {
 
 auto Visualizer::renderPath(std::span<const types::Point> path, const MapGeometry &map) const
     -> Status {
+  return renderPath(path, map, "b-");
+}
+
+auto Visualizer::renderPath(std::span<const types::Point> path, const MapGeometry &map,
+                            std::string_view style) const -> Status {
   if (path.empty()) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::EmptyCollection, .message = "Path is empty."});
@@ -133,7 +138,7 @@ auto Visualizer::renderPath(std::span<const types::Point> path, const MapGeometr
     yValues.push_back(toCell(point.y));
   }
 
-  matplotlibcpp::plot(xValues, yValues, "b-");
+  matplotlibcpp::plot(xValues, yValues, std::string{style});
   return {};
 }
 
@@ -171,6 +176,19 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
   matplotlibcpp::scatter(std::vector<double>{toCell(pose.x)}, std::vector<double>{toCell(pose.y)},
                          kRobotMarkerSize, {{"color", "red"}});
   matplotlibcpp::plot({toCell(pose.x), headingX}, {toCell(pose.y), headingY}, "r-");
+  return {};
+}
+
+auto Visualizer::renderMarker(const types::Point &point, const MapGeometry &map, double size,
+                              std::string_view color) const -> Status {
+  if (size <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Marker size must be positive."});
+  }
+
+  const auto toCell = [&](double value) -> double { return value / map.resolution; };
+  matplotlibcpp::scatter(std::vector<double>{toCell(point.x)}, std::vector<double>{toCell(point.y)},
+                         size, {{"color", std::string{color}}});
   return {};
 }
 
