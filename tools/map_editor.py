@@ -85,18 +85,26 @@ def main() -> None:
     grid = np.full((map_height_cells, map_width_cells), 254, dtype=np.uint8)
     map_width = map_width_cells
     map_height = map_height_cells
-    state = {"drawing": False, "value": 0, "resolution": args.resolution}
+    state = {
+        "drawing": False,
+        "value": 0,
+        "resolution": args.resolution,
+        "brush_cells": 1,
+        "updating_brush": False,
+    }
 
     def map_extent() -> tuple:
         resolution = state["resolution"]
         return map_width * resolution, map_height * resolution
 
-    def brush_radius_from_resolution(resolution: float) -> int:
-        brush_width_meters = resolution
-        brush_width_cells = max(1.0, brush_width_meters / resolution)
-        return int(round((brush_width_cells - 1.0) / 2.0))
+    def brush_cells_from_meters(brush_meters: float) -> int:
+        return max(1, int(round(brush_meters / args.resolution)))
 
-    brush_radius = brush_radius_from_resolution(state["resolution"])
+    def brush_meters_from_cells(cells: int) -> float:
+        return cells * args.resolution
+
+    state["brush_cells"] = brush_cells_from_meters(args.resolution)
+    brush_radius = int(round((state["brush_cells"] - 1) / 2.0))
 
     fig, ax = plt.subplots(figsize=(7, 7))
     fig.canvas.manager.set_window_title("PGM Map Editor")
@@ -117,30 +125,71 @@ def main() -> None:
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
 
-    fig.text(0.8, 0.88, f"resolution: {args.resolution}", fontsize=10)
-    fig.text(0.8, 0.83, f"size: {map_width_meters} x {map_height_meters} m", fontsize=9)
+    panel_left = 0.78
+    panel_width = 0.2
+    row_height = 0.05
+    row_gap = 0.02
+    top = 0.92
+
+    fig.text(panel_left, top, f"resolution: {args.resolution}", fontsize=10)
+    fig.text(panel_left, top - 0.04, f"size: {map_width_meters} x {map_height_meters} m",
+             fontsize=9)
+
+    def row_axes(index: int) -> plt.Axes:
+        y = top - 0.10 - (index * (row_height + row_gap))
+        return plt.axes([panel_left, y, panel_width, row_height])
+
+    brush_box = TextBox(
+        row_axes(0),
+        "brush (m)",
+        initial=str(brush_meters_from_cells(state["brush_cells"])),
+    )
     origin_x_box = TextBox(
-        plt.axes([0.8, 0.76, 0.18, 0.05]),
+        row_axes(1),
         "origin x",
         initial=str(args.origin[0]),
     )
     origin_y_box = TextBox(
-        plt.axes([0.8, 0.69, 0.18, 0.05]),
+        row_axes(2),
         "origin y",
         initial=str(args.origin[1]),
     )
     origin_t_box = TextBox(
-        plt.axes([0.8, 0.62, 0.18, 0.05]),
+        row_axes(3),
         "origin t",
         initial=str(args.origin[2]),
     )
 
-    save_button = Button(plt.axes([0.8, 0.5, 0.18, 0.06]), "Save")
-    clear_button = Button(plt.axes([0.8, 0.42, 0.18, 0.06]), "Clear")
+    button_height = 0.06
+    save_button = Button(plt.axes([panel_left, 0.22, panel_width, button_height]), "Save")
+    clear_button = Button(plt.axes([panel_left, 0.13, panel_width, button_height]), "Clear")
 
     def parse_meta() -> MapMeta:
         origin = (float(origin_x_box.text), float(origin_y_box.text), float(origin_t_box.text))
         return MapMeta(resolution=args.resolution, origin=origin)
+
+    def update_brush_size(value: str) -> None:
+        nonlocal brush_radius
+        if state["updating_brush"]:
+            return
+        try:
+            brush_meters = float(value)
+        except ValueError:
+            brush_box.set_val(str(brush_meters_from_cells(state["brush_cells"])))
+            return
+        if brush_meters <= 0.0:
+            brush_box.set_val(str(brush_meters_from_cells(state["brush_cells"])))
+            return
+
+        cells = brush_cells_from_meters(brush_meters)
+        state["brush_cells"] = cells
+        brush_radius = int(round((cells - 1) / 2.0))
+
+        normalized = brush_meters_from_cells(cells)
+        if abs(normalized - brush_meters) > 1e-6:
+            state["updating_brush"] = True
+            brush_box.set_val(str(normalized))
+            state["updating_brush"] = False
 
 
     def on_press(event) -> None:
@@ -242,6 +291,7 @@ def main() -> None:
     fig.canvas.mpl_connect("button_release_event", on_release)
     fig.canvas.mpl_connect("motion_notify_event", on_move)
     fig.canvas.mpl_connect("scroll_event", on_scroll)
+    brush_box.on_submit(update_brush_size)
     save_button.on_clicked(on_save)
     clear_button.on_clicked(on_clear)
 
