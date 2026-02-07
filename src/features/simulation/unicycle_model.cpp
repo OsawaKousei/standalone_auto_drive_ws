@@ -24,12 +24,13 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
       types::Twist{.v = std::clamp(command.v, -kMaxLinearSpeed, kMaxLinearSpeed),
                    .w = std::clamp(command.w, -kMaxAngularSpeed, kMaxAngularSpeed)};
 
-  const auto dx = saturatedCommand.v * std::cos(state.pose.theta) * deltaSeconds;
-  const auto dy = saturatedCommand.v * std::sin(state.pose.theta) * deltaSeconds;
-  const auto dtheta = saturatedCommand.w * deltaSeconds;
+  const auto deltaX = saturatedCommand.v * std::cos(state.pose.theta) * deltaSeconds;
+  const auto deltaY = saturatedCommand.v * std::sin(state.pose.theta) * deltaSeconds;
+  const auto deltaTheta = saturatedCommand.w * deltaSeconds;
 
-  const types::Pose nextPose{
-      .x = state.pose.x + dx, .y = state.pose.y + dy, .theta = state.pose.theta + dtheta};
+  const types::Pose nextPose{.x = state.pose.x + deltaX,
+                             .y = state.pose.y + deltaY,
+                             .theta = state.pose.theta + deltaTheta};
 
   return MotionResult{.pose = nextPose, .twist = saturatedCommand};
 }

@@ -118,12 +118,12 @@ namespace {
 
   const auto xIndices = std::views::iota(minCellX, maxCellX + 1);
   const auto yIndices = std::views::iota(minCellY, maxCellY + 1);
-  for (const auto y : yIndices) {
-    for (const auto x : xIndices) {
-      if (!isCellOccupied(map, x, y)) {
+  for (const auto yValue : yIndices) {
+    for (const auto xValue : xIndices) {
+      if (!isCellOccupied(map, xValue, yValue)) {
         continue;
       }
-      const auto center = cellCenter(map, x, y);
+      const auto center = cellCenter(map, xValue, yValue);
       if (pointInPolygon(footprint, center)) {
         return true;
       }
@@ -133,11 +133,11 @@ namespace {
   return false;
 }
 
-[[nodiscard]] auto interpolatePose(const types::Pose &start, const types::Pose &end, double t)
-    -> types::Pose {
-  return types::Pose{.x = start.x + ((end.x - start.x) * t),
-                     .y = start.y + ((end.y - start.y) * t),
-                     .theta = start.theta + ((end.theta - start.theta) * t)};
+[[nodiscard]] auto interpolatePose(const types::Pose &start, const types::Pose &end,
+                                   double interpolationRatio) -> types::Pose {
+  return types::Pose{.x = start.x + ((end.x - start.x) * interpolationRatio),
+                     .y = start.y + ((end.y - start.y) * interpolationRatio),
+                     .theta = start.theta + ((end.theta - start.theta) * interpolationRatio)};
 }
 
 } // namespace
@@ -191,8 +191,8 @@ auto CollisionChecker::checkTrajectory(const types::Pose &start, const types::Po
 
   const auto stepIndices = std::views::iota(1, stepCount + 1);
   const auto isFree = std::ranges::all_of(stepIndices, [&](int stepIndex) -> bool {
-    const auto t = static_cast<double>(stepIndex) / static_cast<double>(stepCount);
-    const auto pose = interpolatePose(start, end, t);
+    const auto interpolationRatio = static_cast<double>(stepIndex) / static_cast<double>(stepCount);
+    const auto pose = interpolatePose(start, end, interpolationRatio);
     const auto footprintWorld = transformFootprint(footprint_, pose);
     return !footprintCollides(map_, footprintWorld);
   });

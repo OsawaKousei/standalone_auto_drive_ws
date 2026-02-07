@@ -20,7 +20,8 @@ public:
   auto operator=(const IController &) -> IController = delete;
   IController(IController &&) = delete;
   auto operator=(IController &&) -> IController = delete;
-  [[nodiscard]] virtual Result<types::Twist> computeCommand(const ControlInput &input) const = 0;
+  [[nodiscard]] virtual auto computeCommand(const ControlInput &input) const
+      -> Result<types::Twist> = 0;
 };
 
 } // namespace ad::control

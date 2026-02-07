@@ -17,6 +17,8 @@ namespace ad {
 
 namespace {
 
+const int kMaxPgmValue = 255;
+
 struct MapYamlConfig {
   const std::string imagePath;
   const double resolution;
@@ -224,18 +226,24 @@ struct PgmData {
         Error{.code = ErrorCode::InvalidInput, .message = "PGM header has invalid values."});
   }
 
-  if (*maxValue > 255) {
+  if (*maxValue > kMaxPgmValue) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "PGM max value must be <= 255."});
   }
 
   stream >> std::ws;
   const auto pixelCount = static_cast<std::size_t>(*width) * static_cast<std::size_t>(*height);
-  auto pixels = std::vector<unsigned char>(pixelCount, 0U);
-  stream.read(reinterpret_cast<char *>(pixels.data()), static_cast<std::streamsize>(pixelCount));
+  auto raw = std::string(pixelCount, '\0');
+  stream.read(raw.data(), static_cast<std::streamsize>(pixelCount));
   if (stream.gcount() != static_cast<std::streamsize>(pixelCount)) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "PGM pixel data is incomplete."});
+  }
+
+  auto pixels = std::vector<unsigned char>{};
+  pixels.reserve(pixelCount);
+  for (const auto rawByte : raw) {
+    pixels.push_back(static_cast<unsigned char>(rawByte));
   }
 
   return PgmData{
@@ -263,7 +271,7 @@ auto loadMapFromYaml(std::string_view yamlPath) -> Result<types::MapData> {
   }
 
   const auto yamlPathFs = std::filesystem::path{std::string{yamlPath}};
-  const auto imagePath = [&]() {
+  const auto imagePath = [&]() -> std::filesystem::path {
     const auto image = std::filesystem::path{configResult->imagePath};
     return image.is_absolute() ? image : (yamlPathFs.parent_path() / image);
   }();
@@ -277,7 +285,7 @@ auto loadMapFromYaml(std::string_view yamlPath) -> Result<types::MapData> {
   const auto height = pgmResult->height;
   const auto resolution = configResult->resolution;
 
-  const auto grid = [&]() {
+  const auto grid = [&]() -> std::vector<std::int8_t> {
     const auto widthSize = static_cast<std::size_t>(width);
     const auto heightSize = static_cast<std::size_t>(height);
     auto data = std::vector<std::int8_t>(widthSize * heightSize, 0);
@@ -294,7 +302,8 @@ auto loadMapFromYaml(std::string_view yamlPath) -> Result<types::MapData> {
     return data;
   }();
 
-  return types::MapData{width, height, resolution, grid};
+  return types::MapData{
+      .width = width, .height = height, .resolution = resolution, .grid = std::move(grid)};
 }
 
 } // namespace ad

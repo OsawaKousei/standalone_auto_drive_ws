@@ -23,8 +23,8 @@ public:
   auto operator=(const IPhysicsModel &) -> IPhysicsModel = delete;
   IPhysicsModel(IPhysicsModel &&) = delete;
   auto operator=(IPhysicsModel &&) -> IPhysicsModel = delete;
-  [[nodiscard]] virtual Result<MotionResult>
-  propagate(const MotionState &state, const types::Twist &command, double deltaSeconds) const = 0;
+  [[nodiscard]] virtual auto propagate(const MotionState &state, const types::Twist &command,
+                                       double deltaSeconds) const -> Result<MotionResult> = 0;
 };
 
 } // namespace ad::simulation

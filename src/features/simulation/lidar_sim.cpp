@@ -15,21 +15,24 @@ namespace {
   return map.grid.size() == expectedCells;
 }
 
-[[nodiscard]] auto cellIndex(const ad::types::MapData &map, double x, double y)
+[[nodiscard]] auto cellIndex(const ad::types::MapData &map, const ad::types::Point &point)
     -> std::optional<std::size_t> {
   if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
     return std::nullopt;
   }
 
-  const auto column = static_cast<int>(std::floor(x / map.resolution));
-  const auto row = static_cast<int>(std::floor(y / map.resolution));
+  const auto column = static_cast<int>(std::floor(point.x / map.resolution));
+  const auto row = static_cast<int>(std::floor(point.y / map.resolution));
 
   const bool inBounds = column >= 0 && column < map.width && row >= 0 && row < map.height;
   if (!inBounds) {
     return std::nullopt;
   }
 
-  const auto index = static_cast<std::size_t>(row * map.width + column);
+  const auto width = static_cast<std::size_t>(map.width);
+  const auto rowIndex = static_cast<std::size_t>(row);
+  const auto columnIndex = static_cast<std::size_t>(column);
+  const auto index = (rowIndex * width) + columnIndex;
   return index;
 }
 
@@ -58,9 +61,9 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
     const auto steps = std::views::iota(std::size_t{1}, stepLimit + 1);
     const auto hit = std::ranges::find_if(steps, [&](std::size_t stepIndex) -> bool {
       const auto distance = map.resolution * static_cast<double>(stepIndex);
-      const auto x = pose.x + std::cos(angle) * distance;
-      const auto y = pose.y + std::sin(angle) * distance;
-      const auto index = cellIndex(map, x, y);
+      const auto xValue = pose.x + (std::cos(angle) * distance);
+      const auto yValue = pose.y + (std::sin(angle) * distance);
+      const auto index = cellIndex(map, types::Point{.x = xValue, .y = yValue});
       if (!index.has_value()) {
         return true;
       }

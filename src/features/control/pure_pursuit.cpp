@@ -52,9 +52,9 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
         continue;
       }
       if (remaining <= segment) {
-        const auto t = remaining / segment;
-        return types::Point{.x = currentX + (t * (next.x - currentX)),
-                            .y = currentY + (t * (next.y - currentY))};
+        const auto interpolationRatio = remaining / segment;
+        return types::Point{.x = currentX + (interpolationRatio * (next.x - currentX)),
+                            .y = currentY + (interpolationRatio * (next.y - currentY))};
       }
       remaining -= segment;
       currentX = next.x;
@@ -63,17 +63,17 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
     return input.path.back();
   }();
 
-  const auto dx = target.x - pose.x;
-  const auto dy = target.y - pose.y;
-  const auto distance = std::hypot(dx, dy);
+  const auto deltaX = target.x - pose.x;
+  const auto deltaY = target.y - pose.y;
+  const auto distance = std::hypot(deltaX, deltaY);
   if (distance <= 0.0) {
     return types::Twist{.v = 0.0, .w = 0.0};
   }
 
   const auto cosTheta = std::cos(pose.theta);
   const auto sinTheta = std::sin(pose.theta);
-  const auto xLocal = (cosTheta * dx) + (sinTheta * dy);
-  const auto yLocal = (-sinTheta * dx) + (cosTheta * dy);
+  const auto xLocal = (cosTheta * deltaX) + (sinTheta * deltaY);
+  const auto yLocal = (-sinTheta * deltaX) + (cosTheta * deltaY);
 
   const auto curvature = (2.0 * yLocal) / (distance * distance);
   const auto linearVelocity = config_.desiredLinearVelocity;
