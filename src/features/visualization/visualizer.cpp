@@ -1,6 +1,5 @@
 #include "visualizer.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <fmt/core.h>
@@ -44,33 +43,7 @@ namespace {
 
 } // namespace
 
-auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status {
-  if (path.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Path is empty."});
-  }
-  fmt::print("Render path with {} waypoints\n", path.size());
-  return {};
-}
-
-auto Visualizer::renderPose(const types::Pose &pose) const -> Status {
-  fmt::print("Render pose -> x: {:.2f}, y: {:.2f}, theta: {:.2f}\n", pose.x, pose.y, pose.theta);
-  return {};
-}
-
-auto Visualizer::renderScan(std::span<const double> ranges) const -> Status {
-  if (ranges.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan is empty."});
-  }
-
-  const auto [minIt, maxIt] = std::ranges::minmax_element(ranges);
-  fmt::print("Render scan ({} rays) -> min: {:.2f} m, max: {:.2f} m\n", ranges.size(), *minIt,
-             *maxIt);
-  return {};
-}
-
-auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
-                             std::span<const types::Point> path,
-                             std::span<const double> ranges) const -> Status {
+auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
   const auto envStatus = configurePythonEnvironment();
   if (!envStatus) {
     return envStatus;
@@ -87,9 +60,7 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
   }
 
-  if (ranges.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan is empty."});
-  }
+  last_map_ = MapGeometry{map.width, map.height, map.resolution};
 
   const auto gridImage = [&]() {
     auto data = std::vector<float>(static_cast<std::size_t>(map.width * map.height), 0.0F);
@@ -102,42 +73,6 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
     return data;
   }();
 
-  const auto toCell = [&](double value) { return value / map.resolution; };
-
-  const auto makePathXY = [&]() {
-    auto xs = std::vector<double>{};
-    auto ys = std::vector<double>{};
-    xs.reserve(path.size());
-    ys.reserve(path.size());
-    for (const auto &p : path) {
-      xs.push_back(toCell(p.x));
-      ys.push_back(toCell(p.y));
-    }
-    return std::pair{xs, ys};
-  }();
-
-  const auto scanPoints = [&]() {
-    auto xs = std::vector<double>{};
-    auto ys = std::vector<double>{};
-    xs.reserve(ranges.size());
-    ys.reserve(ranges.size());
-    const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(ranges.size());
-    for (const auto i : std::views::iota(std::size_t{0}, ranges.size())) {
-      const auto angle = pose.theta - std::numbers::pi + angleStep * static_cast<double>(i);
-      const auto distance = ranges[i];
-      xs.push_back(toCell(pose.x + std::cos(angle) * distance));
-      ys.push_back(toCell(pose.y + std::sin(angle) * distance));
-    }
-    return std::pair{xs, ys};
-  }();
-
-  const auto heading = [&]() {
-    constexpr double kArrowScale = 0.5;
-    const auto hx = toCell(pose.x + std::cos(pose.theta) * kArrowScale);
-    const auto hy = toCell(pose.y + std::sin(pose.theta) * kArrowScale);
-    return std::pair{hx, hy};
-  }();
-
   const auto extentX = static_cast<double>(map.width);
   const auto extentY = static_cast<double>(map.height);
 
@@ -145,16 +80,101 @@ auto Visualizer::renderFrame(const types::MapData &map, const types::Pose &pose,
   matplotlibcpp::imshow(gridImage.data(), map.height, map.width, 1, {{"origin", "lower"}});
   matplotlibcpp::xlim(0.0, extentX);
   matplotlibcpp::ylim(0.0, extentY);
+  return {};
+}
 
-  if (!path.empty()) {
-    matplotlibcpp::plot(makePathXY.first, makePathXY.second, "b-");
+auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status {
+  if (path.empty()) {
+    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Path is empty."});
   }
 
+  const auto map = currentMapGeometry();
+  if (!map) {
+    return tl::make_unexpected(map.error());
+  }
+
+  const auto toCell = [&](double value) { return value / map->resolution; };
+
+  auto xs = std::vector<double>{};
+  auto ys = std::vector<double>{};
+  xs.reserve(path.size());
+  ys.reserve(path.size());
+  for (const auto &p : path) {
+    xs.push_back(toCell(p.x));
+    ys.push_back(toCell(p.y));
+  }
+
+  matplotlibcpp::plot(xs, ys, "b-");
+  return {};
+}
+
+auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &footprint) const
+    -> Status {
+  if (footprint.vertices.empty()) {
+    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Footprint is empty."});
+  }
+
+  const auto map = currentMapGeometry();
+  if (!map) {
+    return tl::make_unexpected(map.error());
+  }
+
+  const auto toCell = [&](double value) { return value / map->resolution; };
+
+  auto outlineX = std::vector<double>{};
+  auto outlineY = std::vector<double>{};
+  outlineX.reserve(footprint.vertices.size() + 1);
+  outlineY.reserve(footprint.vertices.size() + 1);
+
+  const auto cosTheta = std::cos(pose.theta);
+  const auto sinTheta = std::sin(pose.theta);
+  for (const auto &vertex : footprint.vertices) {
+    const auto gx = pose.x + vertex.x * cosTheta - vertex.y * sinTheta;
+    const auto gy = pose.y + vertex.x * sinTheta + vertex.y * cosTheta;
+    outlineX.push_back(toCell(gx));
+    outlineY.push_back(toCell(gy));
+  }
+
+  outlineX.push_back(outlineX.front());
+  outlineY.push_back(outlineY.front());
+
+  constexpr double kArrowScale = 0.5;
+  const auto hx = toCell(pose.x + std::cos(pose.theta) * kArrowScale);
+  const auto hy = toCell(pose.y + std::sin(pose.theta) * kArrowScale);
+
+  matplotlibcpp::plot(outlineX, outlineY, "r-");
   matplotlibcpp::scatter(std::vector<double>{toCell(pose.x)}, std::vector<double>{toCell(pose.y)},
                          40.0, {{"color", "red"}});
-  matplotlibcpp::plot({toCell(pose.x), heading.first}, {toCell(pose.y), heading.second}, "r-");
+  matplotlibcpp::plot({toCell(pose.x), hx}, {toCell(pose.y), hy}, "r-");
+  return {};
+}
 
-  matplotlibcpp::scatter(scanPoints.first, scanPoints.second, 10.0, {{"color", "green"}});
+auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ranges) const
+    -> Status {
+  if (ranges.empty()) {
+    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan is empty."});
+  }
+
+  const auto map = currentMapGeometry();
+  if (!map) {
+    return tl::make_unexpected(map.error());
+  }
+
+  const auto toCell = [&](double value) { return value / map->resolution; };
+
+  auto xs = std::vector<double>{};
+  auto ys = std::vector<double>{};
+  xs.reserve(ranges.size());
+  ys.reserve(ranges.size());
+  const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(ranges.size());
+  for (const auto i : std::views::iota(std::size_t{0}, ranges.size())) {
+    const auto angle = pose.theta - std::numbers::pi + angleStep * static_cast<double>(i);
+    const auto distance = ranges[i];
+    xs.push_back(toCell(pose.x + std::cos(angle) * distance));
+    ys.push_back(toCell(pose.y + std::sin(angle) * distance));
+  }
+
+  matplotlibcpp::scatter(xs, ys, 10.0, {{"color", "green"}});
   matplotlibcpp::pause(0.001);
   matplotlibcpp::show(false);
   return {};
@@ -180,6 +200,14 @@ auto Visualizer::configurePythonEnvironment() -> Status {
   }
 
   return {};
+}
+
+auto Visualizer::currentMapGeometry() const -> Result<MapGeometry> {
+  if (!last_map_) {
+    return tl::make_unexpected(
+        Error{ErrorCode::InvalidInput, "Call renderFrame(map) before drawing overlays."});
+  }
+  return *last_map_;
 }
 
 } // namespace ad::visualization

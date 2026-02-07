@@ -28,6 +28,10 @@ struct MapData {
   const std::vector<std::int8_t> grid;
 };
 
+struct Footprint {
+  const std::vector<Point> vertices;
+};
+
 using Path = std::vector<Point>;
 
 } // namespace ad::types

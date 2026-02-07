@@ -76,8 +76,13 @@ TEST(VisualizerTest, RejectsEmptyPath) {
 TEST(VisualizerTest, RendersScanSummary) {
   const visualization::Visualizer viz;
   const std::vector<double> ranges{1.0, 2.0, 1.5};
+  const types::MapData map{2, 2, 1.0, {0, 0, 0, 0}};
+  const types::Pose pose{0.0, 0.0, 0.0};
 
-  const auto status = viz.renderScan(ranges);
+  const auto frameStatus = viz.renderFrame(map);
+  ASSERT_TRUE(frameStatus.has_value());
+
+  const auto status = viz.renderScan(pose, ranges);
   EXPECT_TRUE(status.has_value());
 }
 

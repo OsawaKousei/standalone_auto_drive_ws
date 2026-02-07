@@ -31,11 +31,16 @@ namespace ad::demo {
   return types::Path{{0.0, 0.0}, {1.0, 0.5}, {2.0, 0.75}, {3.0, 1.0}};
 }
 
+[[nodiscard]] auto makeFootprint() -> types::Footprint {
+  return types::Footprint{{{-0.2, -0.1}, {0.3, -0.1}, {0.3, 0.1}, {-0.2, 0.1}}};
+}
+
 } // namespace ad::demo
 
 auto main() -> int {
   const auto map = ad::demo::makeMap();
   const auto path = ad::demo::makePath();
+  const auto footprint = ad::demo::makeFootprint();
   const ad::simulation::UnicycleModel model;
   const ad::simulation::LidarSim lidar;
   const ad::visualization::Visualizer viz;
@@ -58,9 +63,27 @@ auto main() -> int {
       return 1;
     }
 
-    const auto renderStatus = viz.renderFrame(map, current.pose, std::span{path}, *scanResult);
-    if (!renderStatus) {
-      fmt::print(stderr, "Render error: {}\n", renderStatus.error().message);
+    const auto frameStatus = viz.renderFrame(map);
+    if (!frameStatus) {
+      fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
+      return 1;
+    }
+
+    const auto pathStatus = viz.renderPath(std::span{path});
+    if (!pathStatus) {
+      fmt::print(stderr, "Render error: {}\n", pathStatus.error().message);
+      return 1;
+    }
+
+    const auto robotStatus = viz.renderRobot(current.pose, footprint);
+    if (!robotStatus) {
+      fmt::print(stderr, "Render error: {}\n", robotStatus.error().message);
+      return 1;
+    }
+
+    const auto scanStatus = viz.renderScan(current.pose, *scanResult);
+    if (!scanStatus) {
+      fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
       return 1;
     }
 
