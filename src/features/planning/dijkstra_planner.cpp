@@ -26,6 +26,12 @@ struct CurrentNode {
   const double cost;
 };
 
+struct StartGoalInfo {
+  const std::size_t startIndex;
+  const std::size_t goalIndex;
+  const types::Point startCenter;
+};
+
 [[nodiscard]] auto inBounds(const types::MapData &map, const utils::GridCoord &coord) -> bool {
   return coord.x >= 0 && coord.y >= 0 && coord.x < map.width && coord.y < map.height;
 }
@@ -75,29 +81,8 @@ auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, con
   frontier.emplace(nextCost, neighborIndex);
 }
 
-} // namespace
-
-auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
-                           const types::Pose &goal) const -> Result<types::Path> {
-  const auto startGoal = validateInputs(map, start, goal);
-  if (!startGoal) {
-    return tl::make_unexpected(startGoal.error());
-  }
-
-  if (startGoal->startIndex == startGoal->goalIndex) {
-    return types::Path{startGoal->startCenter};
-  }
-
-  const auto previous = computePrevious(map, *startGoal);
-  if (!previous) {
-    return tl::make_unexpected(previous.error());
-  }
-
-  return buildPath(map, *previous, *startGoal);
-}
-
-auto DijkstraPlanner::validateInputs(const types::MapData &map, const types::Pose &start,
-                                     const types::Pose &goal) const -> Result<StartGoalInfo> {
+[[nodiscard]] auto validateInputs(const types::MapData &map, const types::Pose &start,
+                                  const types::Pose &goal) -> Result<StartGoalInfo> {
   const auto mapStatus = utils::isValidMap(map);
   if (!mapStatus) {
     return tl::make_unexpected(mapStatus.error());
@@ -123,8 +108,7 @@ auto DijkstraPlanner::validateInputs(const types::MapData &map, const types::Pos
                        .startCenter = utils::cellCenter(map, *startCell)};
 }
 
-auto DijkstraPlanner::computePrevious(const types::MapData &map,
-                                      const StartGoalInfo &startGoal) const
+[[nodiscard]] auto computePrevious(const types::MapData &map, const StartGoalInfo &startGoal)
     -> Result<std::vector<std::optional<std::size_t>>> {
   const auto totalCells = utils::cellCount(map);
   auto previous = std::vector<std::optional<std::size_t>>(totalCells, std::nullopt);
@@ -168,9 +152,9 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
   return previous;
 }
 
-auto DijkstraPlanner::buildPath(const types::MapData &map,
-                                const std::vector<std::optional<std::size_t>> &previous,
-                                const StartGoalInfo &startGoal) const -> types::Path {
+[[nodiscard]] auto buildPath(const types::MapData &map,
+                             const std::vector<std::optional<std::size_t>> &previous,
+                             const StartGoalInfo &startGoal) -> types::Path {
   auto reversedIndices = std::vector<std::size_t>{};
   auto current = std::optional<std::size_t>{startGoal.goalIndex};
   while (current) {
@@ -187,6 +171,27 @@ auto DijkstraPlanner::buildPath(const types::MapData &map,
     forward.push_back(utils::cellCenter(map, utils::toCoord(map, index)));
   }
   return forward;
+}
+
+} // namespace
+
+auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
+                           const types::Pose &goal) const -> Result<types::Path> {
+  const auto startGoal = validateInputs(map, start, goal);
+  if (!startGoal) {
+    return tl::make_unexpected(startGoal.error());
+  }
+
+  if (startGoal->startIndex == startGoal->goalIndex) {
+    return types::Path{startGoal->startCenter};
+  }
+
+  const auto previous = computePrevious(map, *startGoal);
+  if (!previous) {
+    return tl::make_unexpected(previous.error());
+  }
+
+  return buildPath(map, *previous, *startGoal);
 }
 
 } // namespace ad::planning

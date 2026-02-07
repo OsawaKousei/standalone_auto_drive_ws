@@ -1,3 +1,4 @@
+#include "features/planning/astar_planner.hpp"
 #include "features/planning/dijkstra_planner.hpp"
 #include "features/visualization/visualizer.hpp"
 #include "shared/result.hpp"
@@ -74,7 +75,7 @@ auto main() -> int {
   const ad::types::Pose start{0.6, 0.6, 0.0};
   const ad::types::Pose goal{8.4, 5.4, 0.0};
 
-  const ad::planning::DijkstraPlanner planner;
+  const ad::planning::AStarPlanner planner;
   const auto pathResult = planner.plan(map, start, goal);
   if (!pathResult) {
     fmt::print(stderr, "Planning error: {}\n", pathResult.error().message);
