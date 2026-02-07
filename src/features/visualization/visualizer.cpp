@@ -202,6 +202,17 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
   return {};
 }
 
+auto Visualizer::saveFigure(std::string_view path) const -> Status {
+  if (path.empty()) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Output path is empty."});
+  }
+
+  matplotlibcpp::save(std::string{path});
+  matplotlibcpp::close();
+  return {};
+}
+
 auto Visualizer::configurePythonEnvironment() -> Status {
   const auto pythonHome = getEnvValue("PYTHONHOME");
   const auto virtualEnv = getEnvValue("VIRTUAL_ENV");

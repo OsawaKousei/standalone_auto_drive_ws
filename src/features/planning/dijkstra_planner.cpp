@@ -1,7 +1,7 @@
 #include "dijkstra_planner.hpp"
 
+#include <array>
 #include <cmath>
-#include <limits>
 #include <optional>
 #include <queue>
 #include <ranges>
@@ -11,24 +11,13 @@ namespace ad::planning {
 namespace {
 
 struct GridCoord {
-  const int x;
-  const int y;
+  int x;
+  int y;
 };
 
 struct GridOffset {
-  const int dx;
-  const int dy;
-};
-
-struct FrontierNode {
-  double cost;
-  std::size_t index;
-};
-
-struct FrontierCompare {
-  bool operator()(const FrontierNode &left, const FrontierNode &right) const {
-    return left.cost > right.cost;
-  }
+  int dx;
+  int dy;
 };
 
 [[nodiscard]] auto cellCount(const types::MapData &map) -> std::size_t {
@@ -121,28 +110,26 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
   }
 
   const auto totalCells = cellCount(map);
-  auto distances = std::vector<double>(totalCells, std::numeric_limits<double>::infinity());
   auto previous = std::vector<std::optional<std::size_t>>(totalCells, std::nullopt);
+  auto visited = std::vector<bool>(totalCells, false);
 
-  std::priority_queue<FrontierNode, std::vector<FrontierNode>, FrontierCompare> frontier;
-  distances[startIndex] = 0.0;
-  frontier.push(FrontierNode{.cost = 0.0, .index = startIndex});
+  std::queue<std::size_t> frontier;
+  visited[startIndex] = true;
+  frontier.push(startIndex);
 
-  const auto offsets = std::vector<GridOffset>{{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+  const auto offsets =
+      std::array<GridOffset, 4>{GridOffset{.dx = 1, .dy = 0}, GridOffset{.dx = -1, .dy = 0},
+                                GridOffset{.dx = 0, .dy = 1}, GridOffset{.dx = 0, .dy = -1}};
 
   while (!frontier.empty()) {
-    const auto current = frontier.top();
+    const auto current = frontier.front();
     frontier.pop();
 
-    if (current.cost > distances[current.index]) {
-      continue;
-    }
-
-    if (current.index == goalIndex) {
+    if (current == goalIndex) {
       break;
     }
 
-    const auto coord = toCoord(map, current.index);
+    const auto coord = toCoord(map, current);
     for (const auto &offset : offsets) {
       const auto neighbor = GridCoord{.x = coord.x + offset.dx, .y = coord.y + offset.dy};
       if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= map.width || neighbor.y >= map.height) {
@@ -154,12 +141,13 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
       }
 
       const auto neighborIndex = toIndex(map, neighbor);
-      const auto tentativeCost = current.cost + 1.0;
-      if (tentativeCost < distances[neighborIndex]) {
-        distances[neighborIndex] = tentativeCost;
-        previous[neighborIndex] = current.index;
-        frontier.push(FrontierNode{.cost = tentativeCost, .index = neighborIndex});
+      if (visited[neighborIndex]) {
+        continue;
       }
+
+      visited[neighborIndex] = true;
+      previous[neighborIndex] = current;
+      frontier.push(neighborIndex);
     }
   }
 

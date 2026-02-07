@@ -6,6 +6,7 @@
 #include <matplotlibcpp.h>
 
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace ad::visualization {
@@ -33,6 +34,7 @@ public:
                                  const MapGeometry &map) const -> Status;
   [[nodiscard]] auto renderScan(const types::Pose &pose, std::span<const double> ranges,
                                 const MapGeometry &map) const -> Status;
+  [[nodiscard]] auto saveFigure(std::string_view path) const -> Status;
 
 private:
   [[nodiscard]] static auto configurePythonEnvironment() -> Status;

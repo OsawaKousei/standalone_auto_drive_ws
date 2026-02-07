@@ -5,23 +5,20 @@
 
 #include <cstdint>
 #include <fmt/core.h>
-#include <matplotlibcpp.h>
 #include <span>
 #include <vector>
 
 namespace ad::demo {
 
 [[nodiscard]] auto makeMap() -> types::MapData {
-  const int width = 10;
-  const int height = 8;
+  const int width = 6;
+  const int height = 4;
   const double resolution = 0.5;
   auto grid = std::vector<std::int8_t>(static_cast<std::size_t>(width * height), 0);
 
-  grid[static_cast<std::size_t>(1 * width + 4)] = 1;
+  grid[static_cast<std::size_t>(1 * width + 3)] = 1;
   grid[static_cast<std::size_t>(2 * width + 4)] = 1;
-  grid[static_cast<std::size_t>(3 * width + 4)] = 1;
-  grid[static_cast<std::size_t>(4 * width + 6)] = 1;
-  grid[static_cast<std::size_t>(5 * width + 6)] = 1;
+  grid[static_cast<std::size_t>(0 * width + 1)] = 1;
 
   return types::MapData{width, height, resolution, grid};
 }
@@ -31,7 +28,7 @@ namespace ad::demo {
 auto main() -> int {
   const auto map = ad::demo::makeMap();
   const ad::types::Pose start{0.25, 0.25, 0.0};
-  const ad::types::Pose goal{4.25, 3.25, 0.0};
+  const ad::types::Pose goal{2.75, 1.25, 0.0};
 
   const ad::planning::DijkstraPlanner planner;
   const auto pathResult = planner.plan(map, start, goal);
@@ -63,8 +60,11 @@ auto main() -> int {
   }
 
   fmt::print("Saving image...\n");
-  matplotlibcpp::save("planning_path.png");
-  matplotlibcpp::close();
+  const auto saveStatus = viz.saveFigure("planning_path.png");
+  if (!saveStatus) {
+    fmt::print(stderr, "Render error: {}\n", saveStatus.error().message);
+    return 1;
+  }
 
   return 0;
 }

@@ -113,6 +113,16 @@ if(ENABLE_SANITIZER)
     target_link_options(simulation_tests PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
+add_executable(planning_tests
+  test/planning_test.cpp
+)
+target_link_libraries(planning_tests PRIVATE ad_core GTest::gtest_main)
+target_compile_options(planning_tests PRIVATE ${COMMON_COMPILE_OPTIONS})
+if(ENABLE_SANITIZER)
+    target_compile_options(planning_tests PRIVATE -fsanitize=address,undefined,leak)
+    target_link_options(planning_tests PRIVATE -fsanitize=address,undefined,leak)
+endif()
+
 add_executable(visualization_demo
   test/visualization_demo.cpp
 )
@@ -135,3 +145,4 @@ endif()
 
 include(GoogleTest)
 gtest_discover_tests(simulation_tests)
+gtest_discover_tests(planning_tests)
