@@ -12,6 +12,71 @@
 
 namespace ad::planning {
 
+namespace {
+
+struct Move {
+  const int dx;
+  const int dy;
+  const double cost;
+};
+
+struct CurrentNode {
+  const utils::GridCoord coord;
+  const std::size_t index;
+  const double cost;
+};
+
+[[nodiscard]] auto inBounds(const types::MapData &map, const utils::GridCoord &coord) -> bool {
+  return coord.x >= 0 && coord.y >= 0 && coord.x < map.width && coord.y < map.height;
+}
+
+[[nodiscard]] auto isDiagonal(const Move &move) -> bool { return move.dx != 0 && move.dy != 0; }
+
+[[nodiscard]] auto canMoveDiagonal(const types::MapData &map, const utils::GridCoord &from,
+                                   const Move &move) -> bool {
+  if (!isDiagonal(move)) {
+    return true;
+  }
+
+  const auto sideX = utils::GridCoord{.x = from.x + move.dx, .y = from.y};
+  const auto sideY = utils::GridCoord{.x = from.x, .y = from.y + move.dy};
+  return !utils::isObstacle(map, sideX) && !utils::isObstacle(map, sideY);
+}
+
+using Node = std::pair<double, std::size_t>;
+using Frontier = std::priority_queue<Node, std::vector<Node>, std::greater<>>;
+
+auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, const Move &move,
+                      std::vector<double> &distances,
+                      std::vector<std::optional<std::size_t>> &previous, Frontier &frontier)
+    -> void {
+  const auto neighbor =
+      utils::GridCoord{.x = current.coord.x + move.dx, .y = current.coord.y + move.dy};
+  if (!inBounds(map, neighbor)) {
+    return;
+  }
+
+  if (!canMoveDiagonal(map, current.coord, move)) {
+    return;
+  }
+
+  if (utils::isObstacle(map, neighbor)) {
+    return;
+  }
+
+  const auto neighborIndex = utils::toIndex(map, neighbor);
+  const auto nextCost = current.cost + move.cost;
+  if (nextCost >= distances[neighborIndex]) {
+    return;
+  }
+
+  distances[neighborIndex] = nextCost;
+  previous[neighborIndex] = current.index;
+  frontier.emplace(nextCost, neighborIndex);
+}
+
+} // namespace
+
 auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
                            const types::Pose &goal) const -> Result<types::Path> {
   const auto startGoal = validateInputs(map, start, goal);
@@ -65,16 +130,9 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
   auto previous = std::vector<std::optional<std::size_t>>(totalCells, std::nullopt);
   auto distances = std::vector<double>(totalCells, std::numeric_limits<double>::infinity());
 
-  using Node = std::pair<double, std::size_t>;
-  auto frontier = std::priority_queue<Node, std::vector<Node>, std::greater<>>{};
+  auto frontier = Frontier{};
   distances[startGoal.startIndex] = 0.0;
   frontier.emplace(0.0, startGoal.startIndex);
-
-  struct Move {
-    int dx;
-    int dy;
-    double cost;
-  };
 
   const auto sqrt2 = std::numbers::sqrt2;
   const auto moves = std::vector<Move>{
@@ -96,33 +154,9 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
     }
 
     const auto coord = utils::toCoord(map, current);
+    const auto currentNode = CurrentNode{.coord = coord, .index = current, .cost = currentCost};
     for (const auto &move : moves) {
-      const auto neighbor = utils::GridCoord{.x = coord.x + move.dx, .y = coord.y + move.dy};
-      if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= map.width || neighbor.y >= map.height) {
-        continue;
-      }
-
-      if (move.dx != 0 && move.dy != 0) {
-        const auto sideX = utils::GridCoord{.x = coord.x + move.dx, .y = coord.y};
-        const auto sideY = utils::GridCoord{.x = coord.x, .y = coord.y + move.dy};
-        if (utils::isObstacle(map, sideX) || utils::isObstacle(map, sideY)) {
-          continue;
-        }
-      }
-
-      if (utils::isObstacle(map, neighbor)) {
-        continue;
-      }
-
-      const auto neighborIndex = utils::toIndex(map, neighbor);
-      const auto nextCost = currentCost + move.cost;
-      if (nextCost >= distances[neighborIndex]) {
-        continue;
-      }
-
-      distances[neighborIndex] = nextCost;
-      previous[neighborIndex] = current;
-      frontier.emplace(nextCost, neighborIndex);
+      tryRelaxNeighbor(map, currentNode, move, distances, previous, frontier);
     }
   }
 
