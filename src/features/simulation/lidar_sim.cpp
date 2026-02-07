@@ -40,12 +40,13 @@ namespace ad::simulation {
 auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) const
     -> Result<LidarScan> {
   if (!mapHasConsistentGrid(map)) {
-    return tl::make_unexpected(
-        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
+    return tl::make_unexpected(Error{.code = ErrorCode::SizeMismatch,
+                                     .message = "Map grid size does not match width and height."});
   }
 
   if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Map dimensions must be positive."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Map dimensions must be positive."});
   }
 
   const auto rayCount = static_cast<std::size_t>(std::max(map.width, 1));
@@ -53,9 +54,9 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
   const auto stepLimit = static_cast<std::size_t>(std::ceil(maxRange / map.resolution));
   const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(rayCount);
 
-  const auto traceRay = [&](double angle) {
+  const auto traceRay = [&](double angle) -> double {
     const auto steps = std::views::iota(std::size_t{1}, stepLimit + 1);
-    const auto hit = std::ranges::find_if(steps, [&](std::size_t stepIndex) {
+    const auto hit = std::ranges::find_if(steps, [&](std::size_t stepIndex) -> bool {
       const auto distance = map.resolution * static_cast<double>(stepIndex);
       const auto x = pose.x + std::cos(angle) * distance;
       const auto y = pose.y + std::sin(angle) * distance;
@@ -78,8 +79,8 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
   scan.reserve(rayCount);
 
   const auto rayIndices = std::views::iota(std::size_t{0}, rayCount);
-  std::ranges::transform(rayIndices, std::back_inserter(scan), [&](std::size_t index) {
-    const auto angle = pose.theta - std::numbers::pi + angleStep * static_cast<double>(index);
+  std::ranges::transform(rayIndices, std::back_inserter(scan), [&](std::size_t index) -> double {
+    const auto angle = pose.theta - std::numbers::pi + (angleStep * static_cast<double>(index));
     return traceRay(angle);
   });
 

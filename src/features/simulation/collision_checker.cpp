@@ -18,12 +18,13 @@ namespace {
 
 [[nodiscard]] auto validateMap(const types::MapData &map) -> Result<void> {
   if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Map dimensions must be positive."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Map has invalid dimensions."});
   }
 
   if (!mapHasConsistentGrid(map)) {
-    return tl::make_unexpected(
-        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
+    return tl::make_unexpected(Error{.code = ErrorCode::SizeMismatch,
+                                     .message = "Map grid size does not match width and height."});
   }
 
   return {};
@@ -31,7 +32,8 @@ namespace {
 
 [[nodiscard]] auto validateFootprint(const types::Footprint &footprint) -> Result<void> {
   if (footprint.vertices.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Footprint has no vertices."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Footprint has no vertices."});
   }
   return {};
 }
@@ -46,7 +48,7 @@ namespace {
   for (const auto &vertex : footprint.vertices) {
     const auto globalX = pose.x + (vertex.x * cosTheta) - (vertex.y * sinTheta);
     const auto globalY = pose.y + (vertex.x * sinTheta) + (vertex.y * cosTheta);
-    vertices.push_back(types::Point{globalX, globalY});
+    vertices.push_back(types::Point{.x = globalX, .y = globalY});
   }
   return vertices;
 }
@@ -67,7 +69,8 @@ namespace {
     }
     const auto crosses =
         ((current.y > point.y) != (next.y > point.y)) &&
-        (point.x < (next.x - current.x) * (point.y - current.y) / (next.y - current.y) + current.x);
+        (point.x <
+         ((next.x - current.x) * ((point.y - current.y) / (next.y - current.y))) + current.x);
     if (crosses) {
       inside = !inside;
     }
@@ -81,8 +84,8 @@ namespace {
 
 [[nodiscard]] auto cellCenter(const types::MapData &map, int cellX, int cellY) -> types::Point {
   const auto half = 0.5 * map.resolution;
-  return types::Point{(static_cast<double>(cellX) * map.resolution) + half,
-                      (static_cast<double>(cellY) * map.resolution) + half};
+  return types::Point{.x = (static_cast<double>(cellX) * map.resolution) + half,
+                      .y = (static_cast<double>(cellY) * map.resolution) + half};
 }
 
 [[nodiscard]] auto isCellOccupied(const types::MapData &map, int cellX, int cellY) -> bool {
@@ -132,8 +135,9 @@ namespace {
 
 [[nodiscard]] auto interpolatePose(const types::Pose &start, const types::Pose &end, double t)
     -> types::Pose {
-  return types::Pose{start.x + (end.x - start.x) * t, start.y + (end.y - start.y) * t,
-                     start.theta + (end.theta - start.theta) * t};
+  return types::Pose{.x = start.x + ((end.x - start.x) * t),
+                     .y = start.y + ((end.y - start.y) * t),
+                     .theta = start.theta + ((end.theta - start.theta) * t)};
 }
 
 } // namespace
@@ -171,8 +175,8 @@ auto CollisionChecker::checkTrajectory(const types::Pose &start, const types::Po
   }
 
   if (config_.maxTranslationStep <= 0.0 || config_.maxRotationStep <= 0.0) {
-    return tl::make_unexpected(
-        Error{ErrorCode::InvalidInput, "Collision step sizes must be positive."});
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Collision step sizes must be positive."});
   }
 
   const auto deltaX = end.x - start.x;
@@ -186,7 +190,7 @@ auto CollisionChecker::checkTrajectory(const types::Pose &start, const types::Po
   const auto stepCount = std::max({1, translationSteps, rotationSteps});
 
   const auto stepIndices = std::views::iota(1, stepCount + 1);
-  const auto isFree = std::ranges::all_of(stepIndices, [&](int stepIndex) {
+  const auto isFree = std::ranges::all_of(stepIndices, [&](int stepIndex) -> bool {
     const auto t = static_cast<double>(stepIndex) / static_cast<double>(stepCount);
     const auto pose = interpolatePose(start, end, t);
     const auto footprintWorld = transformFootprint(footprint_, pose);

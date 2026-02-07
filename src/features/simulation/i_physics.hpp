@@ -18,6 +18,11 @@ struct MotionResult {
 class IPhysicsModel {
 public:
   virtual ~IPhysicsModel() = default;
+  IPhysicsModel() = default;
+  IPhysicsModel(const IPhysicsModel &) = delete;
+  auto operator=(const IPhysicsModel &) -> IPhysicsModel = delete;
+  IPhysicsModel(IPhysicsModel &&) = delete;
+  auto operator=(IPhysicsModel &&) -> IPhysicsModel = delete;
   [[nodiscard]] virtual Result<MotionResult>
   propagate(const MotionState &state, const types::Twist &command, double deltaSeconds) const = 0;
 };

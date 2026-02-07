@@ -11,14 +11,16 @@ PurePursuitController::PurePursuitController(PurePursuitConfig config) : config_
 auto PurePursuitController::computeCommand(const ControlInput &input) const
     -> Result<types::Twist> {
   if (input.path.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Path is empty."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::EmptyCollection, .message = "Path is empty."});
   }
   if (config_.lookaheadDistance <= 0.0) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Lookahead must be positive."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Lookahead must be positive."});
   }
   if (config_.desiredLinearVelocity < 0.0) {
-    return tl::make_unexpected(
-        Error{ErrorCode::InvalidInput, "Desired linear velocity must be non-negative."});
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Desired linear velocity must be non-negative."});
   }
 
   const auto &pose = input.currentPose;
@@ -29,7 +31,7 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
 
     const auto indices = std::views::iota(std::size_t{0}, input.path.size());
     const auto closestIndex =
-        *std::ranges::min_element(indices, [&](std::size_t lhs, std::size_t rhs) {
+        *std::ranges::min_element(indices, [&](std::size_t lhs, std::size_t rhs) -> bool {
           const auto dxLeft = input.path[lhs].x - pose.x;
           const auto dyLeft = input.path[lhs].y - pose.y;
           const auto dxRight = input.path[rhs].x - pose.x;
@@ -51,8 +53,8 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
       }
       if (remaining <= segment) {
         const auto t = remaining / segment;
-        return types::Point{currentX + (t * (next.x - currentX)),
-                            currentY + (t * (next.y - currentY))};
+        return types::Point{.x = currentX + (t * (next.x - currentX)),
+                            .y = currentY + (t * (next.y - currentY))};
       }
       remaining -= segment;
       currentX = next.x;
@@ -65,23 +67,23 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
   const auto dy = target.y - pose.y;
   const auto distance = std::hypot(dx, dy);
   if (distance <= 0.0) {
-    return types::Twist{0.0, 0.0};
+    return types::Twist{.v = 0.0, .w = 0.0};
   }
 
   const auto cosTheta = std::cos(pose.theta);
   const auto sinTheta = std::sin(pose.theta);
-  const auto xLocal = cosTheta * dx + sinTheta * dy;
-  const auto yLocal = -sinTheta * dx + cosTheta * dy;
+  const auto xLocal = (cosTheta * dx) + (sinTheta * dy);
+  const auto yLocal = (-sinTheta * dx) + (cosTheta * dy);
 
   const auto curvature = (2.0 * yLocal) / (distance * distance);
   const auto linearVelocity = config_.desiredLinearVelocity;
   const auto angularVelocity = curvature * linearVelocity;
 
   if (xLocal < 0.0) {
-    return types::Twist{-linearVelocity, angularVelocity};
+    return types::Twist{.v = -linearVelocity, .w = angularVelocity};
   }
 
-  return types::Twist{linearVelocity, angularVelocity};
+  return types::Twist{.v = linearVelocity, .w = angularVelocity};
 }
 
 } // namespace ad::control
