@@ -2,6 +2,7 @@
 
 #include "i_localizer.hpp"
 #include "localization_config.hpp"
+#include "localizer_util.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -16,11 +17,6 @@ struct EkfLocalizerConfig {
   const double segmentMargin;
   const double gateThreshold;
   const std::size_t minObservations;
-};
-
-struct LineModel {
-  double rho;
-  double alpha;
 };
 
 class EkfLocalizer final : public ILocalizer {
@@ -50,26 +46,14 @@ private:
     double theta;
   };
 
-  struct MapLine {
-    types::LineSegment segment;
-    LineModel model;
-    double directionX;
-    double directionY;
-    double minProjection;
-    double maxProjection;
-  };
-
-  EkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature, EkfLocalizerConfig config);
+  EkfLocalizer(std::vector<util::MapLine> mapLines, MapSignature signature,
+               EkfLocalizerConfig config);
 
   [[nodiscard]] static auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
   [[nodiscard]] static auto signatureMatches(const MapSignature &signature,
                                              const types::MapData &map) -> bool;
-  [[nodiscard]] static auto extractLinesFromMap(const types::MapData &map,
-                                                const HoughConfig &config)
-      -> Result<std::vector<MapLine>>;
-
   EkfLocalizerConfig config_;
-  std::vector<MapLine> mapLines_;
+  std::vector<util::MapLine> mapLines_;
   MapSignature mapSignature_;
   State state_;
   std::array<double, 9> covariance_;
