@@ -1,6 +1,7 @@
 #include "dijkstra_planner.hpp"
 #include "planner_utils.hpp"
 
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -69,9 +70,18 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
   distances[startGoal.startIndex] = 0.0;
   frontier.emplace(0.0, startGoal.startIndex);
 
-  const auto offsets = std::vector<utils::GridOffset>{
-      utils::GridOffset{.dx = 1, .dy = 0}, utils::GridOffset{.dx = -1, .dy = 0},
-      utils::GridOffset{.dx = 0, .dy = 1}, utils::GridOffset{.dx = 0, .dy = -1}};
+  struct Move {
+    int dx;
+    int dy;
+    double cost;
+  };
+
+  const auto sqrt2 = std::numbers::sqrt2;
+  const auto moves = std::vector<Move>{
+      Move{.dx = 1, .dy = 0, .cost = 1.0},    Move{.dx = -1, .dy = 0, .cost = 1.0},
+      Move{.dx = 0, .dy = 1, .cost = 1.0},    Move{.dx = 0, .dy = -1, .cost = 1.0},
+      Move{.dx = 1, .dy = 1, .cost = sqrt2},  Move{.dx = 1, .dy = -1, .cost = sqrt2},
+      Move{.dx = -1, .dy = 1, .cost = sqrt2}, Move{.dx = -1, .dy = -1, .cost = sqrt2}};
 
   while (!frontier.empty()) {
     const auto [currentCost, current] = frontier.top();
@@ -86,8 +96,8 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
     }
 
     const auto coord = utils::toCoord(map, current);
-    for (const auto &offset : offsets) {
-      const auto neighbor = utils::GridCoord{.x = coord.x + offset.dx, .y = coord.y + offset.dy};
+    for (const auto &move : moves) {
+      const auto neighbor = utils::GridCoord{.x = coord.x + move.dx, .y = coord.y + move.dy};
       if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= map.width || neighbor.y >= map.height) {
         continue;
       }
@@ -97,7 +107,7 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
       }
 
       const auto neighborIndex = utils::toIndex(map, neighbor);
-      const auto nextCost = currentCost + 1.0;
+      const auto nextCost = currentCost + move.cost;
       if (nextCost >= distances[neighborIndex]) {
         continue;
       }
