@@ -13,7 +13,7 @@ docker run --rm \
     --user $(id -u):$(id -g) \
     -v "${PROJECT_ROOT}:/workspace" \
     ${IMAGE_NAME} \
-    bash -c "cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j$(nproc)"
+    bash -c "cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZER=OFF && cmake --build build -j$(nproc)"
 
 if [ -f "${PROJECT_ROOT}/build/app" ]; then
     echo "=== ビルド成功 ==="
