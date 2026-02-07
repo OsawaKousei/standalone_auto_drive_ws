@@ -53,12 +53,12 @@ struct StartGoalInfo {
   return !utils::isObstacle(map, sideX) && !utils::isObstacle(map, sideY);
 }
 
-[[nodiscard]] auto octileHeuristic(const utils::GridCoord &from, const utils::GridCoord &to)
-    -> double {
-  const auto dx = std::abs(from.x - to.x);
-  const auto dy = std::abs(from.y - to.y);
-  const auto minDelta = std::min(dx, dy);
-  const auto maxDelta = std::max(dx, dy);
+[[nodiscard]] auto octileHeuristic(const utils::GridCoord &from,
+                                   const utils::GridCoord &targetCoord) -> double {
+  const auto deltaX = std::abs(from.x - targetCoord.x);
+  const auto deltaY = std::abs(from.y - targetCoord.y);
+  const auto minDelta = std::min(deltaX, deltaY);
+  const auto maxDelta = std::max(deltaX, deltaY);
   return static_cast<double>(maxDelta - minDelta) + (std::numbers::sqrt2 * minDelta);
 }
 
