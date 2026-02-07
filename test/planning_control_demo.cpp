@@ -1,9 +1,11 @@
 #include "features/control/pure_pursuit.hpp"
 #include "features/planning/astar_planner.hpp"
 #include "features/planning/grid_collision_checker.hpp"
+#include "features/simulation/collision_checker.hpp"
 #include "features/simulation/unicycle_model.hpp"
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
+#include "shared/result.hpp"
 #include "shared/types.hpp"
 
 #include <chrono>
@@ -59,6 +61,9 @@ auto main() -> int {
                                                         .desiredLinearVelocity = 1.2};
   const ad::control::PurePursuitController controller{controllerConfig};
   const ad::simulation::UnicycleModel model;
+  const ad::simulation::CollisionCheckConfig collisionConfig{.maxTranslationStep = 0.05,
+                                                             .maxRotationStep = 0.05};
+  const ad::simulation::CollisionChecker collisionChecker{map, footprint, collisionConfig};
 
   auto state =
       std::optional<ad::simulation::MotionState>{ad::simulation::MotionState{start, {0.0, 0.0}}};
@@ -108,6 +113,17 @@ auto main() -> int {
     const auto nextState = model.propagate(*state, *commandResult, dt);
     if (!nextState) {
       failure.emplace(nextState.error());
+      return true;
+    }
+
+    const auto trajectoryFree = collisionChecker.checkTrajectory(state->pose, nextState->pose);
+    if (!trajectoryFree) {
+      failure.emplace(trajectoryFree.error());
+      return true;
+    }
+    if (!*trajectoryFree) {
+      failure.emplace(
+          ad::Error{ad::ErrorCode::InvalidInput, "Collision detected during propagation."});
       return true;
     }
 
