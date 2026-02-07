@@ -37,11 +37,11 @@ namespace {
   offsets.reserve(static_cast<std::size_t>((radiusCells * 2 + 1) * (radiusCells * 2 + 1)));
 
   const auto radiusSquared = radiusCells * radiusCells;
-  for (const auto dx : std::views::iota(-radiusCells, radiusCells + 1)) {
-    for (const auto dy : std::views::iota(-radiusCells, radiusCells + 1)) {
-      const auto distanceSquared = (dx * dx) + (dy * dy);
+  for (const auto deltaX : std::views::iota(-radiusCells, radiusCells + 1)) {
+    for (const auto deltaY : std::views::iota(-radiusCells, radiusCells + 1)) {
+      const auto distanceSquared = (deltaX * deltaX) + (deltaY * deltaY);
       if (distanceSquared <= radiusSquared) {
-        offsets.push_back(utils::GridOffset{.dx = dx, .dy = dy});
+        offsets.push_back(utils::GridOffset{.dx = deltaX, .dy = deltaY});
       }
     }
   }
@@ -57,9 +57,9 @@ namespace {
   const auto offsets = buildOffsets(radiusCells);
   auto inflated = map.grid;
 
-  for (const auto y : std::views::iota(0, map.height)) {
-    for (const auto x : std::views::iota(0, map.width)) {
-      const auto coord = utils::GridCoord{.x = x, .y = y};
+  for (const auto yValue : std::views::iota(0, map.height)) {
+    for (const auto xValue : std::views::iota(0, map.width)) {
+      const auto coord = utils::GridCoord{.x = xValue, .y = yValue};
       if (!utils::isObstacle(map, coord)) {
         continue;
       }
@@ -97,7 +97,10 @@ auto GridCollisionChecker::create(const types::MapData &map, const types::Footpr
   const auto radiusCells = static_cast<int>(std::ceil(*radius / map.resolution));
   auto inflatedGrid = inflateGrid(map, radiusCells);
 
-  auto inflatedMap = types::MapData{map.width, map.height, map.resolution, std::move(inflatedGrid)};
+  auto inflatedMap = types::MapData{.width = map.width,
+                                    .height = map.height,
+                                    .resolution = map.resolution,
+                                    .grid = std::move(inflatedGrid)};
   return Result<GridCollisionChecker>{tl::in_place, std::move(inflatedMap), *radius};
 }
 
