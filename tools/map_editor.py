@@ -78,6 +78,8 @@ def main() -> None:
 
     grid = np.full((args.height, args.width), 254, dtype=np.uint8)
     brush_radius = 0
+    map_width = args.width
+    map_height = args.height
 
     fig, ax = plt.subplots(figsize=(7, 7))
     fig.canvas.manager.set_window_title("PGM Map Editor")
@@ -91,6 +93,7 @@ def main() -> None:
         vmax=255,
         interpolation="nearest",
     )
+    ax.set_aspect("equal", adjustable="box")
     ax.set_title("Left: obstacle, Right: free")
     ax.set_xlabel("x (cells)")
     ax.set_ylabel("y (cells)")
@@ -172,9 +175,55 @@ def main() -> None:
         image.set_data(grid)
         fig.canvas.draw_idle()
 
+    def clamp_view(value: float, min_value: float, max_value: float) -> float:
+        return max(min_value, min(max_value, value))
+
+    def clamp_window(center: float, span: float, min_value: float, max_value: float) -> tuple:
+        half = span / 2.0
+        min_edge = center - half
+        max_edge = center + half
+
+        if min_edge < min_value:
+            min_edge = min_value
+            max_edge = min_value + span
+        if max_edge > max_value:
+            max_edge = max_value
+            min_edge = max_value - span
+
+        min_edge = clamp_view(min_edge, min_value, max_value)
+        max_edge = clamp_view(max_edge, min_value, max_value)
+        return min_edge, max_edge
+
+    def on_scroll(event) -> None:
+        if event.inaxes != ax:
+            return
+        if event.button not in ("up", "down"):
+            return
+
+        zoom_factor = 0.9 if event.button == "up" else 1.1
+        current_xlim = ax.get_xlim()
+        current_ylim = ax.get_ylim()
+        center_x = event.xdata if event.xdata is not None else sum(current_xlim) / 2.0
+        center_y = event.ydata if event.ydata is not None else sum(current_ylim) / 2.0
+
+        x_span = (current_xlim[1] - current_xlim[0]) * zoom_factor
+        y_span = (current_ylim[1] - current_ylim[0]) * zoom_factor
+        span = max(x_span, y_span)
+
+        if span < 1.0:
+            return
+
+        x_min, x_max = clamp_window(center_x, span, 0.0, map_width - 1.0)
+        y_min, y_max = clamp_window(center_y, span, 0.0, map_height - 1.0)
+
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        fig.canvas.draw_idle()
+
     fig.canvas.mpl_connect("button_press_event", on_press)
     fig.canvas.mpl_connect("button_release_event", on_release)
     fig.canvas.mpl_connect("motion_notify_event", on_move)
+    fig.canvas.mpl_connect("scroll_event", on_scroll)
     save_button.on_clicked(on_save)
     clear_button.on_clicked(on_clear)
 
@@ -183,3 +232,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# python3 tools/map_editor.py --width 100 --height 100 --resolution 0.05 --origin 0 0 0 --output-dir tools --basename map
