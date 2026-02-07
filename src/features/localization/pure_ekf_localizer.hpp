@@ -14,6 +14,7 @@ struct PureEkfLocalizerConfig {
   const double maxAssociationDistance;
   const double segmentMargin;
   const double gateThreshold;
+  const std::size_t minObservations;
 };
 
 struct LineModel {

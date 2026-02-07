@@ -111,6 +111,9 @@ auto main() -> int {
   constexpr auto kGoalTolerance = 0.3;
   constexpr auto kFrameDelay = std::chrono::milliseconds{80};
   constexpr int kMaxSteps = 250;
+  constexpr double kScoreThreshold = 0.7;
+  constexpr double kMinSpeedScale = 0.4;
+  constexpr double kMaxAbsAngular = 2.5;
 
   auto failure = std::optional<ad::Error>{};
   auto logHistory = std::vector<ad::demo::StepLog>{};
@@ -134,7 +137,15 @@ auto main() -> int {
       return true;
     }
 
-    const auto predictStatus = localizer.predict(*commandResult, dt);
+    const auto scoreScale = estimateResult->score < kScoreThreshold
+                                ? std::max(kMinSpeedScale, estimateResult->score / kScoreThreshold)
+                                : 1.0;
+    const auto scaledV = commandResult->v * scoreScale;
+    const auto scaledW = commandResult->w;
+    const auto appliedCommand =
+        ad::types::Twist{.v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
+
+    const auto predictStatus = localizer.predict(appliedCommand, dt);
     if (!predictStatus) {
       failure.emplace(predictStatus.error());
       return true;
@@ -195,7 +206,7 @@ auto main() -> int {
       return true;
     }
 
-    const auto nextState = model.propagate(*trueState, *commandResult, dt);
+    const auto nextState = model.propagate(*trueState, appliedCommand, dt);
     if (!nextState) {
       failure.emplace(nextState.error());
       return true;
@@ -224,12 +235,12 @@ auto main() -> int {
                                            .score = updatedEstimate->score,
                                            .truePose = trueState->pose,
                                            .estimatedPose = updatedEstimate->pose,
-                                           .command = *commandResult});
+                                           .command = appliedCommand});
 
     fmt::print("Step {:03d}: dist {:.3f}->{:.3f}, pos_err {:.3f}, head_err {:.3f}, score {:.3f}, v "
                "{:.2f}, w {:.2f}\n",
                step, distanceBefore, distanceAfter, positionError, headingError,
-               updatedEstimate->score, commandResult->v, commandResult->w);
+               updatedEstimate->score, appliedCommand.v, appliedCommand.w);
 
     std::this_thread::sleep_for(kFrameDelay);
     return distanceAfter <= kGoalTolerance;

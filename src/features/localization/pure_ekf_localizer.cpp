@@ -15,6 +15,10 @@ namespace {
 
 constexpr double kEpsilon = 1e-9;
 constexpr double kGateEpsilon = 1e-12;
+constexpr double kReferencePoints = 40.0;
+constexpr double kMinRangeVarianceFactor = 0.25;
+constexpr double kMinAngleVarianceFactor = 0.25;
+constexpr double kAngleMseScale = 0.1;
 
 struct HoughCandidate {
   double rho;
@@ -35,6 +39,8 @@ struct HoughCandidate {
 struct LineFit {
   ad::localization::LineModel model;
   double alphaRaw;
+  std::size_t pointCount;
+  double mse;
 };
 
 [[nodiscard]] auto fitLine(const std::vector<ad::types::Point> &points) -> std::optional<LineFit> {
@@ -74,7 +80,17 @@ struct LineFit {
   const auto rho = (nx * meanX) + (ny * meanY);
 
   auto model = toLineModel(rho, normal);
-  return LineFit{.model = model, .alphaRaw = normal};
+
+  const auto lineNx = std::cos(model.alpha);
+  const auto lineNy = std::sin(model.alpha);
+  double mse = 0.0;
+  for (const auto &point : points) {
+    const auto distance = (lineNx * point.x) + (lineNy * point.y) - model.rho;
+    mse += distance * distance;
+  }
+  mse /= count;
+
+  return LineFit{.model = model, .alphaRaw = normal, .pointCount = points.size(), .mse = mse};
 }
 
 struct LineObservation {
@@ -83,6 +99,8 @@ struct LineObservation {
   double nx;
   double ny;
   double rhoSign;
+  double rangeVariance;
+  double angleVariance;
 };
 
 [[nodiscard]] auto makeExpectedLine(const ad::localization::LineModel &mapLine, double x, double y,
@@ -105,12 +123,13 @@ struct LineObservation {
                          .expected = ad::localization::LineModel{rho, alpha},
                          .nx = nx,
                          .ny = ny,
-                         .rhoSign = rhoSign};
+                         .rhoSign = rhoSign,
+                         .rangeVariance = 0.0,
+                         .angleVariance = 0.0};
 }
 
 [[nodiscard]] auto gateLineObservation(const LineObservation &observation,
-                                       const std::array<double, 9> &covariance,
-                                       const ad::localization::EkfConfig &config, double threshold)
+                                       const std::array<double, 9> &covariance, double threshold)
     -> bool {
   const auto h00 = -observation.rhoSign * observation.nx;
   const auto h01 = -observation.rhoSign * observation.ny;
@@ -123,10 +142,10 @@ struct LineObservation {
   const auto p12 = covariance[5];
   const auto p22 = covariance[8];
 
-  const auto s00 = (h00 * (p00 * h00 + p01 * h01)) + (h01 * (p10 * h00 + p11 * h01)) +
-                   (config.measurementNoiseRange * config.measurementNoiseRange);
+  const auto s00 =
+      (h00 * (p00 * h00 + p01 * h01)) + (h01 * (p10 * h00 + p11 * h01)) + observation.rangeVariance;
   const auto s01 = (-h00 * p02) - (h01 * p12);
-  const auto s11 = p22 + (config.measurementNoiseAngle * config.measurementNoiseAngle);
+  const auto s11 = p22 + observation.angleVariance;
 
   const auto det = (s00 * s11) - (s01 * s01);
   if (std::abs(det) < kGateEpsilon) {
@@ -236,7 +255,8 @@ auto PureEkfLocalizer::defaultConfig() -> PureEkfLocalizerConfig {
                                                  .measurementNoiseAngle = 0.12},
                                 .maxAssociationDistance = 0.3,
                                 .segmentMargin = 0.3,
-                                .gateThreshold = 6.0};
+                                .gateThreshold = 6.0,
+                                .minObservations = 3U};
 }
 
 PureEkfLocalizer::PureEkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
@@ -561,9 +581,18 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     auto observation =
         makeExpectedLine(mapLines_[lineIndex].model, state_.x, state_.y, state_.theta);
     observation.observed = fit->model;
+    const auto pointCount = std::max(1.0, static_cast<double>(fit->pointCount));
+    const auto baseRangeVar = config_.ekf.measurementNoiseRange * config_.ekf.measurementNoiseRange;
+    const auto baseAngleVar = config_.ekf.measurementNoiseAngle * config_.ekf.measurementNoiseAngle;
+    const auto scale = std::max(1.0, kReferencePoints / pointCount);
+    const auto minRangeVar = baseRangeVar * kMinRangeVarianceFactor;
+    const auto minAngleVar = baseAngleVar * kMinAngleVarianceFactor;
+    observation.rangeVariance = std::max(minRangeVar, (baseRangeVar * scale) + fit->mse);
+    observation.angleVariance =
+        std::max(minAngleVar, (baseAngleVar * scale) + (fit->mse * kAngleMseScale));
     ++candidates;
 
-    if (!gateLineObservation(observation, covariance_, config_.ekf, config_.gateThreshold)) {
+    if (!gateLineObservation(observation, covariance_, config_.gateThreshold)) {
       continue;
     }
 
@@ -571,10 +600,9 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     observations.push_back(observation);
   }
 
-  if (observations.empty()) {
+  if (observations.size() < config_.minObservations) {
     score_ = 0.0;
-    return tl::make_unexpected(
-        Error{ErrorCode::EmptyCollection, "No valid line observations after gating."});
+    return {};
   }
 
   const auto measurementCount = observations.size() * 2U;
@@ -603,10 +631,8 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     h[((row + 1U) * 3U) + 1U] = 0.0;
     h[((row + 1U) * 3U) + 2U] = hAlphaTheta;
 
-    r[(row * measurementCount) + row] =
-        config_.ekf.measurementNoiseRange * config_.ekf.measurementNoiseRange;
-    r[((row + 1U) * measurementCount) + (row + 1U)] =
-        config_.ekf.measurementNoiseAngle * config_.ekf.measurementNoiseAngle;
+    r[(row * measurementCount) + row] = obs.rangeVariance;
+    r[((row + 1U) * measurementCount) + (row + 1U)] = obs.angleVariance;
   }
 
   auto p = std::vector<double>(9U, 0.0);
