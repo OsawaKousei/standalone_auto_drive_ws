@@ -68,7 +68,9 @@ TEST(LidarSimTest, RejectsMismatchedGrid) {
 
 TEST(VisualizerTest, RejectsEmptyPath) {
   const visualization::Visualizer viz;
-  const auto status = viz.renderPath({});
+  const auto geometry =
+      visualization::Visualizer::MapGeometry{.width = 1, .height = 1, .resolution = 1.0};
+  const auto status = viz.renderPath({}, geometry);
   ASSERT_FALSE(status.has_value());
   EXPECT_EQ(status.error().code, ErrorCode::EmptyCollection);
 }
@@ -79,10 +81,13 @@ TEST(VisualizerTest, RendersScanSummary) {
   const types::MapData map{2, 2, 1.0, {0, 0, 0, 0}};
   const types::Pose pose{0.0, 0.0, 0.0};
 
-  const auto frameStatus = viz.renderFrame(map);
+  const auto preparedMap = visualization::Visualizer::prepareMap(map);
+  ASSERT_TRUE(preparedMap.has_value());
+
+  const auto frameStatus = viz.renderFrame(*preparedMap);
   ASSERT_TRUE(frameStatus.has_value());
 
-  const auto status = viz.renderScan(pose, ranges);
+  const auto status = viz.renderScan(pose, ranges, preparedMap->geometry);
   EXPECT_TRUE(status.has_value());
 }
 

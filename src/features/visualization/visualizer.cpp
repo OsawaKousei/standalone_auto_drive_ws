@@ -47,14 +47,8 @@ constexpr double kUiPauseSeconds = 0.001;
   return fmt::format("{}/lib/python{}/site-packages", root, pythonVersion);
 }
 
-} // namespace
-
-auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
-  const auto envStatus = configurePythonEnvironment();
-  if (!envStatus) {
-    return envStatus;
-  }
-
+[[nodiscard]] auto mapGeometryFromMap(const types::MapData &map)
+    -> Result<Visualizer::MapGeometry> {
   if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "Map has invalid dimensions."});
@@ -67,44 +61,59 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
                                      .message = "Map grid size does not match width and height."});
   }
 
-  last_map_ = MapGeometry{.width = map.width, .height = map.height, .resolution = map.resolution};
+  return Visualizer::MapGeometry{
+      .width = map.width, .height = map.height, .resolution = map.resolution};
+}
 
-  const auto gridImage = [&]() -> std::vector<float> {
-    const auto width = static_cast<std::size_t>(map.width);
-    const auto height = static_cast<std::size_t>(map.height);
-    auto data = std::vector<float>(width * height, 0.0F);
-    for (const auto rowIndex : std::views::iota(std::size_t{0}, height)) {
-      for (const auto colIndex : std::views::iota(std::size_t{0}, width)) {
-        const auto cellIndex = (rowIndex * width) + colIndex;
-        data[cellIndex] = static_cast<float>(map.grid[cellIndex] > 0 ? 1.0 : 0.0);
-      }
+[[nodiscard]] auto gridImageFromMap(const types::MapData &map) -> std::vector<float> {
+  const auto width = static_cast<std::size_t>(map.width);
+  const auto height = static_cast<std::size_t>(map.height);
+  auto data = std::vector<float>(width * height, 0.0F);
+  for (const auto rowIndex : std::views::iota(std::size_t{0}, height)) {
+    for (const auto colIndex : std::views::iota(std::size_t{0}, width)) {
+      const auto cellIndex = (rowIndex * width) + colIndex;
+      data[cellIndex] = static_cast<float>(map.grid[cellIndex] > 0 ? 1.0 : 0.0);
     }
-    return data;
-  }();
+  }
+  return data;
+}
 
-  const auto extentX = static_cast<double>(map.width);
-  const auto extentY = static_cast<double>(map.height);
+} // namespace
+
+auto Visualizer::prepareMap(const types::MapData &map) -> Result<PreparedMap> {
+  const auto envStatus = configurePythonEnvironment();
+  if (!envStatus) {
+    return tl::make_unexpected(envStatus.error());
+  }
+
+  const auto geometry = mapGeometryFromMap(map);
+  if (!geometry) {
+    return tl::make_unexpected(geometry.error());
+  }
+
+  return PreparedMap{.geometry = *geometry, .gridImage = gridImageFromMap(map)};
+}
+
+auto Visualizer::renderFrame(const PreparedMap &prepared) const -> Status {
+  const auto extentX = static_cast<double>(prepared.geometry.width);
+  const auto extentY = static_cast<double>(prepared.geometry.height);
 
   matplotlibcpp::clf();
-  matplotlibcpp::imshow(gridImage.data(), map.height, map.width, kImageChannelCount,
-                        {{"origin", "lower"}});
+  matplotlibcpp::imshow(prepared.gridImage.data(), prepared.geometry.height,
+                        prepared.geometry.width, kImageChannelCount, {{"origin", "lower"}});
   matplotlibcpp::xlim(0.0, extentX);
   matplotlibcpp::ylim(0.0, extentY);
   return {};
 }
 
-auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status {
+auto Visualizer::renderPath(std::span<const types::Point> path, const MapGeometry &map) const
+    -> Status {
   if (path.empty()) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::EmptyCollection, .message = "Path is empty."});
   }
 
-  const auto map = currentMapGeometry();
-  if (!map) {
-    return tl::make_unexpected(map.error());
-  }
-
-  const auto toCell = [&](double value) -> double { return value / map->resolution; };
+  const auto toCell = [&](double value) -> double { return value / map.resolution; };
 
   auto xValues = std::vector<double>{};
   auto yValues = std::vector<double>{};
@@ -119,19 +128,14 @@ auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status 
   return {};
 }
 
-auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &footprint) const
-    -> Status {
+auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &footprint,
+                             const MapGeometry &map) const -> Status {
   if (footprint.vertices.empty()) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::EmptyCollection, .message = "Footprint has no vertices."});
   }
 
-  const auto map = currentMapGeometry();
-  if (!map) {
-    return tl::make_unexpected(map.error());
-  }
-
-  const auto toCell = [&](double value) -> double { return value / map->resolution; };
+  const auto toCell = [&](double value) -> double { return value / map.resolution; };
 
   auto outlineX = std::vector<double>{};
   auto outlineY = std::vector<double>{};
@@ -161,19 +165,14 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
   return {};
 }
 
-auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ranges) const
-    -> Status {
+auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ranges,
+                            const MapGeometry &map) const -> Status {
   if (ranges.empty()) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::EmptyCollection, .message = "Scan is empty."});
   }
 
-  const auto map = currentMapGeometry();
-  if (!map) {
-    return tl::make_unexpected(map.error());
-  }
-
-  const auto toCell = [&](double value) -> double { return value / map->resolution; };
+  const auto toCell = [&](double value) -> double { return value / map.resolution; };
 
   auto xValues = std::vector<double>{};
   auto yValues = std::vector<double>{};
@@ -215,14 +214,6 @@ auto Visualizer::configurePythonEnvironment() -> Status {
   }
 
   return {};
-}
-
-auto Visualizer::currentMapGeometry() const -> Result<MapGeometry> {
-  if (!last_map_) {
-    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                     .message = "Call renderFrame(map) before drawing overlays."});
-  }
-  return *last_map_;
 }
 
 } // namespace ad::visualization

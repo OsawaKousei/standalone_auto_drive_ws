@@ -5,32 +5,37 @@
 
 #include <matplotlibcpp.h>
 
-#include <optional>
 #include <span>
+#include <vector>
 
 namespace ad::visualization {
 
 class Visualizer {
 public:
   Visualizer() = default;
-  [[nodiscard]] auto renderFrame(const types::MapData &map) const -> Status;
-  [[nodiscard]] auto renderPath(std::span<const types::Point> path) const -> Status;
-  [[nodiscard]] auto renderRobot(const types::Pose &pose, const types::Footprint &footprint) const
-      -> Status;
-  [[nodiscard]] auto renderScan(const types::Pose &pose, std::span<const double> ranges) const
-      -> Status;
 
-private:
   struct MapGeometry {
-    int width;
-    int height;
-    double resolution;
+    const int width;
+    const int height;
+    const double resolution;
   };
 
-  [[nodiscard]] static auto configurePythonEnvironment() -> Status;
-  [[nodiscard]] auto currentMapGeometry() const -> Result<MapGeometry>;
+  struct PreparedMap {
+    const MapGeometry geometry;
+    const std::vector<float> gridImage;
+  };
 
-  mutable std::optional<MapGeometry> last_map_;
+  [[nodiscard]] static auto prepareMap(const types::MapData &map) -> Result<PreparedMap>;
+  [[nodiscard]] auto renderFrame(const PreparedMap &prepared) const -> Status;
+  [[nodiscard]] auto renderPath(std::span<const types::Point> path, const MapGeometry &map) const
+      -> Status;
+  [[nodiscard]] auto renderRobot(const types::Pose &pose, const types::Footprint &footprint,
+                                 const MapGeometry &map) const -> Status;
+  [[nodiscard]] auto renderScan(const types::Pose &pose, std::span<const double> ranges,
+                                const MapGeometry &map) const -> Status;
+
+private:
+  [[nodiscard]] static auto configurePythonEnvironment() -> Status;
 };
 
 } // namespace ad::visualization

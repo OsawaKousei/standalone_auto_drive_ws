@@ -45,6 +45,14 @@ auto main() -> int {
   const ad::simulation::LidarSim lidar;
   const ad::visualization::Visualizer viz;
 
+  const auto preparedMapResult = ad::visualization::Visualizer::prepareMap(map);
+  if (!preparedMapResult) {
+    fmt::print(stderr, "Render error: {}\n", preparedMapResult.error().message);
+    return 1;
+  }
+  const auto &preparedMap = *preparedMapResult;
+  const auto &mapGeometry = preparedMap.geometry;
+
   auto state = std::optional<ad::simulation::MotionState>{
       ad::simulation::MotionState{{0.0, 0.0, 0.0}, {0.0, 0.0}}};
   constexpr auto dt = 0.5;
@@ -63,25 +71,25 @@ auto main() -> int {
       return 1;
     }
 
-    const auto frameStatus = viz.renderFrame(map);
+    const auto frameStatus = viz.renderFrame(preparedMap);
     if (!frameStatus) {
       fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
       return 1;
     }
 
-    const auto pathStatus = viz.renderPath(std::span{path});
+    const auto pathStatus = viz.renderPath(std::span{path}, mapGeometry);
     if (!pathStatus) {
       fmt::print(stderr, "Render error: {}\n", pathStatus.error().message);
       return 1;
     }
 
-    const auto robotStatus = viz.renderRobot(current.pose, footprint);
+    const auto robotStatus = viz.renderRobot(current.pose, footprint, mapGeometry);
     if (!robotStatus) {
       fmt::print(stderr, "Render error: {}\n", robotStatus.error().message);
       return 1;
     }
 
-    const auto scanStatus = viz.renderScan(current.pose, *scanResult);
+    const auto scanStatus = viz.renderScan(current.pose, *scanResult, mapGeometry);
     if (!scanStatus) {
       fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
       return 1;
