@@ -45,8 +45,8 @@ struct LogData {
 
 [[nodiscard]] auto splitCsvLine(std::string_view line) -> std::vector<std::string> {
   auto output = std::vector<std::string>{};
-  std::stringstream ss{std::string{line}};
-  for (std::string cell; std::getline(ss, cell, ',');) {
+  std::stringstream string_stream{std::string{line}};
+  for (std::string cell; std::getline(string_stream, cell, ',');) {
     output.push_back(cell);
   }
   return output;
@@ -55,8 +55,8 @@ struct LogData {
 [[nodiscard]] auto splitDelimited(std::string_view input, char delimiter)
     -> std::vector<std::string> {
   auto output = std::vector<std::string>{};
-  std::stringstream ss{std::string{input}};
-  for (std::string cell; std::getline(ss, cell, delimiter);) {
+  std::stringstream string_stream{std::string{input}};
+  for (std::string cell; std::getline(string_stream, cell, delimiter);) {
     if (!cell.empty()) {
       output.push_back(cell);
     }
@@ -77,7 +77,7 @@ struct LogData {
           Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse point list."});
     }
     try {
-      points.push_back(types::Point{std::stod(pair[0]), std::stod(pair[1])});
+      points.push_back(types::Point{.x = std::stod(pair[0]), .y = std::stod(pair[1])});
     } catch (const std::exception &) {
       return tl::make_unexpected(
           Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse point values."});
@@ -154,10 +154,10 @@ struct LogData {
 
     try {
       const auto step = std::stoi(cells[0]);
-      const auto truePose =
-          types::Pose{std::stod(cells[6]), std::stod(cells[7]), std::stod(cells[8])};
-      const auto estPose =
-          types::Pose{std::stod(cells[9]), std::stod(cells[10]), std::stod(cells[11])};
+      const auto truePose = types::Pose{
+          .x = std::stod(cells[1]), .y = std::stod(cells[2]), .theta = std::stod(cells[3])};
+      const auto estPose = types::Pose{
+          .x = std::stod(cells[9]), .y = std::stod(cells[10]), .theta = std::stod(cells[11])};
       auto scanPoints = std::vector<types::Point>{};
       auto ranges = std::vector<double>{};
       if (cells.size() >= 15U) {
@@ -304,8 +304,8 @@ auto main(int argc, char **argv) -> int {
       }
     }
 
-    trueTrail.push_back(ad::types::Point{record.truePose.x, record.truePose.y});
-    estTrail.push_back(ad::types::Point{record.estPose.x, record.estPose.y});
+    trueTrail.push_back(ad::types::Point{.x = record.truePose.x, .y = record.truePose.y});
+    estTrail.push_back(ad::types::Point{.x = record.estPose.x, .y = record.estPose.y});
 
     const auto truePathStatus = viz.renderPath(std::span{trueTrail}, mapGeometry);
     if (!truePathStatus) {
@@ -345,7 +345,7 @@ auto main(int argc, char **argv) -> int {
     }
 
     const auto estMarkerStatus = viz.renderMarker(
-        ad::types::Point{record.estPose.x, record.estPose.y}, mapGeometry, 20.0, "cyan");
+        ad::types::Point{.x = record.estPose.x, .y = record.estPose.y}, mapGeometry, 0.15, "cyan");
     if (!estMarkerStatus) {
       fmt::print(stderr, "Render error: {}\n", estMarkerStatus.error().message);
       return 1;

@@ -31,12 +31,11 @@ namespace ad::demo {
 }
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
-  constexpr double kPi = 3.14159265358979323846;
-  angle = std::fmod(angle + kPi, 2.0 * kPi);
+  angle = std::fmod(angle + std::numbers::pi, 2.0 * std::numbers::pi);
   if (angle < 0.0) {
-    angle += 2.0 * kPi;
+    angle += 2.0 * std::numbers::pi;
   }
-  return angle - kPi;
+  return angle - std::numbers::pi;
 }
 
 [[nodiscard]] auto serializePoints(std::span<const types::Point> points) -> std::string {
@@ -69,8 +68,8 @@ namespace ad::demo {
     const auto angle =
         pose.theta + scan.minAngle + (scan.angleIncrement * static_cast<double>(angleIndex));
     const auto distance = scan.ranges[angleIndex];
-    points.push_back(
-        types::Point{pose.x + (std::cos(angle) * distance), pose.y + (std::sin(angle) * distance)});
+    points.push_back(types::Point{.x = pose.x + (distance * std::cos(angle)),
+                                  .y = pose.y + (distance * std::sin(angle))});
   }
   return points;
 }
@@ -84,8 +83,8 @@ auto main() -> int {
     return 1;
   }
   const auto map = *mapResult;
-  const ad::types::Pose start{1.0, 1.0, 0.0};
-  const ad::types::Pose goal{9.0, 1.0, 0.0};
+  const ad::types::Pose start{.x = 1.0, .y = 1.0, .theta = 0.0};
+  const ad::types::Pose goal{.x = 9.0, .y = 1.0, .theta = 0.0};
   const auto footprint = ad::demo::makeFootprint();
 
   const auto checkerResult = ad::planning::GridCollisionChecker::create(map, footprint);
@@ -133,9 +132,9 @@ auto main() -> int {
                                                              .maxRotationStep = 0.05};
   const ad::simulation::CollisionChecker collisionChecker{map, footprint, collisionConfig};
 
-  auto trueState =
-      std::optional<ad::simulation::MotionState>{ad::simulation::MotionState{start, {0.0, 0.0}}};
-  constexpr auto dt = 0.2;
+  auto trueState = std::optional<ad::simulation::MotionState>{
+      ad::simulation::MotionState{.pose = start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
+  constexpr auto deltaT = 0.2;
   constexpr auto kGoalTolerance = 0.3;
   constexpr auto kFrameDelay = std::chrono::milliseconds{80};
   constexpr int kMaxSteps = 250;
@@ -156,8 +155,8 @@ auto main() -> int {
   }
   logFile << std::fixed << std::setprecision(8);
   logFile << "# localization_control_lidar_demo log\n";
-  logFile << "# dt=" << dt << ", goal_tolerance=" << kGoalTolerance << ", max_steps=" << kMaxSteps
-          << "\n";
+  logFile << "# dt=" << deltaT << ", goal_tolerance=" << kGoalTolerance
+          << ", max_steps=" << kMaxSteps << "\n";
   logFile << "# footprint=" << ad::demo::serializePoints(footprint.vertices) << "\n";
   logFile << "# path=" << ad::demo::serializePoints(std::span{*pathResult}) << "\n";
   logFile << "# columns: "
@@ -194,125 +193,132 @@ auto main() -> int {
     }
   }
 
-  const auto reachedGoal = std::ranges::any_of(std::views::iota(0, kMaxSteps), [&](int step) {
-    if (failure) {
-      return true;
-    }
+  const auto reachedGoal =
+      std::ranges::any_of(std::views::iota(0, kMaxSteps), [&](int step) -> bool {
+        if (failure) {
+          return true;
+        }
 
-    const auto estimateResult = localizer->estimate();
-    if (!estimateResult) {
-      failure.emplace(estimateResult.error());
-      return true;
-    }
+        const auto estimateResult = localizer->estimate();
+        if (!estimateResult) {
+          failure.emplace(estimateResult.error());
+          return true;
+        }
 
-    const auto input = ad::control::ControlInput{std::span{*pathResult}, estimateResult->pose};
-    const auto commandResult = controller.computeCommand(input);
-    if (!commandResult) {
-      failure.emplace(commandResult.error());
-      return true;
-    }
+        const auto input = ad::control::ControlInput{.path = std::span{*pathResult},
+                                                     .currentPose = estimateResult->pose};
+        const auto commandResult = controller.computeCommand(input);
+        if (!commandResult) {
+          failure.emplace(commandResult.error());
+          return true;
+        }
 
-    const auto scoreScale = estimateResult->score < kScoreThreshold
-                                ? std::max(kMinSpeedScale, estimateResult->score / kScoreThreshold)
-                                : 1.0;
-    const auto scaledV = commandResult->v * scoreScale;
-    const auto scaledW = commandResult->w;
-    const auto appliedCommand =
-        ad::types::Twist{.v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
+        const auto scoreScale =
+            estimateResult->score < kScoreThreshold
+                ? std::max(kMinSpeedScale, estimateResult->score / kScoreThreshold)
+                : 1.0;
+        const auto scaledV = commandResult->v * scoreScale;
+        const auto scaledW = commandResult->w;
+        const auto appliedCommand = ad::types::Twist{
+            .v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
 
-    const auto predictStatus = localizer->predict(appliedCommand, dt);
-    if (!predictStatus) {
-      failure.emplace(predictStatus.error());
-      return true;
-    }
+        const auto predictStatus = localizer->predict(appliedCommand, deltaT);
+        if (!predictStatus) {
+          failure.emplace(predictStatus.error());
+          return true;
+        }
 
-    const auto scanResult = lidar.simulate(map, trueState->pose);
-    if (!scanResult) {
-      failure.emplace(scanResult.error());
-      return true;
-    }
-    const auto scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
+        const auto scanResult = lidar.simulate(map, trueState->pose);
+        if (!scanResult) {
+          failure.emplace(scanResult.error());
+          return true;
+        }
+        const auto scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
 
-    const auto updateStatus = localizer->update(*scanResult, map);
-    if (!updateStatus) {
-      failure.emplace(updateStatus.error());
-      return true;
-    }
+        const auto updateStatus = localizer->update(*scanResult, map);
+        if (!updateStatus) {
+          failure.emplace(updateStatus.error());
+          return true;
+        }
 
-    const auto updatedEstimate = localizer->estimate();
-    if (!updatedEstimate) {
-      failure.emplace(updatedEstimate.error());
-      return true;
-    }
+        const auto updatedEstimate = localizer->estimate();
+        if (!updatedEstimate) {
+          failure.emplace(updatedEstimate.error());
+          return true;
+        }
 
-    const auto dx = updatedEstimate->pose.x - trueState->pose.x;
-    const auto dy = updatedEstimate->pose.y - trueState->pose.y;
-    const auto positionError = std::hypot(dx, dy);
-    const auto headingError =
-        std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
-    const auto distanceBefore = std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
+        const auto deltaX = updatedEstimate->pose.x - trueState->pose.x;
+        const auto deltaY = updatedEstimate->pose.y - trueState->pose.y;
+        const auto positionError = std::hypot(deltaX, deltaY);
+        const auto headingError =
+            std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
+        const auto distanceBefore =
+            std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
 
-    const auto frameStatus = viz.renderFrame(preparedMap);
-    if (!frameStatus) {
-      failure.emplace(frameStatus.error());
-      return true;
-    }
+        const auto frameStatus = viz.renderFrame(preparedMap);
+        if (!frameStatus) {
+          failure.emplace(frameStatus.error());
+          return true;
+        }
 
-    const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
-    if (!pathStatus) {
-      failure.emplace(pathStatus.error());
-      return true;
-    }
+        const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
+        if (!pathStatus) {
+          failure.emplace(pathStatus.error());
+          return true;
+        }
 
-    const auto scanStatus = viz.renderScan(trueState->pose, *scanResult, mapGeometry);
-    if (!scanStatus) {
-      failure.emplace(scanStatus.error());
-      return true;
-    }
+        const auto scanStatus = viz.renderScan(trueState->pose, *scanResult, mapGeometry);
+        if (!scanStatus) {
+          failure.emplace(scanStatus.error());
+          return true;
+        }
 
-    const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
-    if (!robotStatus) {
-      failure.emplace(robotStatus.error());
-      return true;
-    }
+        const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
+        if (!robotStatus) {
+          failure.emplace(robotStatus.error());
+          return true;
+        }
 
-    const auto presentStatus = viz.presentFrame();
-    if (!presentStatus) {
-      failure.emplace(presentStatus.error());
-      return true;
-    }
+        const auto presentStatus = viz.presentFrame();
+        if (!presentStatus) {
+          failure.emplace(presentStatus.error());
+          return true;
+        }
 
-    const auto nextState = model.propagate(*trueState, appliedCommand, dt);
-    if (!nextState) {
-      failure.emplace(nextState.error());
-      return true;
-    }
+        const auto nextState = model.propagate(*trueState, appliedCommand, deltaT);
+        if (!nextState) {
+          failure.emplace(nextState.error());
+          return true;
+        }
 
-    const auto trajectoryFree = collisionChecker.checkTrajectory(trueState->pose, nextState->pose);
-    if (!trajectoryFree) {
-      failure.emplace(trajectoryFree.error());
-      return true;
-    }
-    if (!*trajectoryFree) {
-      failure.emplace(
-          ad::Error{ad::ErrorCode::InvalidInput, "Collision detected during propagation."});
-      return true;
-    }
+        const auto trajectoryFree =
+            collisionChecker.checkTrajectory(trueState->pose, nextState->pose);
+        if (!trajectoryFree) {
+          failure.emplace(trajectoryFree.error());
+          return true;
+        }
+        if (!*trajectoryFree) {
+          failure.emplace(ad::Error{.code = ad::ErrorCode::InvalidInput,
+                                    .message = "Collision detected in trajectory propagation."});
+          return true;
+        }
 
-    trueState.emplace(ad::simulation::MotionState{nextState->pose, nextState->twist});
+        trueState.emplace(
+            ad::simulation::MotionState{.pose = nextState->pose, .twist = nextState->twist});
 
-    const auto distanceAfter = std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
+        const auto distanceAfter =
+            std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
 
-    logFile << step << ',' << distanceBefore << ',' << distanceAfter << ',' << positionError << ','
-            << headingError << ',' << updatedEstimate->score << ',' << trueState->pose.x << ','
-            << trueState->pose.y << ',' << trueState->pose.theta << ',' << updatedEstimate->pose.x
-            << ',' << updatedEstimate->pose.y << ',' << updatedEstimate->pose.theta << ','
-            << appliedCommand.v << ',' << appliedCommand.w << ','
-            << ad::demo::serializePoints(scanPoints) << '\n';
+        logFile << step << ',' << distanceBefore << ',' << distanceAfter << ',' << positionError
+                << ',' << headingError << ',' << updatedEstimate->score << ',' << trueState->pose.x
+                << ',' << trueState->pose.y << ',' << trueState->pose.theta << ','
+                << updatedEstimate->pose.x << ',' << updatedEstimate->pose.y << ','
+                << updatedEstimate->pose.theta << ',' << appliedCommand.v << ',' << appliedCommand.w
+                << ',' << ad::demo::serializePoints(scanPoints) << '\n';
 
-    std::this_thread::sleep_for(kFrameDelay);
-    return distanceAfter <= kGoalTolerance;
-  });
+        std::this_thread::sleep_for(kFrameDelay);
+        return distanceAfter <= kGoalTolerance;
+      });
 
   if (failure) {
     fmt::print(stderr, "Simulation error: {}\n", failure->message);

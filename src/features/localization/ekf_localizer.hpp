@@ -2,6 +2,7 @@
 
 #include "i_localizer.hpp"
 #include "localization_config.hpp"
+#include "localizer_util.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -18,11 +19,6 @@ struct EkfLocalizerConfig {
   const std::size_t minObservations;
 };
 
-struct LineModel {
-  double rho;
-  double alpha;
-};
-
 class EkfLocalizer final : public ILocalizer {
 public:
   [[nodiscard]] static auto defaultConfig() -> EkfLocalizerConfig;
@@ -31,46 +27,23 @@ public:
 
   [[nodiscard]] auto reset(const types::Pose &initialPose,
                            const std::array<double, 9> &initialCovariance) -> Status override;
-  [[nodiscard]] auto predict(const types::Twist &control, double dt) -> Status override;
+  [[nodiscard]] auto predict(const types::Twist &control, double deltaT) -> Status override;
   [[nodiscard]] auto update(const types::LidarScan &scan, const types::MapData &map)
       -> Status override;
   [[nodiscard]] auto estimate() const -> Result<LocalizerEstimate> override;
 
 private:
-  struct MapSignature {
-    int width;
-    int height;
-    double resolution;
-    std::size_t gridSize;
-  };
-
   struct State {
     double x;
     double y;
     double theta;
   };
 
-  struct MapLine {
-    types::LineSegment segment;
-    LineModel model;
-    double directionX;
-    double directionY;
-    double minProjection;
-    double maxProjection;
-  };
-
-  EkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature, EkfLocalizerConfig config);
-
-  [[nodiscard]] static auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
-  [[nodiscard]] static auto signatureMatches(const MapSignature &signature,
-                                             const types::MapData &map) -> bool;
-  [[nodiscard]] static auto extractLinesFromMap(const types::MapData &map,
-                                                const HoughConfig &config)
-      -> Result<std::vector<MapLine>>;
-
+  EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
+               EkfLocalizerConfig config);
   EkfLocalizerConfig config_;
-  std::vector<MapLine> mapLines_;
-  MapSignature mapSignature_;
+  std::vector<util::MapLine> mapLines_;
+  util::MapSignature mapSignature_;
   State state_;
   std::array<double, 9> covariance_;
   double score_ = 0.0;
