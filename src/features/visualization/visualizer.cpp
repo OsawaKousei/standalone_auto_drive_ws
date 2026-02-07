@@ -192,6 +192,31 @@ auto Visualizer::renderMarker(const types::Point &point, const MapGeometry &map,
   return {};
 }
 
+auto Visualizer::renderPoints(std::span<const types::Point> points, const MapGeometry &map,
+                              double size, std::string_view color) const -> Status {
+  if (points.empty()) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::EmptyCollection, .message = "Point set is empty."});
+  }
+  if (size <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Point size must be positive."});
+  }
+
+  const auto toCell = [&](double value) -> double { return value / map.resolution; };
+  auto xValues = std::vector<double>{};
+  auto yValues = std::vector<double>{};
+  xValues.reserve(points.size());
+  yValues.reserve(points.size());
+  for (const auto &point : points) {
+    xValues.push_back(toCell(point.x));
+    yValues.push_back(toCell(point.y));
+  }
+
+  matplotlibcpp::scatter(xValues, yValues, size, {{"color", std::string{color}}});
+  return {};
+}
+
 auto Visualizer::renderScan(const types::Pose &pose, const types::LidarScan &scan,
                             const MapGeometry &map) const -> Status {
   if (scan.ranges.empty()) {

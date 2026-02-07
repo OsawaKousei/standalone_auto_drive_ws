@@ -21,6 +21,7 @@ struct LogRecord {
   int step = 0;
   types::Pose truePose{};
   types::Pose estPose{};
+  std::vector<types::Point> scanPoints;
   std::vector<double> ranges;
 };
 
@@ -157,21 +158,33 @@ struct LogData {
           types::Pose{std::stod(cells[6]), std::stod(cells[7]), std::stod(cells[8])};
       const auto estPose =
           types::Pose{std::stod(cells[9]), std::stod(cells[10]), std::stod(cells[11])};
+      auto scanPoints = std::vector<types::Point>{};
       auto ranges = std::vector<double>{};
       if (cells.size() >= 15U) {
-        for (const auto &value : splitDelimited(cells[14], ';')) {
-          if (value.empty()) {
-            continue;
+        if (cells[14].find(':') != std::string::npos) {
+          auto parsed = parsePoints(cells[14]);
+          if (!parsed) {
+            return tl::make_unexpected(parsed.error());
           }
-          ranges.push_back(std::stod(value));
+          scanPoints = std::move(*parsed);
+        } else {
+          for (const auto &value : splitDelimited(cells[14], ';')) {
+            if (value.empty()) {
+              continue;
+            }
+            ranges.push_back(std::stod(value));
+          }
         }
       }
       if (scanMeta && !ranges.empty() && scanMeta->count != ranges.size()) {
         return tl::make_unexpected(
             Error{.code = ErrorCode::SizeMismatch, .message = "Scan range count mismatch."});
       }
-      records.push_back(LogRecord{
-          .step = step, .truePose = truePose, .estPose = estPose, .ranges = std::move(ranges)});
+      records.push_back(LogRecord{.step = step,
+                                  .truePose = truePose,
+                                  .estPose = estPose,
+                                  .scanPoints = std::move(scanPoints),
+                                  .ranges = std::move(ranges)});
     } catch (const std::exception &) {
       return tl::make_unexpected(
           Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse log row."});
@@ -312,7 +325,14 @@ auto main(int argc, char **argv) -> int {
       return 1;
     }
 
-    if (logData.scanMeta && !record.ranges.empty()) {
+    if (!record.scanPoints.empty()) {
+      const auto scanStatus =
+          viz.renderPoints(std::span{record.scanPoints}, mapGeometry, 10.0, "green");
+      if (!scanStatus) {
+        fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
+        return 1;
+      }
+    } else if (logData.scanMeta && !record.ranges.empty()) {
       const auto scan = ad::types::LidarScan{.ranges = record.ranges,
                                              .minAngle = logData.scanMeta->minAngle,
                                              .angleIncrement = logData.scanMeta->angleIncrement,

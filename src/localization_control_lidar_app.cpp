@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fmt/core.h>
 #include <fstream>
+#include <iomanip>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -44,7 +45,7 @@ namespace ad::demo {
     if (index != 0) {
       output.push_back(';');
     }
-    output += fmt::format("{}:{}", points[index].x, points[index].y);
+    output += fmt::format("{:.8f}:{:.8f}", points[index].x, points[index].y);
   }
   return output;
 }
@@ -55,9 +56,23 @@ namespace ad::demo {
     if (index != 0) {
       output.push_back(';');
     }
-    output += fmt::format("{}", ranges[index]);
+    output += fmt::format("{:.8f}", ranges[index]);
   }
   return output;
+}
+
+[[nodiscard]] auto scanToPoints(const types::Pose &pose, const types::LidarScan &scan)
+    -> std::vector<types::Point> {
+  auto points = std::vector<types::Point>{};
+  points.reserve(scan.ranges.size());
+  for (const auto angleIndex : std::views::iota(std::size_t{0}, scan.ranges.size())) {
+    const auto angle =
+        pose.theta + scan.minAngle + (scan.angleIncrement * static_cast<double>(angleIndex));
+    const auto distance = scan.ranges[angleIndex];
+    points.push_back(
+        types::Point{pose.x + (std::cos(angle) * distance), pose.y + (std::sin(angle) * distance)});
+  }
+  return points;
 }
 
 } // namespace ad::demo
@@ -139,6 +154,7 @@ auto main() -> int {
     fmt::print(stderr, "Log file error: failed to open log file.\n");
     return 1;
   }
+  logFile << std::fixed << std::setprecision(8);
   logFile << "# localization_control_lidar_demo log\n";
   logFile << "# dt=" << dt << ", goal_tolerance=" << kGoalTolerance << ", max_steps=" << kMaxSteps
           << "\n";
@@ -146,17 +162,9 @@ auto main() -> int {
   logFile << "# path=" << ad::demo::serializePoints(std::span{*pathResult}) << "\n";
   logFile << "# columns: "
              "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,scan_ranges\n";
+             "est_y,est_theta,v,w,scan_points\n";
   logFile << "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,scan_ranges\n";
-
-  const auto scanMetaResult = lidar.simulate(map, trueState->pose);
-  if (!scanMetaResult) {
-    fmt::print(stderr, "Log scan meta error: {}\n", scanMetaResult.error().message);
-    return 1;
-  }
-  logFile << "# scan_meta=" << scanMetaResult->minAngle << ';' << scanMetaResult->angleIncrement
-          << ';' << scanMetaResult->maxRange << ';' << scanMetaResult->ranges.size() << '\n';
+             "est_y,est_theta,v,w,scan_points\n";
 
   auto failure = std::optional<ad::Error>{};
 
@@ -223,6 +231,7 @@ auto main() -> int {
       failure.emplace(scanResult.error());
       return true;
     }
+    const auto scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
 
     const auto updateStatus = localizer.update(*scanResult, map);
     if (!updateStatus) {
@@ -299,7 +308,7 @@ auto main() -> int {
             << trueState->pose.y << ',' << trueState->pose.theta << ',' << updatedEstimate->pose.x
             << ',' << updatedEstimate->pose.y << ',' << updatedEstimate->pose.theta << ','
             << appliedCommand.v << ',' << appliedCommand.w << ','
-            << ad::demo::serializeRanges(scanResult->ranges) << '\n';
+            << ad::demo::serializePoints(scanPoints) << '\n';
 
     std::this_thread::sleep_for(kFrameDelay);
     return distanceAfter <= kGoalTolerance;
