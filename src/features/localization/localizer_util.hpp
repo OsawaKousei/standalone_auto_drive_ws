@@ -46,7 +46,7 @@ struct LineObservation {
 [[nodiscard]] auto mapHasConsistentGrid(const types::MapData &map) -> bool;
 [[nodiscard]] auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Point>;
 [[nodiscard]] auto passesGate(double residual, double variance, double threshold) -> bool;
-[[nodiscard]] auto toLineModel(double rho, double alpha) -> LineModel;
+[[nodiscard]] auto toLineModel(LineModel raw) -> LineModel;
 [[nodiscard]] auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit>;
 [[nodiscard]] auto makeExpectedLine(const LineModel &mapLine, double x, double y, double theta)
     -> LineObservation;

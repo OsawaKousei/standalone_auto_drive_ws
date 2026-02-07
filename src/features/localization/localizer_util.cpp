@@ -65,9 +65,9 @@ auto passesGate(double residual, double variance, double threshold) -> bool {
   return normalized <= threshold;
 }
 
-auto toLineModel(double rho, double alpha) -> LineModel {
-  auto normalizedRho = rho;
-  auto normalizedAlpha = normalizeAngle(alpha);
+auto toLineModel(LineModel raw) -> LineModel {
+  auto normalizedRho = raw.rho;
+  auto normalizedAlpha = normalizeAngle(raw.alpha);
   if (normalizedRho < 0.0) {
     normalizedRho = -normalizedRho;
     normalizedAlpha = normalizeAngle(normalizedAlpha + std::numbers::pi);
@@ -111,7 +111,7 @@ auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> 
   const auto ny = std::sin(normal);
   const auto rho = (nx * meanX) + (ny * meanY);
 
-  auto model = toLineModel(rho, normal);
+  auto model = toLineModel(LineModel{rho, normal});
 
   const auto lineNx = std::cos(model.alpha);
   const auto lineNy = std::sin(model.alpha);
@@ -260,7 +260,7 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
       break;
     }
 
-    const auto normalized = toLineModel(candidate.rho, candidate.alpha);
+    const auto normalized = toLineModel(LineModel{candidate.rho, candidate.alpha});
     bool tooClose = false;
     for (const auto &existing : lines) {
       const auto rhoDiff = std::abs(existing.model.rho - normalized.rho);
