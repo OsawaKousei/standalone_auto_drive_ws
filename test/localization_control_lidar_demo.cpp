@@ -1,5 +1,5 @@
 #include "features/control/pure_pursuit.hpp"
-#include "features/localization/pure_ekf_localizer.hpp"
+#include "features/localization/ekf_localizer.hpp"
 #include "features/planning/astar_planner.hpp"
 #include "features/planning/grid_collision_checker.hpp"
 #include "features/simulation/collision_checker.hpp"
@@ -73,15 +73,15 @@ auto main() -> int {
     return 1;
   }
 
-  const auto localizerResult = ad::localization::PureEkfLocalizer::create(
-      map, ad::localization::PureEkfLocalizer::defaultConfig());
+  auto localizerResult =
+      ad::localization::EkfLocalizer::create(map, ad::localization::EkfLocalizer::defaultConfig());
   if (!localizerResult) {
     fmt::print(stderr, "Localizer error: {}\n", localizerResult.error().message);
     return 1;
   }
   auto localizer = std::move(*localizerResult);
   const auto initialCovariance = std::array<double, 9>{0.5, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.2};
-  const auto initStatus = localizer.reset(start, initialCovariance);
+  const auto initStatus = localizer->reset(start, initialCovariance);
   if (!initStatus) {
     fmt::print(stderr, "Localizer error: {}\n", initStatus.error().message);
     return 1;
@@ -150,7 +150,7 @@ auto main() -> int {
       return true;
     }
 
-    const auto estimateResult = localizer.estimate();
+    const auto estimateResult = localizer->estimate();
     if (!estimateResult) {
       failure.emplace(estimateResult.error());
       return true;
@@ -171,7 +171,7 @@ auto main() -> int {
     const auto appliedCommand =
         ad::types::Twist{.v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
 
-    const auto predictStatus = localizer.predict(appliedCommand, dt);
+    const auto predictStatus = localizer->predict(appliedCommand, dt);
     if (!predictStatus) {
       failure.emplace(predictStatus.error());
       return true;
@@ -183,13 +183,13 @@ auto main() -> int {
       return true;
     }
 
-    const auto updateStatus = localizer.update(*scanResult, map);
+    const auto updateStatus = localizer->update(*scanResult, map);
     if (!updateStatus) {
       failure.emplace(updateStatus.error());
       return true;
     }
 
-    const auto updatedEstimate = localizer.estimate();
+    const auto updatedEstimate = localizer->estimate();
     if (!updatedEstimate) {
       failure.emplace(updatedEstimate.error());
       return true;

@@ -4,11 +4,12 @@
 #include "localization_config.hpp"
 
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 namespace ad::localization {
 
-struct PureEkfLocalizerConfig {
+struct EkfLocalizerConfig {
   const HoughConfig hough;
   const EkfConfig ekf;
   const double maxAssociationDistance;
@@ -22,11 +23,11 @@ struct LineModel {
   double alpha;
 };
 
-class PureEkfLocalizer final : public ILocalizer {
+class EkfLocalizer final : public ILocalizer {
 public:
-  [[nodiscard]] static auto defaultConfig() -> PureEkfLocalizerConfig;
-  [[nodiscard]] static auto create(const types::MapData &map, PureEkfLocalizerConfig config)
-      -> Result<PureEkfLocalizer>;
+  [[nodiscard]] static auto defaultConfig() -> EkfLocalizerConfig;
+  [[nodiscard]] static auto create(const types::MapData &map, EkfLocalizerConfig config)
+      -> Result<std::unique_ptr<EkfLocalizer>>;
 
   [[nodiscard]] auto reset(const types::Pose &initialPose,
                            const std::array<double, 9> &initialCovariance) -> Status override;
@@ -58,8 +59,7 @@ private:
     double maxProjection;
   };
 
-  PureEkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
-                   PureEkfLocalizerConfig config);
+  EkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature, EkfLocalizerConfig config);
 
   [[nodiscard]] static auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
   [[nodiscard]] static auto signatureMatches(const MapSignature &signature,
@@ -68,13 +68,13 @@ private:
                                                 const HoughConfig &config)
       -> Result<std::vector<MapLine>>;
 
-  PureEkfLocalizerConfig config_;
+  EkfLocalizerConfig config_;
   std::vector<MapLine> mapLines_;
   MapSignature mapSignature_;
   State state_;
   std::array<double, 9> covariance_;
-  double score_;
-  bool hasState_;
+  double score_ = 0.0;
+  bool hasState_ = false;
 };
 
 } // namespace ad::localization
