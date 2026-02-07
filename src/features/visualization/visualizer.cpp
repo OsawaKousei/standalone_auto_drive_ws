@@ -23,7 +23,7 @@ namespace {
 }
 
 [[nodiscard]] auto ensurePathContains(const std::string &key, const std::string &value) -> Status {
-  const auto current = std::getenv(key.c_str());
+  auto *const current = std::getenv(key.c_str());
   if (current == nullptr) {
     return setEnvValue(key, value);
   }
@@ -64,7 +64,7 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
 
   last_map_ = MapGeometry{.width = map.width, .height = map.height, .resolution = map.resolution};
 
-  const auto gridImage = [&]() {
+  const auto gridImage = [&]() -> std::vector<float> {
     auto data = std::vector<float>(static_cast<std::size_t>(map.width * map.height), 0.0F);
     for (int r = 0; r < map.height; ++r) {
       for (int c = 0; c < map.width; ++c) {
@@ -96,7 +96,7 @@ auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status 
     return tl::make_unexpected(map.error());
   }
 
-  const auto toCell = [&](double value) { return value / map->resolution; };
+  const auto toCell = [&](double value) -> double { return value / map->resolution; };
 
   auto xs = std::vector<double>{};
   auto ys = std::vector<double>{};
@@ -123,7 +123,7 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
     return tl::make_unexpected(map.error());
   }
 
-  const auto toCell = [&](double value) { return value / map->resolution; };
+  const auto toCell = [&](double value) -> double { return value / map->resolution; };
 
   auto outlineX = std::vector<double>{};
   auto outlineY = std::vector<double>{};
@@ -165,7 +165,7 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
     return tl::make_unexpected(map.error());
   }
 
-  const auto toCell = [&](double value) { return value / map->resolution; };
+  const auto toCell = [&](double value) -> double { return value / map->resolution; };
 
   auto xs = std::vector<double>{};
   auto ys = std::vector<double>{};
@@ -173,10 +173,10 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
   ys.reserve(ranges.size());
   const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(ranges.size());
   for (const auto i : std::views::iota(std::size_t{0}, ranges.size())) {
-    const auto angle = pose.theta - std::numbers::pi + angleStep * static_cast<double>(i);
+    const auto angle = pose.theta - std::numbers::pi + (angleStep * static_cast<double>(i));
     const auto distance = ranges[i];
-    xs.push_back(toCell(pose.x + std::cos(angle) * distance));
-    ys.push_back(toCell(pose.y + std::sin(angle) * distance));
+    xs.push_back(toCell(pose.x + (std::cos(angle) * distance)));
+    ys.push_back(toCell(pose.y + (std::sin(angle) * distance)));
   }
 
   matplotlibcpp::scatter(xs, ys, 10.0, {{"color", "green"}});
@@ -186,8 +186,8 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
 }
 
 auto Visualizer::configurePythonEnvironment() -> Status {
-  const auto pythonHome = std::getenv("PYTHONHOME");
-  const auto virtualEnv = std::getenv("VIRTUAL_ENV");
+  auto *const pythonHome = std::getenv("PYTHONHOME");
+  auto *const virtualEnv = std::getenv("VIRTUAL_ENV");
 
   if (pythonHome == nullptr && virtualEnv == nullptr) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
