@@ -1,5 +1,5 @@
 build/
 *.png
-tools/*yaml
-tools/*pgm
+# tools/*yaml
+# tools/*pgm
 *.log
