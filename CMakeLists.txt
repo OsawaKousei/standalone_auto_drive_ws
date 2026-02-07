@@ -38,7 +38,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
-# 4. matplotlib-cpp (header-only)
+# 4. Eigen (header-only)
+FetchContent_Declare(
+  eigen
+  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+  GIT_TAG        3.4.0
+)
+FetchContent_MakeAvailable(eigen)
+
+# 5. matplotlib-cpp (header-only)
 FetchContent_Declare(
   matplotlibcpp
   GIT_REPOSITORY https://github.com/lava/matplotlib-cpp.git
@@ -81,6 +89,7 @@ if(ENABLE_SANITIZER)
 endif()
 
 target_link_libraries(ad_core PUBLIC fmt::fmt tl::expected)
+target_link_libraries(ad_core PUBLIC Eigen3::Eigen)
 target_include_directories(ad_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(ad_core PUBLIC Python3::Python)
 target_include_directories(ad_core PUBLIC ${matplotlibcpp_SOURCE_DIR})
