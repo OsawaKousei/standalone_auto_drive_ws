@@ -1,23 +1,25 @@
 #include "dijkstra_planner.hpp"
 
-#include <array>
 #include <cmath>
+#include <functional>
+#include <limits>
 #include <optional>
 #include <queue>
 #include <ranges>
+#include <utility>
 #include <vector>
 
 namespace ad::planning {
 namespace {
 
 struct GridCoord {
-  int x;
-  int y;
+  const int x;
+  const int y;
 };
 
 struct GridOffset {
-  int dx;
-  int dy;
+  const int dx;
+  const int dy;
 };
 
 [[nodiscard]] auto cellCount(const types::MapData &map) -> std::size_t {
@@ -46,9 +48,9 @@ struct GridOffset {
 
 [[nodiscard]] auto toCoord(const types::MapData &map, std::size_t index) -> GridCoord {
   const auto width = static_cast<std::size_t>(map.width);
-  const auto x = static_cast<int>(index % width);
-  const auto y = static_cast<int>(index / width);
-  return GridCoord{.x = x, .y = y};
+  const auto xValue = static_cast<int>(index % width);
+  const auto yValue = static_cast<int>(index / width);
+  return GridCoord{.x = xValue, .y = yValue};
 }
 
 [[nodiscard]] auto cellCenter(const types::MapData &map, const GridCoord &coord) -> types::Point {
@@ -111,19 +113,24 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
 
   const auto totalCells = cellCount(map);
   auto previous = std::vector<std::optional<std::size_t>>(totalCells, std::nullopt);
-  auto visited = std::vector<bool>(totalCells, false);
+  auto distances = std::vector<double>(totalCells, std::numeric_limits<double>::infinity());
 
-  std::queue<std::size_t> frontier;
-  visited[startIndex] = true;
-  frontier.push(startIndex);
+  using Node = std::pair<double, std::size_t>;
+  auto frontier = std::priority_queue<Node, std::vector<Node>, std::greater<>>{};
+  distances[startIndex] = 0.0;
+  frontier.emplace(0.0, startIndex);
 
   const auto offsets =
-      std::array<GridOffset, 4>{GridOffset{.dx = 1, .dy = 0}, GridOffset{.dx = -1, .dy = 0},
-                                GridOffset{.dx = 0, .dy = 1}, GridOffset{.dx = 0, .dy = -1}};
+      std::vector<GridOffset>{GridOffset{.dx = 1, .dy = 0}, GridOffset{.dx = -1, .dy = 0},
+                              GridOffset{.dx = 0, .dy = 1}, GridOffset{.dx = 0, .dy = -1}};
 
   while (!frontier.empty()) {
-    const auto current = frontier.front();
+    const auto [currentCost, current] = frontier.top();
     frontier.pop();
+
+    if (currentCost > distances[current]) {
+      continue;
+    }
 
     if (current == goalIndex) {
       break;
@@ -141,17 +148,18 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
       }
 
       const auto neighborIndex = toIndex(map, neighbor);
-      if (visited[neighborIndex]) {
+      const auto nextCost = currentCost + 1.0;
+      if (nextCost >= distances[neighborIndex]) {
         continue;
       }
 
-      visited[neighborIndex] = true;
+      distances[neighborIndex] = nextCost;
       previous[neighborIndex] = current;
-      frontier.push(neighborIndex);
+      frontier.emplace(nextCost, neighborIndex);
     }
   }
 
-  if (!previous[goalIndex]) {
+  if (!previous[goalIndex] && startIndex != goalIndex) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "No path found to the goal."});
   }
