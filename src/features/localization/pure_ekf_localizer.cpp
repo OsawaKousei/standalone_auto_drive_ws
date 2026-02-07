@@ -233,8 +233,9 @@ auto PureEkfLocalizer::defaultConfig() -> PureEkfLocalizerConfig {
                                 .ekf = EkfConfig{.processNoiseTranslation = 0.05,
                                                  .processNoiseRotation = 0.03,
                                                  .measurementNoiseRange = 0.12,
-                                                 .measurementNoiseAngle = 0.08},
+                                                 .measurementNoiseAngle = 0.12},
                                 .maxAssociationDistance = 0.3,
+                                .segmentMargin = 0.3,
                                 .gateThreshold = 6.0};
 }
 
@@ -407,7 +408,23 @@ auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const Houg
     const auto endPoint = types::Point{.x = (dx * (*maxProjection)) + (nx * candidate.rho),
                                        .y = (dy * (*maxProjection)) + (ny * candidate.rho)};
 
-    lines.push_back(MapLine{types::LineSegment{startPoint, endPoint}, normalized});
+    const auto segDx = endPoint.x - startPoint.x;
+    const auto segDy = endPoint.y - startPoint.y;
+    const auto segLength = std::hypot(segDx, segDy);
+    if (segLength < kEpsilon) {
+      continue;
+    }
+
+    const auto dirX = segDx / segLength;
+    const auto dirY = segDy / segLength;
+    auto minProjValue = (dirX * startPoint.x) + (dirY * startPoint.y);
+    auto maxProjValue = (dirX * endPoint.x) + (dirY * endPoint.y);
+    if (minProjValue > maxProjValue) {
+      std::swap(minProjValue, maxProjValue);
+    }
+
+    lines.push_back(MapLine{types::LineSegment{startPoint, endPoint}, normalized, dirX, dirY,
+                            minProjValue, maxProjValue});
   }
 
   if (lines.empty()) {
@@ -501,6 +518,11 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     auto bestDistance = std::optional<double>{};
     for (std::size_t lineIndex = 0; lineIndex < mapLines_.size(); ++lineIndex) {
       const auto &line = mapLines_[lineIndex];
+      const auto projection = (line.directionX * mapX) + (line.directionY * mapY);
+      if (projection < (line.minProjection - config_.segmentMargin) ||
+          projection > (line.maxProjection + config_.segmentMargin)) {
+        continue;
+      }
       const auto nx = std::cos(line.model.alpha);
       const auto ny = std::sin(line.model.alpha);
       const auto distance = std::abs((nx * mapX) + (ny * mapY) - line.model.rho);

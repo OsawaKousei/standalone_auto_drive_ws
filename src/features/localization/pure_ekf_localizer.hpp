@@ -12,6 +12,7 @@ struct PureEkfLocalizerConfig {
   const HoughConfig hough;
   const EkfConfig ekf;
   const double maxAssociationDistance;
+  const double segmentMargin;
   const double gateThreshold;
 };
 
@@ -50,6 +51,10 @@ private:
   struct MapLine {
     types::LineSegment segment;
     LineModel model;
+    double directionX;
+    double directionY;
+    double minProjection;
+    double maxProjection;
   };
 
   PureEkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
