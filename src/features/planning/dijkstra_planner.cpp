@@ -53,8 +53,8 @@ struct GridOffset {
 
 [[nodiscard]] auto cellCenter(const types::MapData &map, const GridCoord &coord) -> types::Point {
   const auto half = 0.5 * map.resolution;
-  return types::Point{(static_cast<double>(coord.x) * map.resolution) + half,
-                      (static_cast<double>(coord.y) * map.resolution) + half};
+  return types::Point{.x = (static_cast<double>(coord.x) * map.resolution) + half,
+                      .y = (static_cast<double>(coord.y) * map.resolution) + half};
 }
 
 [[nodiscard]] auto worldToCell(const types::MapData &map, const types::Pose &pose)
@@ -156,7 +156,7 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
         Error{.code = ErrorCode::InvalidInput, .message = "No path found to the goal."});
   }
 
-  const auto path = [&]() {
+  const auto path = [&]() -> types::Path {
     auto reversedIndices = std::vector<std::size_t>{};
     auto current = std::optional<std::size_t>{goalIndex};
     while (current) {
