@@ -59,23 +59,20 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
 
   const auto traceRay = [&](double angle) -> double {
     const auto steps = std::views::iota(std::size_t{1}, stepLimit + 1);
-    const auto hit = std::ranges::find_if(steps, [&](std::size_t stepIndex) -> bool {
+    for (const auto stepIndex : steps) {
       const auto distance = map.resolution * static_cast<double>(stepIndex);
       const auto xValue = pose.x + (std::cos(angle) * distance);
       const auto yValue = pose.y + (std::sin(angle) * distance);
       const auto index = cellIndex(map, types::Point{.x = xValue, .y = yValue});
       if (!index.has_value()) {
-        return true;
+        return maxRange;
       }
-      return map.grid[*index] > 0;
-    });
-
-    if (hit == std::ranges::end(steps)) {
-      return maxRange;
+      if (map.grid[*index] > 0) {
+        return std::clamp(distance, 0.0, maxRange);
+      }
     }
 
-    const auto distance = map.resolution * static_cast<double>(*hit);
-    return std::clamp(distance, 0.0, maxRange);
+    return maxRange;
   };
 
   auto scan = LidarScan{};
