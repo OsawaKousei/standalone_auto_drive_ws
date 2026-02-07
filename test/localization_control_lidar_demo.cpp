@@ -23,6 +23,7 @@
 namespace ad::demo {
 
 struct ErrorSample {
+  int step;
   double position;
   double heading;
 };
@@ -156,7 +157,7 @@ auto main() -> int {
     const auto positionError = std::hypot(dx, dy);
     const auto headingError =
         std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
-    errorHistory.push_back(ad::demo::ErrorSample{positionError, headingError});
+    errorHistory.push_back(ad::demo::ErrorSample{step, positionError, headingError});
 
     const auto frameStatus = viz.renderFrame(preparedMap);
     if (!frameStatus) {
@@ -214,17 +215,12 @@ auto main() -> int {
     return distanceToGoal <= kGoalTolerance;
   });
 
-  if (failure) {
-    fmt::print(stderr, "Simulation error: {}\n", failure->message);
-    return 1;
-  }
-
-  if (!reachedGoal) {
-    fmt::print(stderr, "Simulation ended before reaching the goal.\n");
-    return 1;
-  }
-
   if (!errorHistory.empty()) {
+    fmt::print("Localization error timeline (step, position_m, heading_rad):\n");
+    for (const auto &sample : errorHistory) {
+      fmt::print("  {:03d}, {:.4f}, {:.4f}\n", sample.step, sample.position, sample.heading);
+    }
+
     double sumPos = 0.0;
     double sumPosSq = 0.0;
     double sumHeading = 0.0;
@@ -247,12 +243,24 @@ auto main() -> int {
     fmt::print("  Heading  mean = {:.4f} rad, RMS = {:.4f} rad\n", meanHeading, rmsHeading);
   }
 
+  if (failure) {
+    fmt::print(stderr, "Simulation error: {}\n", failure->message);
+  }
+
+  if (!reachedGoal) {
+    fmt::print(stderr, "Simulation ended before reaching the goal.\n");
+  }
+
   const auto saveStatus = viz.saveFigure("localization_control_lidar_path.png");
   if (!saveStatus) {
     fmt::print(stderr, "Render error: {}\n", saveStatus.error().message);
     return 1;
   }
 
-  fmt::print("Reached goal.\n");
-  return 0;
+  if (reachedGoal && !failure) {
+    fmt::print("Reached goal.\n");
+    return 0;
+  }
+
+  return 1;
 }
