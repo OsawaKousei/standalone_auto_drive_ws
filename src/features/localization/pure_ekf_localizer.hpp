@@ -15,6 +15,11 @@ struct PureEkfLocalizerConfig {
   const double gateThreshold;
 };
 
+struct LineModel {
+  double rho;
+  double alpha;
+};
+
 class PureEkfLocalizer final : public ILocalizer {
 public:
   [[nodiscard]] static auto defaultConfig() -> PureEkfLocalizerConfig;
@@ -36,9 +41,10 @@ private:
     std::size_t gridSize;
   };
 
-  struct LineModel {
-    double rho;
-    double alpha;
+  struct State {
+    double x;
+    double y;
+    double theta;
   };
 
   struct MapLine {
@@ -59,7 +65,7 @@ private:
   PureEkfLocalizerConfig config_;
   std::vector<MapLine> mapLines_;
   MapSignature mapSignature_;
-  types::Pose pose_;
+  State state_;
   std::array<double, 9> covariance_;
   double score_;
   bool hasState_;

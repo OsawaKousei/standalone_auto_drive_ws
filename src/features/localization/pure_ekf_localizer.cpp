@@ -54,8 +54,7 @@ struct HoughCandidate {
   int votes;
 };
 
-[[nodiscard]] auto toLineModel(double rho, double alpha)
-    -> ad::localization::PureEkfLocalizer::LineModel {
+[[nodiscard]] auto toLineModel(double rho, double alpha) -> ad::localization::LineModel {
   auto normalizedRho = rho;
   auto normalizedAlpha = normalizeAngle(alpha);
   if (normalizedRho < 0.0) {
@@ -110,7 +109,7 @@ auto PureEkfLocalizer::defaultConfig() -> PureEkfLocalizerConfig {
 PureEkfLocalizer::PureEkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
                                    PureEkfLocalizerConfig config)
     : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
-      pose_{0.0, 0.0, 0.0}, covariance_{}, score_(0.0), hasState_(false) {
+      state_{0.0, 0.0, 0.0}, covariance_{}, score_(0.0), hasState_(false) {
   covariance_.fill(0.0);
 }
 
@@ -288,7 +287,7 @@ auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const Houg
 
 auto PureEkfLocalizer::reset(const types::Pose &initialPose,
                              const std::array<double, 9> &initialCovariance) -> Status {
-  pose_ = initialPose;
+  state_ = State{initialPose.x, initialPose.y, initialPose.theta};
   covariance_ = initialCovariance;
   score_ = 0.0;
   hasState_ = true;
@@ -305,13 +304,13 @@ auto PureEkfLocalizer::predict(const types::Twist &control, double dt) -> Status
     return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Delta time must be positive."});
   }
 
-  const auto cosTheta = std::cos(pose_.theta);
-  const auto sinTheta = std::sin(pose_.theta);
+  const auto cosTheta = std::cos(state_.theta);
+  const auto sinTheta = std::sin(state_.theta);
   const auto deltaX = control.v * cosTheta * dt;
   const auto deltaY = control.v * sinTheta * dt;
   const auto deltaTheta = control.w * dt;
 
-  pose_ = types::Pose{pose_.x + deltaX, pose_.y + deltaY, normalizeAngle(pose_.theta + deltaTheta)};
+  state_ = State{state_.x + deltaX, state_.y + deltaY, normalizeAngle(state_.theta + deltaTheta)};
 
   const auto f02 = -control.v * sinTheta * dt;
   const auto f12 = control.v * cosTheta * dt;
@@ -346,8 +345,8 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan has no ranges."});
   }
 
-  const auto cosTheta = std::cos(pose_.theta);
-  const auto sinTheta = std::sin(pose_.theta);
+  const auto cosTheta = std::cos(state_.theta);
+  const auto sinTheta = std::sin(state_.theta);
 
   int accepted = 0;
   int tested = 0;
@@ -362,10 +361,10 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     const auto px = range * std::cos(angle);
     const auto py = range * std::sin(angle);
 
-    const auto mapX = pose_.x + (cosTheta * px) - (sinTheta * py);
-    const auto mapY = pose_.y + (sinTheta * px) + (cosTheta * py);
+    const auto mapX = state_.x + (cosTheta * px) - (sinTheta * py);
+    const auto mapY = state_.y + (sinTheta * px) + (cosTheta * py);
 
-    auto bestLine = std::optional<MapLine>{};
+    const MapLine *bestLine = nullptr;
     auto bestDistance = std::optional<double>{};
     for (const auto &line : mapLines_) {
       const auto nx = std::cos(line.model.alpha);
@@ -376,11 +375,11 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
       }
       if (!bestDistance || distance < *bestDistance) {
         bestDistance = distance;
-        bestLine = line;
+        bestLine = &line;
       }
     }
 
-    if (!bestLine) {
+    if (bestLine == nullptr) {
       continue;
     }
 
@@ -418,8 +417,8 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     const auto ky = ph1 / s;
     const auto kt = ph2 / s;
 
-    pose_ = types::Pose{pose_.x - (kx * residual), pose_.y - (ky * residual),
-                        normalizeAngle(pose_.theta - (kt * residual))};
+    state_ = State{state_.x - (kx * residual), state_.y - (ky * residual),
+                   normalizeAngle(state_.theta - (kt * residual))};
 
     const auto hP0 = (h0 * p00) + (h1 * p10);
     const auto hP1 = (h0 * p01) + (h1 * p11);
@@ -448,7 +447,9 @@ auto PureEkfLocalizer::estimate() const -> Result<LocalizerEstimate> {
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
   }
 
-  return LocalizerEstimate{.pose = pose_, .covariance = covariance_, .score = score_};
+  return LocalizerEstimate{.pose = types::Pose{state_.x, state_.y, state_.theta},
+                           .covariance = covariance_,
+                           .score = score_};
 }
 
 } // namespace ad::localization
