@@ -9,7 +9,7 @@
 
 namespace ad::localization {
 
-struct PureEkfLocalizerConfig {
+struct EkfLocalizerConfig {
   const HoughConfig hough;
   const EkfConfig ekf;
   const double maxAssociationDistance;
@@ -25,9 +25,9 @@ struct LineModel {
 
 class EkfLocalizer final : public ILocalizer {
 public:
-  [[nodiscard]] static auto defaultConfig() -> PureEkfLocalizerConfig;
-  [[nodiscard]] static auto create(const types::MapData &map, PureEkfLocalizerConfig config)
-  -> Result<std::unique_ptr<EkfLocalizer>>;
+  [[nodiscard]] static auto defaultConfig() -> EkfLocalizerConfig;
+  [[nodiscard]] static auto create(const types::MapData &map, EkfLocalizerConfig config)
+      -> Result<std::unique_ptr<EkfLocalizer>>;
 
   [[nodiscard]] auto reset(const types::Pose &initialPose,
                            const std::array<double, 9> &initialCovariance) -> Status override;
@@ -59,8 +59,7 @@ private:
     double maxProjection;
   };
 
-  EkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
-               PureEkfLocalizerConfig config);
+  EkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature, EkfLocalizerConfig config);
 
   [[nodiscard]] static auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
   [[nodiscard]] static auto signatureMatches(const MapSignature &signature,
@@ -69,7 +68,7 @@ private:
                                                 const HoughConfig &config)
       -> Result<std::vector<MapLine>>;
 
-  PureEkfLocalizerConfig config_;
+  EkfLocalizerConfig config_;
   std::vector<MapLine> mapLines_;
   MapSignature mapSignature_;
   State state_;

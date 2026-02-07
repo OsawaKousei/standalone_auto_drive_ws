@@ -240,34 +240,34 @@ struct LineObservation {
 
 namespace ad::localization {
 
-auto PureEkfLocalizer::defaultConfig() -> PureEkfLocalizerConfig {
-  return PureEkfLocalizerConfig{.hough = HoughConfig{.thetaBins = 180,
-                                                     .rhoBins = 200,
-                                                     .minVotes = 25,
-                                                     .maxLines = 40,
-                                                     .inlierDistance = 0.12,
-                                                     .minSegmentLength = 0.8,
-                                                     .mergeRho = 0.2,
-                                                     .mergeTheta = 0.08},
-                                .ekf = EkfConfig{.processNoiseTranslation = 0.05,
-                                                 .processNoiseRotation = 0.03,
-                                                 .measurementNoiseRange = 0.12,
-                                                 .measurementNoiseAngle = 0.12},
-                                .maxAssociationDistance = 0.3,
-                                .segmentMargin = 0.3,
-                                .gateThreshold = 6.0,
-                                .minObservations = 3U};
+auto EkfLocalizer::defaultConfig() -> EkfLocalizerConfig {
+  return EkfLocalizerConfig{.hough = HoughConfig{.thetaBins = 180,
+                                                 .rhoBins = 200,
+                                                 .minVotes = 25,
+                                                 .maxLines = 40,
+                                                 .inlierDistance = 0.12,
+                                                 .minSegmentLength = 0.8,
+                                                 .mergeRho = 0.2,
+                                                 .mergeTheta = 0.08},
+                            .ekf = EkfConfig{.processNoiseTranslation = 0.05,
+                                             .processNoiseRotation = 0.03,
+                                             .measurementNoiseRange = 0.12,
+                                             .measurementNoiseAngle = 0.12},
+                            .maxAssociationDistance = 0.3,
+                            .segmentMargin = 0.3,
+                            .gateThreshold = 6.0,
+                            .minObservations = 3U};
 }
 
-PureEkfLocalizer::PureEkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
-                                   PureEkfLocalizerConfig config)
+EkfLocalizer::EkfLocalizer(std::vector<MapLine> mapLines, MapSignature signature,
+                           EkfLocalizerConfig config)
     : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
       state_{0.0, 0.0, 0.0}, covariance_{}, score_(0.0), hasState_(false) {
   covariance_.fill(0.0);
 }
 
-auto PureEkfLocalizer::create(const types::MapData &map, PureEkfLocalizerConfig config)
-    -> Result<std::unique_ptr<PureEkfLocalizer>> {
+auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
+    -> Result<std::unique_ptr<EkfLocalizer>> {
   const auto signature = mapSignatureFromMap(map);
   if (!signature) {
     return tl::make_unexpected(signature.error());
@@ -278,12 +278,12 @@ auto PureEkfLocalizer::create(const types::MapData &map, PureEkfLocalizerConfig 
     return tl::make_unexpected(mapLines.error());
   }
 
-  auto localizer = std::unique_ptr<PureEkfLocalizer>(
-      new PureEkfLocalizer(std::move(*mapLines), *signature, config));
-  return Result<std::unique_ptr<PureEkfLocalizer>>(std::move(localizer));
+  auto localizer =
+      std::unique_ptr<EkfLocalizer>(new EkfLocalizer(std::move(*mapLines), *signature, config));
+  return Result<std::unique_ptr<EkfLocalizer>>(std::move(localizer));
 }
 
-auto PureEkfLocalizer::mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
+auto EkfLocalizer::mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
   if (!util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
@@ -299,13 +299,13 @@ auto PureEkfLocalizer::mapSignatureFromMap(const types::MapData &map) -> Result<
                       .gridSize = map.grid.size()};
 }
 
-auto PureEkfLocalizer::signatureMatches(const MapSignature &signature, const types::MapData &map)
+auto EkfLocalizer::signatureMatches(const MapSignature &signature, const types::MapData &map)
     -> bool {
   return signature.width == map.width && signature.height == map.height &&
          signature.resolution == map.resolution && signature.gridSize == map.grid.size();
 }
 
-auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
+auto EkfLocalizer::extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
     -> Result<std::vector<MapLine>> {
   if (!util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
@@ -457,8 +457,8 @@ auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const Houg
   return lines;
 }
 
-auto PureEkfLocalizer::reset(const types::Pose &initialPose,
-                             const std::array<double, 9> &initialCovariance) -> Status {
+auto EkfLocalizer::reset(const types::Pose &initialPose,
+                         const std::array<double, 9> &initialCovariance) -> Status {
   state_ = State{initialPose.x, initialPose.y, initialPose.theta};
   covariance_ = initialCovariance;
   score_ = 0.0;
@@ -466,7 +466,7 @@ auto PureEkfLocalizer::reset(const types::Pose &initialPose,
   return {};
 }
 
-auto PureEkfLocalizer::predict(const types::Twist &control, double dt) -> Status {
+auto EkfLocalizer::predict(const types::Twist &control, double dt) -> Status {
   if (!hasState_) {
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
@@ -503,7 +503,7 @@ auto PureEkfLocalizer::predict(const types::Twist &control, double dt) -> Status
   return {};
 }
 
-auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData &map) -> Status {
+auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &map) -> Status {
   if (!hasState_) {
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
@@ -695,7 +695,7 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
   return {};
 }
 
-auto PureEkfLocalizer::estimate() const -> Result<LocalizerEstimate> {
+auto EkfLocalizer::estimate() const -> Result<LocalizerEstimate> {
   if (!hasState_) {
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});

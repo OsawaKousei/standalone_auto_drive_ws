@@ -73,8 +73,8 @@ auto main() -> int {
     return 1;
   }
 
-  auto localizerResult = ad::localization::PureEkfLocalizer::create(
-      map, ad::localization::PureEkfLocalizer::defaultConfig());
+  auto localizerResult =
+      ad::localization::EkfLocalizer::create(map, ad::localization::EkfLocalizer::defaultConfig());
   if (!localizerResult) {
     fmt::print(stderr, "Localizer error: {}\n", localizerResult.error().message);
     return 1;
