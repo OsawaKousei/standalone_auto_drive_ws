@@ -90,20 +90,15 @@ def main() -> None:
         "value": 0,
         "resolution": args.resolution,
         "brush_cells": 1,
-        "updating_brush": False,
     }
 
     def map_extent() -> tuple:
         resolution = state["resolution"]
         return map_width * resolution, map_height * resolution
 
-    def brush_cells_from_meters(brush_meters: float) -> int:
-        return max(1, int(round(brush_meters / args.resolution)))
-
     def brush_meters_from_cells(cells: int) -> float:
         return cells * args.resolution
 
-    state["brush_cells"] = brush_cells_from_meters(args.resolution)
     brush_radius = int(round((state["brush_cells"] - 1) / 2.0))
 
     fig, ax = plt.subplots(figsize=(7, 7))
@@ -136,14 +131,22 @@ def main() -> None:
              fontsize=9)
 
     def row_axes(index: int) -> plt.Axes:
-        y = top - 0.10 - (index * (row_height + row_gap))
+        y = top - 0.20 - (index * (row_height + row_gap))
         return plt.axes([panel_left, y, panel_width, row_height])
 
-    brush_box = TextBox(
-        row_axes(0),
-        "brush (m)",
-        initial=str(brush_meters_from_cells(state["brush_cells"])),
+    brush_label = fig.text(
+        panel_left,
+        top - 0.10,
+        f"brush: {brush_meters_from_cells(state['brush_cells']):.3f} m",
+        fontsize=9,
     )
+    button_width = 0.09
+    minus_button = Button(plt.axes([panel_left, top - 0.15, button_width, row_height]), "-")
+    plus_button = Button(
+        plt.axes([panel_left + panel_width - button_width, top - 0.15, button_width, row_height]),
+        "+",
+    )
+
     origin_x_box = TextBox(
         row_axes(1),
         "origin x",
@@ -161,35 +164,24 @@ def main() -> None:
     )
 
     button_height = 0.06
-    save_button = Button(plt.axes([panel_left, 0.22, panel_width, button_height]), "Save")
-    clear_button = Button(plt.axes([panel_left, 0.13, panel_width, button_height]), "Clear")
+    save_button = Button(plt.axes([panel_left, 0.2, panel_width, button_height]), "Save")
+    clear_button = Button(plt.axes([panel_left, 0.11, panel_width, button_height]), "Clear")
 
     def parse_meta() -> MapMeta:
         origin = (float(origin_x_box.text), float(origin_y_box.text), float(origin_t_box.text))
         return MapMeta(resolution=args.resolution, origin=origin)
 
-    def update_brush_size(value: str) -> None:
+    def update_brush_label() -> None:
+        brush_label.set_text(
+            f"brush: {brush_meters_from_cells(state['brush_cells']):.3f} m"
+        )
+        fig.canvas.draw_idle()
+
+    def adjust_brush(delta: int) -> None:
         nonlocal brush_radius
-        if state["updating_brush"]:
-            return
-        try:
-            brush_meters = float(value)
-        except ValueError:
-            brush_box.set_val(str(brush_meters_from_cells(state["brush_cells"])))
-            return
-        if brush_meters <= 0.0:
-            brush_box.set_val(str(brush_meters_from_cells(state["brush_cells"])))
-            return
-
-        cells = brush_cells_from_meters(brush_meters)
-        state["brush_cells"] = cells
-        brush_radius = int(round((cells - 1) / 2.0))
-
-        normalized = brush_meters_from_cells(cells)
-        if abs(normalized - brush_meters) > 1e-6:
-            state["updating_brush"] = True
-            brush_box.set_val(str(normalized))
-            state["updating_brush"] = False
+        state["brush_cells"] = max(1, state["brush_cells"] + delta)
+        brush_radius = int(round((state["brush_cells"] - 1) / 2.0))
+        update_brush_label()
 
 
     def on_press(event) -> None:
@@ -291,7 +283,8 @@ def main() -> None:
     fig.canvas.mpl_connect("button_release_event", on_release)
     fig.canvas.mpl_connect("motion_notify_event", on_move)
     fig.canvas.mpl_connect("scroll_event", on_scroll)
-    brush_box.on_submit(update_brush_size)
+    minus_button.on_clicked(lambda event: adjust_brush(-1))
+    plus_button.on_clicked(lambda event: adjust_brush(1))
     save_button.on_clicked(on_save)
     clear_button.on_clicked(on_clear)
 
