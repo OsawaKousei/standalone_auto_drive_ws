@@ -169,6 +169,16 @@ if(ENABLE_SANITIZER)
   target_link_options(planning_control_lidar_demo PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
+add_executable(localization_control_lidar_demo
+  test/localization_control_lidar_demo.cpp
+)
+target_link_libraries(localization_control_lidar_demo PRIVATE ad_core fmt::fmt)
+target_compile_options(localization_control_lidar_demo PRIVATE ${COMMON_COMPILE_OPTIONS})
+if(ENABLE_SANITIZER)
+  target_compile_options(localization_control_lidar_demo PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(localization_control_lidar_demo PRIVATE -fsanitize=address,undefined,leak)
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(simulation_tests)
 gtest_discover_tests(planning_tests)
