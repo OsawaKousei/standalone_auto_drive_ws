@@ -1,5 +1,6 @@
 #include "pure_pursuit.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <ranges>
 
@@ -21,12 +22,45 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
   }
 
   const auto &pose = input.currentPose;
-  const auto targetIt = std::ranges::find_if(input.path, [&](const types::Point &point) {
-    const auto dx = point.x - pose.x;
-    const auto dy = point.y - pose.y;
-    return std::hypot(dx, dy) >= config_.lookaheadDistance;
-  });
-  const auto target = (targetIt == input.path.end()) ? input.path.back() : *targetIt;
+  const auto target = [&]() -> types::Point {
+    if (input.path.size() == 1U) {
+      return input.path.front();
+    }
+
+    const auto indices = std::views::iota(std::size_t{0}, input.path.size());
+    const auto closestIndex =
+        *std::ranges::min_element(indices, [&](std::size_t lhs, std::size_t rhs) {
+          const auto dxLeft = input.path[lhs].x - pose.x;
+          const auto dyLeft = input.path[lhs].y - pose.y;
+          const auto dxRight = input.path[rhs].x - pose.x;
+          const auto dyRight = input.path[rhs].y - pose.y;
+          return std::hypot(dxLeft, dyLeft) < std::hypot(dxRight, dyRight);
+        });
+
+    auto remaining = config_.lookaheadDistance;
+    auto currentX = input.path[closestIndex].x;
+    auto currentY = input.path[closestIndex].y;
+    const auto lastIndex = input.path.size() - 1U;
+    for (const auto index : std::views::iota(closestIndex, lastIndex)) {
+      const auto next = input.path[index + 1U];
+      const auto segment = std::hypot(next.x - currentX, next.y - currentY);
+      if (segment <= 0.0) {
+        currentX = next.x;
+        currentY = next.y;
+        continue;
+      }
+      if (remaining <= segment) {
+        const auto t = remaining / segment;
+        return types::Point{currentX + (t * (next.x - currentX)),
+                            currentY + (t * (next.y - currentY))};
+      }
+      remaining -= segment;
+      currentX = next.x;
+      currentY = next.y;
+    }
+    return input.path.back();
+  }();
+
   const auto dx = target.x - pose.x;
   const auto dy = target.y - pose.y;
   const auto distance = std::hypot(dx, dy);
@@ -38,13 +72,14 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
   const auto sinTheta = std::sin(pose.theta);
   const auto xLocal = cosTheta * dx + sinTheta * dy;
   const auto yLocal = -sinTheta * dx + cosTheta * dy;
-  if (xLocal <= 0.0) {
-    return types::Twist{0.0, 0.0};
-  }
 
   const auto curvature = (2.0 * yLocal) / (distance * distance);
   const auto linearVelocity = config_.desiredLinearVelocity;
   const auto angularVelocity = curvature * linearVelocity;
+
+  if (xLocal < 0.0) {
+    return types::Twist{-linearVelocity, angularVelocity};
+  }
 
   return types::Twist{linearVelocity, angularVelocity};
 }
