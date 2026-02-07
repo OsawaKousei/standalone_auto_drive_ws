@@ -1,9 +1,9 @@
 #include "dijkstra_planner.hpp"
 #include "planner_utils.hpp"
 
-#include <cmath>
 #include <functional>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <queue>
 #include <ranges>
@@ -100,6 +100,14 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
       const auto neighbor = utils::GridCoord{.x = coord.x + move.dx, .y = coord.y + move.dy};
       if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= map.width || neighbor.y >= map.height) {
         continue;
+      }
+
+      if (move.dx != 0 && move.dy != 0) {
+        const auto sideX = utils::GridCoord{.x = coord.x + move.dx, .y = coord.y};
+        const auto sideY = utils::GridCoord{.x = coord.x, .y = coord.y + move.dy};
+        if (utils::isObstacle(map, sideX) || utils::isObstacle(map, sideY)) {
+          continue;
+        }
       }
 
       if (utils::isObstacle(map, neighbor)) {
