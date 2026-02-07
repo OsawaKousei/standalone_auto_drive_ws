@@ -5,20 +5,64 @@
 
 #include <cstdint>
 #include <fmt/core.h>
+#include <ranges>
 #include <span>
 #include <vector>
 
 namespace ad::demo {
 
 [[nodiscard]] auto makeMap() -> types::MapData {
-  const int width = 6;
-  const int height = 4;
-  const double resolution = 0.5;
+  const int width = 50;
+  const int height = 30;
+  const double resolution = 0.2;
   auto grid = std::vector<std::int8_t>(static_cast<std::size_t>(width * height), 0);
 
-  grid[static_cast<std::size_t>(1 * width + 3)] = 1;
-  grid[static_cast<std::size_t>(2 * width + 4)] = 1;
-  grid[static_cast<std::size_t>(0 * width + 1)] = 1;
+  const auto setCell = [&](int x, int y, std::int8_t value) {
+    const auto index = static_cast<std::size_t>((y * width) + x);
+    grid[index] = value;
+  };
+
+  const auto fillHorizontal = [&](int y, int xStart, int xEnd) {
+    for (const auto x : std::views::iota(xStart, xEnd + 1)) {
+      setCell(x, y, 1);
+    }
+  };
+
+  const auto fillVertical = [&](int x, int yStart, int yEnd) {
+    for (const auto y : std::views::iota(yStart, yEnd + 1)) {
+      setCell(x, y, 1);
+    }
+  };
+
+  fillHorizontal(0, 0, width - 1);
+  fillHorizontal(height - 1, 0, width - 1);
+  fillVertical(0, 0, height - 1);
+  fillVertical(width - 1, 0, height - 1);
+
+  fillHorizontal(10, 2, 46);
+  fillVertical(15, 2, 27);
+  fillHorizontal(20, 3, 45);
+  fillVertical(32, 5, 26);
+
+  fillVertical(9, 1, 9);
+  fillVertical(9, 12, 18);
+  fillVertical(9, 22, height - 2);
+
+  fillHorizontal(5, 1, 8);
+  fillHorizontal(5, 12, 31);
+  fillHorizontal(5, 34, width - 2);
+
+  fillHorizontal(25, 1, 31);
+  fillHorizontal(25, 34, width - 2);
+
+  const auto openCell = [&](int x, int y) { setCell(x, y, 0); };
+  openCell(5, 5);
+  openCell(10, 10);
+  openCell(16, 5);
+  openCell(20, 20);
+  openCell(15, 12);
+  openCell(32, 22);
+  openCell(40, 25);
 
   return types::MapData{width, height, resolution, grid};
 }
@@ -27,8 +71,8 @@ namespace ad::demo {
 
 auto main() -> int {
   const auto map = ad::demo::makeMap();
-  const ad::types::Pose start{0.25, 0.25, 0.0};
-  const ad::types::Pose goal{2.75, 1.25, 0.0};
+  const ad::types::Pose start{0.6, 0.6, 0.0};
+  const ad::types::Pose goal{8.4, 5.4, 0.0};
 
   const ad::planning::DijkstraPlanner planner;
   const auto pathResult = planner.plan(map, start, goal);
