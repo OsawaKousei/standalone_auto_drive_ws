@@ -147,8 +147,8 @@ auto tryRelaxNeighbor(const types::MapData &map, const StartGoalInfo &startGoal,
     frontier.pop();
 
     const auto heuristic = octileHeuristic(utils::toCoord(map, current), startGoal.goalCoord);
-    const auto currentCost = currentEstimate - heuristic;
-    if (currentCost > distances[current]) {
+    const auto currentCost = distances[current];
+    if (currentEstimate > currentCost + heuristic) {
       continue;
     }
 
