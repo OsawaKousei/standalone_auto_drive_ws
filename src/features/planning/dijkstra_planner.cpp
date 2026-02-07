@@ -1,6 +1,7 @@
 #include "dijkstra_planner.hpp"
 #include "planner_utils.hpp"
 
+#include <array>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -13,6 +14,25 @@ namespace ad::planning {
 
 auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
                            const types::Pose &goal) const -> Result<types::Path> {
+  const auto startGoal = validateInputs(map, start, goal);
+  if (!startGoal) {
+    return tl::make_unexpected(startGoal.error());
+  }
+
+  if (startGoal->startIndex == startGoal->goalIndex) {
+    return types::Path{startGoal->startCenter};
+  }
+
+  const auto previous = computePrevious(map, *startGoal);
+  if (!previous) {
+    return tl::make_unexpected(previous.error());
+  }
+
+  return buildPath(map, *previous, *startGoal);
+}
+
+auto DijkstraPlanner::validateInputs(const types::MapData &map, const types::Pose &start,
+                                     const types::Pose &goal) const -> Result<StartGoalInfo> {
   const auto mapStatus = utils::isValidMap(map);
   if (!mapStatus) {
     return tl::make_unexpected(mapStatus.error());
@@ -33,22 +53,24 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
                                      .message = "Start or goal cell is occupied by an obstacle."});
   }
 
-  const auto startIndex = utils::toIndex(map, *startCell);
-  const auto goalIndex = utils::toIndex(map, *goalCell);
-  if (startIndex == goalIndex) {
-    return types::Path{utils::cellCenter(map, *startCell)};
-  }
+  return StartGoalInfo{.startIndex = utils::toIndex(map, *startCell),
+                       .goalIndex = utils::toIndex(map, *goalCell),
+                       .startCenter = utils::cellCenter(map, *startCell)};
+}
 
+auto DijkstraPlanner::computePrevious(const types::MapData &map,
+                                      const StartGoalInfo &startGoal) const
+    -> Result<std::vector<std::optional<std::size_t>>> {
   const auto totalCells = utils::cellCount(map);
   auto previous = std::vector<std::optional<std::size_t>>(totalCells, std::nullopt);
   auto distances = std::vector<double>(totalCells, std::numeric_limits<double>::infinity());
 
   using Node = std::pair<double, std::size_t>;
   auto frontier = std::priority_queue<Node, std::vector<Node>, std::greater<>>{};
-  distances[startIndex] = 0.0;
-  frontier.emplace(0.0, startIndex);
+  distances[startGoal.startIndex] = 0.0;
+  frontier.emplace(0.0, startGoal.startIndex);
 
-  const auto offsets = std::vector<utils::GridOffset>{
+  const auto offsets = std::array<utils::GridOffset, 4>{
       utils::GridOffset{.dx = 1, .dy = 0}, utils::GridOffset{.dx = -1, .dy = 0},
       utils::GridOffset{.dx = 0, .dy = 1}, utils::GridOffset{.dx = 0, .dy = -1}};
 
@@ -60,7 +82,7 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
       continue;
     }
 
-    if (current == goalIndex) {
+    if (current == startGoal.goalIndex) {
       break;
     }
 
@@ -87,31 +109,33 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
     }
   }
 
-  if (!previous[goalIndex] && startIndex != goalIndex) {
+  if (!previous[startGoal.goalIndex]) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "No path found to the goal."});
   }
 
-  const auto path = [&]() -> types::Path {
-    auto reversedIndices = std::vector<std::size_t>{};
-    auto current = std::optional<std::size_t>{goalIndex};
-    while (current) {
-      reversedIndices.push_back(*current);
-      if (*current == startIndex) {
-        break;
-      }
-      current = previous[*current];
-    }
+  return previous;
+}
 
-    auto forward = std::vector<types::Point>{};
-    forward.reserve(reversedIndices.size());
-    for (const auto index : std::views::reverse(reversedIndices)) {
-      forward.push_back(utils::cellCenter(map, utils::toCoord(map, index)));
+auto DijkstraPlanner::buildPath(const types::MapData &map,
+                                const std::vector<std::optional<std::size_t>> &previous,
+                                const StartGoalInfo &startGoal) const -> types::Path {
+  auto reversedIndices = std::vector<std::size_t>{};
+  auto current = std::optional<std::size_t>{startGoal.goalIndex};
+  while (current) {
+    reversedIndices.push_back(*current);
+    if (*current == startGoal.startIndex) {
+      break;
     }
-    return forward;
-  }();
+    current = previous[*current];
+  }
 
-  return path;
+  auto forward = std::vector<types::Point>{};
+  forward.reserve(reversedIndices.size());
+  for (const auto index : std::views::reverse(reversedIndices)) {
+    forward.push_back(utils::cellCenter(map, utils::toCoord(map, index)));
+  }
+  return forward;
 }
 
 } // namespace ad::planning
