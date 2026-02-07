@@ -58,6 +58,7 @@ enable_testing()
 # --- ビルド設定 ---
 add_library(ad_core
   src/features/planning/astar_planner.cpp
+  src/features/planning/dijkstra_planner.cpp
   src/features/control/pure_pursuit.cpp
   src/features/localization/ransac_localizer.cpp
   src/features/simulation/unicycle_model.cpp
@@ -120,6 +121,16 @@ target_compile_options(visualization_demo PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
   target_compile_options(visualization_demo PRIVATE -fsanitize=address,undefined,leak)
   target_link_options(visualization_demo PRIVATE -fsanitize=address,undefined,leak)
+endif()
+
+add_executable(planning_visualization_demo
+  test/planning_visualization_demo.cpp
+)
+target_link_libraries(planning_visualization_demo PRIVATE ad_core fmt::fmt)
+target_compile_options(planning_visualization_demo PRIVATE ${COMMON_COMPILE_OPTIONS})
+if(ENABLE_SANITIZER)
+  target_compile_options(planning_visualization_demo PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(planning_visualization_demo PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
 include(GoogleTest)
