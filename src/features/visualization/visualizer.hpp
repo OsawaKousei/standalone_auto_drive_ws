@@ -30,7 +30,7 @@ private:
   [[nodiscard]] static auto configurePythonEnvironment() -> Status;
   [[nodiscard]] auto currentMapGeometry() const -> Result<MapGeometry>;
 
-  mutable std::optional<MapGeometry> last_map_{};
+  mutable std::optional<MapGeometry> last_map_;
 };
 
 } // namespace ad::visualization

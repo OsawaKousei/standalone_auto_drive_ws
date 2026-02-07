@@ -16,7 +16,8 @@ namespace {
 [[nodiscard]] auto setEnvValue(const std::string &key, const std::string &value) -> Status {
   if (setenv(key.c_str(), value.c_str(), 1) != 0) {
     return tl::make_unexpected(
-        Error{ErrorCode::InvalidInput, fmt::format("Failed to set {} for matplotlib", key)});
+        Error{.code = ErrorCode::InvalidInput,
+              .message = fmt::format("Failed to set {} for matplotlib", key)});
   }
   return {};
 }
@@ -50,17 +51,18 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
   }
 
   if (map.width <= 0 || map.height <= 0 || map.resolution <= 0.0) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Invalid map geometry."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Map has invalid dimensions."});
   }
 
   const auto expectedCells =
       static_cast<std::size_t>(map.width) * static_cast<std::size_t>(map.height);
   if (map.grid.size() != expectedCells) {
-    return tl::make_unexpected(
-        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
+    return tl::make_unexpected(Error{.code = ErrorCode::SizeMismatch,
+                                     .message = "Map grid size does not match width and height."});
   }
 
-  last_map_ = MapGeometry{map.width, map.height, map.resolution};
+  last_map_ = MapGeometry{.width = map.width, .height = map.height, .resolution = map.resolution};
 
   const auto gridImage = [&]() {
     auto data = std::vector<float>(static_cast<std::size_t>(map.width * map.height), 0.0F);
@@ -85,7 +87,8 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
 
 auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status {
   if (path.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Path is empty."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::EmptyCollection, .message = "Path is empty."});
   }
 
   const auto map = currentMapGeometry();
@@ -111,7 +114,8 @@ auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status 
 auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &footprint) const
     -> Status {
   if (footprint.vertices.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Footprint is empty."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::EmptyCollection, .message = "Footprint has no vertices."});
   }
 
   const auto map = currentMapGeometry();
@@ -152,7 +156,8 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
 auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ranges) const
     -> Status {
   if (ranges.empty()) {
-    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan is empty."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::EmptyCollection, .message = "Scan is empty."});
   }
 
   const auto map = currentMapGeometry();
@@ -185,9 +190,10 @@ auto Visualizer::configurePythonEnvironment() -> Status {
   const auto virtualEnv = std::getenv("VIRTUAL_ENV");
 
   if (pythonHome == nullptr && virtualEnv == nullptr) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput,
-                                     "Python environment is missing. Set VIRTUAL_ENV or "
-                                     "PYTHONHOME to a Python with numpy and matplotlib."});
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message =
+                                         "Python environment is missing. Set VIRTUAL_ENV or "
+                                         "PYTHONHOME to a Python with numpy and matplotlib."});
   }
 
   const auto pythonRoot = pythonHome != nullptr ? std::string{pythonHome} : std::string{virtualEnv};
@@ -204,8 +210,8 @@ auto Visualizer::configurePythonEnvironment() -> Status {
 
 auto Visualizer::currentMapGeometry() const -> Result<MapGeometry> {
   if (!last_map_) {
-    return tl::make_unexpected(
-        Error{ErrorCode::InvalidInput, "Call renderFrame(map) before drawing overlays."});
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Call renderFrame(map) before drawing overlays."});
   }
   return *last_map_;
 }
