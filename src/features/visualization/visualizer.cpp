@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <numbers>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -18,8 +19,8 @@ constexpr double kRobotMarkerSize = 40.0;
 constexpr double kScanMarkerSize = 10.0;
 constexpr double kUiPauseSeconds = 0.001;
 
-[[nodiscard]] auto setEnvValue(const std::string &key, const std::string &value) -> Status {
-  if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+[[nodiscard]] auto setEnvValue(std::string_view key, std::string_view value) -> Status {
+  if (setenv(std::string{key}.c_str(), std::string{value}.c_str(), 1) != 0) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = fmt::format("Failed to set {} for matplotlib", key)});
@@ -27,18 +28,25 @@ constexpr double kUiPauseSeconds = 0.001;
   return {};
 }
 
-[[nodiscard]] auto ensurePathContains(const std::string &key, const std::string &value) -> Status {
-  auto *const current = std::getenv(key.c_str());
+[[nodiscard]] auto getEnvValue(std::string_view key) -> std::optional<std::string> {
+  const auto *const current = std::getenv(std::string{key}.c_str());
   if (current == nullptr) {
+    return std::nullopt;
+  }
+  return std::string{current};
+}
+
+[[nodiscard]] auto ensurePathContains(std::string_view key, std::string_view value) -> Status {
+  const auto current = getEnvValue(key);
+  if (!current) {
     return setEnvValue(key, value);
   }
 
-  const auto currentValue = std::string{current};
-  if (currentValue.find(value) != std::string::npos) {
+  if (current->find(value) != std::string::npos) {
     return {};
   }
 
-  const auto merged = fmt::format("{}:{}", value, currentValue);
+  const auto merged = fmt::format("{}:{}", value, *current);
   return setEnvValue(key, merged);
 }
 
@@ -99,6 +107,7 @@ auto Visualizer::renderFrame(const PreparedMap &prepared) const -> Status {
   const auto extentY = static_cast<double>(prepared.geometry.height);
 
   matplotlibcpp::clf();
+  // Matplotlibcpp requires a raw pointer for the image buffer.
   matplotlibcpp::imshow(prepared.gridImage.data(), prepared.geometry.height,
                         prepared.geometry.width, kImageChannelCount, {{"origin", "lower"}});
   matplotlibcpp::xlim(0.0, extentX);
@@ -194,17 +203,17 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
 }
 
 auto Visualizer::configurePythonEnvironment() -> Status {
-  auto *const pythonHome = std::getenv("PYTHONHOME");
-  auto *const virtualEnv = std::getenv("VIRTUAL_ENV");
+  const auto pythonHome = getEnvValue("PYTHONHOME");
+  const auto virtualEnv = getEnvValue("VIRTUAL_ENV");
 
-  if (pythonHome == nullptr && virtualEnv == nullptr) {
+  if (!pythonHome && !virtualEnv) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message =
                                          "Python environment is missing. Set VIRTUAL_ENV or "
                                          "PYTHONHOME to a Python with numpy and matplotlib."});
   }
 
-  const auto pythonRoot = pythonHome != nullptr ? std::string{pythonHome} : std::string{virtualEnv};
+  const auto pythonRoot = pythonHome ? *pythonHome : *virtualEnv;
 
   // Do not override PYTHONHOME for embedded interpreter; setting only PYTHONPATH keeps stdlib
   // resolution intact while ensuring site-packages are reachable inside the venv.
