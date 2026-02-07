@@ -32,8 +32,8 @@ auto main() -> int {
     return 1;
   }
   const auto map = *mapResult;
-  const ad::types::Pose start{0.6, 0.6, 0.0};
-  const ad::types::Pose goal{8.4, 5.4, 0.0};
+  const ad::types::Pose start{1.0, 1.0, 0.0};
+  const ad::types::Pose goal{9.0, 1.0, 0.0};
   const auto footprint = ad::demo::makeFootprint();
 
   const auto checkerResult = ad::planning::GridCollisionChecker::create(map, footprint);

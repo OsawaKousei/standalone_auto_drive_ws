@@ -331,4 +331,4 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-# python3 tools/map_editor.py --width 100 --height 100 --resolution 0.05 --origin 0 0 0 --output-dir tools --basename map
+# python3 tools/map_editor.py --width 10 --height 10 --resolution 0.05 --origin 0 0 0 --output-dir tools --basename map
