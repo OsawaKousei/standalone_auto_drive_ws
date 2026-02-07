@@ -1,7 +1,6 @@
 #include "dijkstra_planner.hpp"
 #include "planner_utils.hpp"
 
-#include <array>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -70,7 +69,7 @@ auto DijkstraPlanner::computePrevious(const types::MapData &map,
   distances[startGoal.startIndex] = 0.0;
   frontier.emplace(0.0, startGoal.startIndex);
 
-  const auto offsets = std::array<utils::GridOffset, 4>{
+  const auto offsets = std::vector<utils::GridOffset>{
       utils::GridOffset{.dx = 1, .dy = 0}, utils::GridOffset{.dx = -1, .dy = 0},
       utils::GridOffset{.dx = 0, .dy = 1}, utils::GridOffset{.dx = 0, .dy = -1}};
 
