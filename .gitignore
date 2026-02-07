@@ -1,2 +1,4 @@
 build/
 *.png
+tools/*yaml
+tools/*pgm

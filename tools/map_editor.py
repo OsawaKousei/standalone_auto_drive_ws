@@ -90,7 +90,10 @@ def main() -> None:
         "value": 0,
         "resolution": args.resolution,
         "brush_cells": 1,
+        "stroke_snapshot": None,
     }
+    undo_stack = []
+    redo_stack = []
 
     def map_extent() -> tuple:
         resolution = state["resolution"]
@@ -166,6 +169,9 @@ def main() -> None:
     button_height = 0.06
     save_button = Button(plt.axes([panel_left, 0.2, panel_width, button_height]), "Save")
     clear_button = Button(plt.axes([panel_left, 0.11, panel_width, button_height]), "Clear")
+    undo_button = Button(plt.axes([panel_left, 0.02, 0.095, button_height]), "Undo")
+    redo_button = Button(plt.axes([panel_left + panel_width - 0.095, 0.02, 0.095, button_height]),
+                         "Redo")
 
     def parse_meta() -> MapMeta:
         origin = (float(origin_x_box.text), float(origin_y_box.text), float(origin_t_box.text))
@@ -194,6 +200,7 @@ def main() -> None:
         else:
             return
         state["drawing"] = True
+        state["stroke_snapshot"] = grid.copy()
         resolution = state["resolution"]
         row = clamp(int(event.ydata / resolution), 0, map_height - 1)
         col = clamp(int(event.xdata / resolution), 0, map_width - 1)
@@ -203,6 +210,14 @@ def main() -> None:
 
     def on_release(event) -> None:
         state["drawing"] = False
+        snapshot = state["stroke_snapshot"]
+        state["stroke_snapshot"] = None
+        if snapshot is None:
+            return
+        if np.array_equal(snapshot, grid):
+            return
+        undo_stack.append(snapshot)
+        redo_stack.clear()
 
     def on_move(event) -> None:
         if not state["drawing"] or event.inaxes != ax:
@@ -228,7 +243,27 @@ def main() -> None:
         fig.canvas.draw_idle()
 
     def on_clear(event) -> None:
+        undo_stack.append(grid.copy())
+        redo_stack.clear()
         grid[:, :] = 254
+        image.set_data(grid)
+        fig.canvas.draw_idle()
+
+    def on_undo(event) -> None:
+        if not undo_stack:
+            return
+        redo_stack.append(grid.copy())
+        restored = undo_stack.pop()
+        grid[:, :] = restored
+        image.set_data(grid)
+        fig.canvas.draw_idle()
+
+    def on_redo(event) -> None:
+        if not redo_stack:
+            return
+        undo_stack.append(grid.copy())
+        restored = redo_stack.pop()
+        grid[:, :] = restored
         image.set_data(grid)
         fig.canvas.draw_idle()
 
@@ -287,6 +322,8 @@ def main() -> None:
     plus_button.on_clicked(lambda event: adjust_brush(1))
     save_button.on_clicked(on_save)
     clear_button.on_clicked(on_clear)
+    undo_button.on_clicked(on_undo)
+    redo_button.on_clicked(on_redo)
 
     plt.show()
 
