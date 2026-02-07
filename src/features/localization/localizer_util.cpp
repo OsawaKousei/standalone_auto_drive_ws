@@ -41,4 +41,12 @@ auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Poin
   return points;
 }
 
+auto passesGate(double residual, double variance, double threshold) -> bool {
+  if (variance <= 0.0) {
+    return false;
+  }
+  const auto normalized = (residual * residual) / variance;
+  return normalized <= threshold;
+}
+
 } // namespace ad::localization::util

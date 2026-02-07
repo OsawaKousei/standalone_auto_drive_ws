@@ -352,8 +352,7 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     }
 
     ++tested;
-    const auto gate = (residual * residual) / s;
-    if (gate > config_.gateThreshold) {
+    if (!util::passesGate(residual, s, config_.gateThreshold)) {
       continue;
     }
 
