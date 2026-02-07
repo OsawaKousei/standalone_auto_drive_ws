@@ -101,32 +101,24 @@ endif()
 
 target_include_directories(ad_core PUBLIC ${Python3_NumPy_INCLUDE_DIRS})
 
-add_executable(app src/main.cpp)
-target_link_libraries(app PRIVATE ad_core)
-target_compile_options(app PRIVATE ${COMMON_COMPILE_OPTIONS})
+add_executable(auto_drive_app
+  src/auto_drive_app.cpp
+)
+target_link_libraries(auto_drive_app PRIVATE ad_core fmt::fmt)
+target_compile_options(auto_drive_app PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
-    target_compile_options(app PRIVATE -fsanitize=address,undefined,leak)
-    target_link_options(app PRIVATE -fsanitize=address,undefined,leak)
+  target_compile_options(auto_drive_app PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(auto_drive_app PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
-add_executable(localization_control_lidar_app
-  src/localization_control_lidar_app.cpp
+add_executable(auto_drive_log_replay
+  src/auto_drive_log_replay.cpp
 )
-target_link_libraries(localization_control_lidar_app PRIVATE ad_core fmt::fmt)
-target_compile_options(localization_control_lidar_app PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(auto_drive_log_replay PRIVATE ad_core fmt::fmt)
+target_compile_options(auto_drive_log_replay PRIVATE ${COMMON_COMPILE_OPTIONS})
 if(ENABLE_SANITIZER)
-  target_compile_options(localization_control_lidar_app PRIVATE -fsanitize=address,undefined,leak)
-  target_link_options(localization_control_lidar_app PRIVATE -fsanitize=address,undefined,leak)
-endif()
-
-add_executable(localization_control_lidar_log_replay
-  src/localization_control_lidar_log_replay.cpp
-)
-target_link_libraries(localization_control_lidar_log_replay PRIVATE ad_core fmt::fmt)
-target_compile_options(localization_control_lidar_log_replay PRIVATE ${COMMON_COMPILE_OPTIONS})
-if(ENABLE_SANITIZER)
-  target_compile_options(localization_control_lidar_log_replay PRIVATE -fsanitize=address,undefined,leak)
-  target_link_options(localization_control_lidar_log_replay PRIVATE -fsanitize=address,undefined,leak)
+  target_compile_options(auto_drive_log_replay PRIVATE -fsanitize=address,undefined,leak)
+  target_link_options(auto_drive_log_replay PRIVATE -fsanitize=address,undefined,leak)
 endif()
 
 add_executable(simulation_tests
