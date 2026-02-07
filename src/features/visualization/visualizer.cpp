@@ -13,6 +13,11 @@ namespace ad::visualization {
 
 namespace {
 
+constexpr int kImageChannelCount = 1;
+constexpr double kRobotMarkerSize = 40.0;
+constexpr double kScanMarkerSize = 10.0;
+constexpr double kUiPauseSeconds = 0.001;
+
 [[nodiscard]] auto setEnvValue(const std::string &key, const std::string &value) -> Status {
   if (setenv(key.c_str(), value.c_str(), 1) != 0) {
     return tl::make_unexpected(
@@ -81,7 +86,8 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
   const auto extentY = static_cast<double>(map.height);
 
   matplotlibcpp::clf();
-  matplotlibcpp::imshow(gridImage.data(), map.height, map.width, 1, {{"origin", "lower"}});
+  matplotlibcpp::imshow(gridImage.data(), map.height, map.width, kImageChannelCount,
+                        {{"origin", "lower"}});
   matplotlibcpp::xlim(0.0, extentX);
   matplotlibcpp::ylim(0.0, extentY);
   return {};
@@ -150,7 +156,7 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
 
   matplotlibcpp::plot(outlineX, outlineY, "r-");
   matplotlibcpp::scatter(std::vector<double>{toCell(pose.x)}, std::vector<double>{toCell(pose.y)},
-                         40.0, {{"color", "red"}});
+                         kRobotMarkerSize, {{"color", "red"}});
   matplotlibcpp::plot({toCell(pose.x), headingX}, {toCell(pose.y), headingY}, "r-");
   return {};
 }
@@ -182,8 +188,8 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
     yValues.push_back(toCell(pose.y + (std::sin(angle) * distance)));
   }
 
-  matplotlibcpp::scatter(xValues, yValues, 10.0, {{"color", "green"}});
-  matplotlibcpp::pause(0.001);
+  matplotlibcpp::scatter(xValues, yValues, kScanMarkerSize, {{"color", "green"}});
+  matplotlibcpp::pause(kUiPauseSeconds);
   matplotlibcpp::show(false);
   return {};
 }
