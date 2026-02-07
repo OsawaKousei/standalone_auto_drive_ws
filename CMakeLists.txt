@@ -63,6 +63,7 @@ add_library(ad_core
   src/features/planning/planner_utils.cpp
   src/features/control/pure_pursuit.cpp
   src/features/localization/pure_ekf_localizer.cpp
+  src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker.cpp
   src/features/simulation/unicycle_model.cpp
   src/features/simulation/lidar_sim.cpp

@@ -1,5 +1,6 @@
 #include "pure_ekf_localizer.hpp"
 
+#include "localizer_util.hpp"
 #include "shared/math_utils.hpp"
 
 #include <algorithm>
@@ -14,42 +15,6 @@ namespace {
 
 constexpr double kEpsilon = 1e-9;
 
-[[nodiscard]] auto normalizeAngle(double angle) -> double {
-  angle = std::fmod(angle + std::numbers::pi, 2.0 * std::numbers::pi);
-  if (angle < 0.0) {
-    angle += 2.0 * std::numbers::pi;
-  }
-  return angle - std::numbers::pi;
-}
-
-[[nodiscard]] auto mapHasConsistentGrid(const ad::types::MapData &map) -> bool {
-  const auto expectedCells =
-      static_cast<std::size_t>(map.width) * static_cast<std::size_t>(map.height);
-  return map.grid.size() == expectedCells;
-}
-
-[[nodiscard]] auto collectOccupiedPoints(const ad::types::MapData &map)
-    -> std::vector<ad::types::Point> {
-  const auto width = static_cast<std::size_t>(map.width);
-  const auto height = static_cast<std::size_t>(map.height);
-  auto points = std::vector<ad::types::Point>{};
-
-  for (const auto rowIndex : std::views::iota(std::size_t{0}, height)) {
-    for (const auto colIndex : std::views::iota(std::size_t{0}, width)) {
-      const auto index = (rowIndex * width) + colIndex;
-      if (map.grid[index] <= 0) {
-        continue;
-      }
-
-      const auto xValue = (static_cast<double>(colIndex) + 0.5) * map.resolution;
-      const auto yValue = (static_cast<double>(rowIndex) + 0.5) * map.resolution;
-      points.push_back(ad::types::Point{.x = xValue, .y = yValue});
-    }
-  }
-
-  return points;
-}
-
 struct HoughCandidate {
   double rho;
   double alpha;
@@ -58,12 +23,12 @@ struct HoughCandidate {
 
 [[nodiscard]] auto toLineModel(double rho, double alpha) -> ad::localization::LineModel {
   auto normalizedRho = rho;
-  auto normalizedAlpha = normalizeAngle(alpha);
+  auto normalizedAlpha = ad::localization::util::normalizeAngle(alpha);
   if (normalizedRho < 0.0) {
     normalizedRho = -normalizedRho;
-    normalizedAlpha = normalizeAngle(normalizedAlpha + std::numbers::pi);
+    normalizedAlpha = ad::localization::util::normalizeAngle(normalizedAlpha + std::numbers::pi);
   }
-  return {normalizedRho, normalizedAlpha};
+  return ad::localization::LineModel{normalizedRho, normalizedAlpha};
 }
 
 } // namespace
@@ -110,7 +75,7 @@ auto PureEkfLocalizer::create(const types::MapData &map, PureEkfLocalizerConfig 
 }
 
 auto PureEkfLocalizer::mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
-  if (!mapHasConsistentGrid(map)) {
+  if (!util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
   }
@@ -133,7 +98,7 @@ auto PureEkfLocalizer::signatureMatches(const MapSignature &signature, const typ
 
 auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
     -> Result<std::vector<MapLine>> {
-  if (!mapHasConsistentGrid(map)) {
+  if (!util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
   }
@@ -142,7 +107,7 @@ auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const Houg
     return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Hough configuration is invalid."});
   }
 
-  const auto points = collectOccupiedPoints(map);
+  const auto points = util::collectOccupiedPoints(map);
   if (points.empty()) {
     return tl::make_unexpected(
         Error{ErrorCode::EmptyCollection, "Map contains no occupied cells."});
@@ -209,7 +174,8 @@ auto PureEkfLocalizer::extractLinesFromMap(const types::MapData &map, const Houg
     bool tooClose = false;
     for (const auto &existing : lines) {
       const auto rhoDiff = std::abs(existing.model.rho - normalized.rho);
-      const auto alphaDiff = std::abs(normalizeAngle(existing.model.alpha - normalized.alpha));
+      const auto alphaDiff =
+          std::abs(util::normalizeAngle(existing.model.alpha - normalized.alpha));
       if (rhoDiff <= config.mergeRho && alphaDiff <= config.mergeTheta) {
         tooClose = true;
         break;
@@ -291,7 +257,8 @@ auto PureEkfLocalizer::predict(const types::Twist &control, double dt) -> Status
   const auto deltaY = control.v * sinTheta * dt;
   const auto deltaTheta = control.w * dt;
 
-  state_ = State{state_.x + deltaX, state_.y + deltaY, normalizeAngle(state_.theta + deltaTheta)};
+  state_ =
+      State{state_.x + deltaX, state_.y + deltaY, util::normalizeAngle(state_.theta + deltaTheta)};
 
   const auto f02 = -control.v * sinTheta * dt;
   const auto f12 = control.v * cosTheta * dt;
@@ -399,7 +366,7 @@ auto PureEkfLocalizer::update(const types::LidarScan &scan, const types::MapData
     const auto kt = ph2 / s;
 
     state_ = State{state_.x - (kx * residual), state_.y - (ky * residual),
-                   normalizeAngle(state_.theta - (kt * residual))};
+                   util::normalizeAngle(state_.theta - (kt * residual))};
 
     const auto hP0 = (h0 * p00) + (h1 * p10);
     const auto hP1 = (h0 * p01) + (h1 * p11);
