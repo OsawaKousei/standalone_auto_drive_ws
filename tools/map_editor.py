@@ -18,8 +18,8 @@ class MapMeta:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PGM map editor (matplotlib-based)")
-    parser.add_argument("--width", type=int, default=100, help="Map width in cells")
-    parser.add_argument("--height", type=int, default=100, help="Map height in cells")
+    parser.add_argument("--width", type=float, default=5.0, help="Map width in meters")
+    parser.add_argument("--height", type=float, default=5.0, help="Map height in meters")
     parser.add_argument("--resolution", type=float, default=0.05, help="Meters per cell")
     parser.add_argument(
         "--origin",
@@ -73,18 +73,36 @@ def save_yaml(path: Path, image_path: str, meta: MapMeta) -> None:
 def main() -> None:
     args = parse_args()
 
-    if args.width <= 0 or args.height <= 0:
+    if args.width <= 0.0 or args.height <= 0.0:
         raise SystemExit("width and height must be positive")
+    if args.resolution <= 0.0:
+        raise SystemExit("resolution must be positive")
 
-    grid = np.full((args.height, args.width), 254, dtype=np.uint8)
-    brush_radius = 0
-    map_width = args.width
-    map_height = args.height
+    map_width_meters = args.width
+    map_height_meters = args.height
+    map_width_cells = max(1, int(round(map_width_meters / args.resolution)))
+    map_height_cells = max(1, int(round(map_height_meters / args.resolution)))
+    grid = np.full((map_height_cells, map_width_cells), 254, dtype=np.uint8)
+    map_width = map_width_cells
+    map_height = map_height_cells
+    state = {"drawing": False, "value": 0, "resolution": args.resolution}
+
+    def map_extent() -> tuple:
+        resolution = state["resolution"]
+        return map_width * resolution, map_height * resolution
+
+    def brush_radius_from_resolution(resolution: float) -> int:
+        brush_width_meters = resolution
+        brush_width_cells = max(1.0, brush_width_meters / resolution)
+        return int(round((brush_width_cells - 1.0) / 2.0))
+
+    brush_radius = brush_radius_from_resolution(state["resolution"])
 
     fig, ax = plt.subplots(figsize=(7, 7))
     fig.canvas.manager.set_window_title("PGM Map Editor")
     plt.subplots_adjust(left=0.05, right=0.75, bottom=0.05, top=0.95)
 
+    extent_width, extent_height = map_extent()
     image = ax.imshow(
         grid,
         cmap="gray",
@@ -92,17 +110,15 @@ def main() -> None:
         vmin=0,
         vmax=255,
         interpolation="nearest",
+        extent=[0.0, extent_width, 0.0, extent_height],
     )
     ax.set_aspect("equal", adjustable="box")
     ax.set_title("Left: obstacle, Right: free")
-    ax.set_xlabel("x (cells)")
-    ax.set_ylabel("y (cells)")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
 
-    resolution_box = TextBox(
-        plt.axes([0.8, 0.85, 0.18, 0.05]),
-        "resolution",
-        initial=str(args.resolution),
-    )
+    fig.text(0.8, 0.88, f"resolution: {args.resolution}", fontsize=10)
+    fig.text(0.8, 0.83, f"size: {map_width_meters} x {map_height_meters} m", fontsize=9)
     origin_x_box = TextBox(
         plt.axes([0.8, 0.76, 0.18, 0.05]),
         "origin x",
@@ -122,12 +138,10 @@ def main() -> None:
     save_button = Button(plt.axes([0.8, 0.5, 0.18, 0.06]), "Save")
     clear_button = Button(plt.axes([0.8, 0.42, 0.18, 0.06]), "Clear")
 
-    state = {"drawing": False, "value": 0}
-
     def parse_meta() -> MapMeta:
-        resolution = float(resolution_box.text)
         origin = (float(origin_x_box.text), float(origin_y_box.text), float(origin_t_box.text))
-        return MapMeta(resolution=resolution, origin=origin)
+        return MapMeta(resolution=args.resolution, origin=origin)
+
 
     def on_press(event) -> None:
         if event.inaxes != ax or event.xdata is None or event.ydata is None:
@@ -139,8 +153,9 @@ def main() -> None:
         else:
             return
         state["drawing"] = True
-        row = int(event.ydata)
-        col = int(event.xdata)
+        resolution = state["resolution"]
+        row = clamp(int(event.ydata / resolution), 0, map_height - 1)
+        col = clamp(int(event.xdata / resolution), 0, map_width - 1)
         apply_brush(grid, row, col, state["value"], brush_radius)
         image.set_data(grid)
         fig.canvas.draw_idle()
@@ -153,8 +168,9 @@ def main() -> None:
             return
         if event.xdata is None or event.ydata is None:
             return
-        row = int(event.ydata)
-        col = int(event.xdata)
+        resolution = state["resolution"]
+        row = clamp(int(event.ydata / resolution), 0, map_height - 1)
+        col = clamp(int(event.xdata / resolution), 0, map_width - 1)
         apply_brush(grid, row, col, state["value"], brush_radius)
         image.set_data(grid)
         fig.canvas.draw_idle()
@@ -209,12 +225,14 @@ def main() -> None:
         x_span = (current_xlim[1] - current_xlim[0]) * zoom_factor
         y_span = (current_ylim[1] - current_ylim[0]) * zoom_factor
         span = max(x_span, y_span)
+        min_span = state["resolution"]
 
-        if span < 1.0:
+        if span < min_span:
             return
 
-        x_min, x_max = clamp_window(center_x, span, 0.0, map_width - 1.0)
-        y_min, y_max = clamp_window(center_y, span, 0.0, map_height - 1.0)
+        extent_width, extent_height = map_extent()
+        x_min, x_max = clamp_window(center_x, span, 0.0, extent_width)
+        y_min, y_max = clamp_window(center_y, span, 0.0, extent_height)
 
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
