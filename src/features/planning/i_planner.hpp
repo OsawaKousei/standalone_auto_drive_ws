@@ -8,6 +8,7 @@ namespace ad::planning {
 class IPlanner {
 public:
   virtual ~IPlanner() = default;
+  IPlanner() = default;
   IPlanner(const IPlanner &) = delete;
   auto operator=(const IPlanner &) -> IPlanner = delete;
   IPlanner(IPlanner &&) = delete;
