@@ -65,10 +65,12 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
   last_map_ = MapGeometry{.width = map.width, .height = map.height, .resolution = map.resolution};
 
   const auto gridImage = [&]() -> std::vector<float> {
-    auto data = std::vector<float>(static_cast<std::size_t>(map.width * map.height), 0.0F);
-    for (int r = 0; r < map.height; ++r) {
-      for (int c = 0; c < map.width; ++c) {
-        const auto idx = static_cast<std::size_t>(r * map.width + c);
+    const auto width = static_cast<std::size_t>(map.width);
+    const auto height = static_cast<std::size_t>(map.height);
+    auto data = std::vector<float>(width * height, 0.0F);
+    for (const auto r : std::views::iota(std::size_t{0}, height)) {
+      for (const auto c : std::views::iota(std::size_t{0}, width)) {
+        const auto idx = (r * width) + c;
         data[idx] = static_cast<float>(map.grid[idx] > 0 ? 1.0 : 0.0);
       }
     }
