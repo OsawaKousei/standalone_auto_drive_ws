@@ -68,10 +68,10 @@ auto Visualizer::renderFrame(const types::MapData &map) const -> Status {
     const auto width = static_cast<std::size_t>(map.width);
     const auto height = static_cast<std::size_t>(map.height);
     auto data = std::vector<float>(width * height, 0.0F);
-    for (const auto r : std::views::iota(std::size_t{0}, height)) {
-      for (const auto c : std::views::iota(std::size_t{0}, width)) {
-        const auto idx = (r * width) + c;
-        data[idx] = static_cast<float>(map.grid[idx] > 0 ? 1.0 : 0.0);
+    for (const auto rowIndex : std::views::iota(std::size_t{0}, height)) {
+      for (const auto colIndex : std::views::iota(std::size_t{0}, width)) {
+        const auto cellIndex = (rowIndex * width) + colIndex;
+        data[cellIndex] = static_cast<float>(map.grid[cellIndex] > 0 ? 1.0 : 0.0);
       }
     }
     return data;
@@ -100,16 +100,16 @@ auto Visualizer::renderPath(std::span<const types::Point> path) const -> Status 
 
   const auto toCell = [&](double value) -> double { return value / map->resolution; };
 
-  auto xs = std::vector<double>{};
-  auto ys = std::vector<double>{};
-  xs.reserve(path.size());
-  ys.reserve(path.size());
-  for (const auto &p : path) {
-    xs.push_back(toCell(p.x));
-    ys.push_back(toCell(p.y));
+  auto xValues = std::vector<double>{};
+  auto yValues = std::vector<double>{};
+  xValues.reserve(path.size());
+  yValues.reserve(path.size());
+  for (const auto &point : path) {
+    xValues.push_back(toCell(point.x));
+    yValues.push_back(toCell(point.y));
   }
 
-  matplotlibcpp::plot(xs, ys, "b-");
+  matplotlibcpp::plot(xValues, yValues, "b-");
   return {};
 }
 
@@ -135,23 +135,23 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
   const auto cosTheta = std::cos(pose.theta);
   const auto sinTheta = std::sin(pose.theta);
   for (const auto &vertex : footprint.vertices) {
-    const auto gx = pose.x + vertex.x * cosTheta - vertex.y * sinTheta;
-    const auto gy = pose.y + vertex.x * sinTheta + vertex.y * cosTheta;
-    outlineX.push_back(toCell(gx));
-    outlineY.push_back(toCell(gy));
+    const auto globalX = pose.x + (vertex.x * cosTheta) - (vertex.y * sinTheta);
+    const auto globalY = pose.y + (vertex.x * sinTheta) + (vertex.y * cosTheta);
+    outlineX.push_back(toCell(globalX));
+    outlineY.push_back(toCell(globalY));
   }
 
   outlineX.push_back(outlineX.front());
   outlineY.push_back(outlineY.front());
 
   constexpr double kArrowScale = 0.5;
-  const auto hx = toCell(pose.x + std::cos(pose.theta) * kArrowScale);
-  const auto hy = toCell(pose.y + std::sin(pose.theta) * kArrowScale);
+  const auto headingX = toCell(pose.x + (std::cos(pose.theta) * kArrowScale));
+  const auto headingY = toCell(pose.y + (std::sin(pose.theta) * kArrowScale));
 
   matplotlibcpp::plot(outlineX, outlineY, "r-");
   matplotlibcpp::scatter(std::vector<double>{toCell(pose.x)}, std::vector<double>{toCell(pose.y)},
                          40.0, {{"color", "red"}});
-  matplotlibcpp::plot({toCell(pose.x), hx}, {toCell(pose.y), hy}, "r-");
+  matplotlibcpp::plot({toCell(pose.x), headingX}, {toCell(pose.y), headingY}, "r-");
   return {};
 }
 
@@ -169,19 +169,20 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
 
   const auto toCell = [&](double value) -> double { return value / map->resolution; };
 
-  auto xs = std::vector<double>{};
-  auto ys = std::vector<double>{};
-  xs.reserve(ranges.size());
-  ys.reserve(ranges.size());
+  auto xValues = std::vector<double>{};
+  auto yValues = std::vector<double>{};
+  xValues.reserve(ranges.size());
+  yValues.reserve(ranges.size());
   const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(ranges.size());
-  for (const auto i : std::views::iota(std::size_t{0}, ranges.size())) {
-    const auto angle = pose.theta - std::numbers::pi + (angleStep * static_cast<double>(i));
-    const auto distance = ranges[i];
-    xs.push_back(toCell(pose.x + (std::cos(angle) * distance)));
-    ys.push_back(toCell(pose.y + (std::sin(angle) * distance)));
+  for (const auto angleIndex : std::views::iota(std::size_t{0}, ranges.size())) {
+    const auto angle =
+        pose.theta - std::numbers::pi + (angleStep * static_cast<double>(angleIndex));
+    const auto distance = ranges[angleIndex];
+    xValues.push_back(toCell(pose.x + (std::cos(angle) * distance)));
+    yValues.push_back(toCell(pose.y + (std::sin(angle) * distance)));
   }
 
-  matplotlibcpp::scatter(xs, ys, 10.0, {{"color", "green"}});
+  matplotlibcpp::scatter(xValues, yValues, 10.0, {{"color", "green"}});
   matplotlibcpp::pause(0.001);
   matplotlibcpp::show(false);
   return {};
