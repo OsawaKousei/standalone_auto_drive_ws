@@ -8,6 +8,7 @@
 - VS Code の DevContainer 機能が利用可能
 - 実行にはマップファイル（YAML/PGM）が必要
 
+
 ## 使い始める手順（最初に必ず実施）
 
 1. ホスト側で初回ビルドを実行して `compile_commands.json` と依存関係を生成する。
