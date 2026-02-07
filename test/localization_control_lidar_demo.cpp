@@ -119,6 +119,32 @@ auto main() -> int {
   auto logHistory = std::vector<ad::demo::StepLog>{};
   logHistory.reserve(kMaxSteps);
 
+  {
+    const auto frameStatus = viz.renderFrame(preparedMap);
+    if (!frameStatus) {
+      fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
+      return 1;
+    }
+
+    const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
+    if (!pathStatus) {
+      fmt::print(stderr, "Render error: {}\n", pathStatus.error().message);
+      return 1;
+    }
+
+    const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
+    if (!robotStatus) {
+      fmt::print(stderr, "Render error: {}\n", robotStatus.error().message);
+      return 1;
+    }
+
+    const auto presentStatus = viz.presentFrame();
+    if (!presentStatus) {
+      fmt::print(stderr, "Render error: {}\n", presentStatus.error().message);
+      return 1;
+    }
+  }
+
   const auto reachedGoal = std::ranges::any_of(std::views::iota(0, kMaxSteps), [&](int step) {
     if (failure) {
       return true;
