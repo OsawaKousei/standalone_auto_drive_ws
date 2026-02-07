@@ -34,7 +34,9 @@ namespace {
   }
 
   auto offsets = std::vector<utils::GridOffset>{};
-  offsets.reserve(static_cast<std::size_t>((radiusCells * 2 + 1) * (radiusCells * 2 + 1)));
+  const auto radiusCellsSize = static_cast<std::size_t>(radiusCells);
+  const auto diameter = (radiusCellsSize * 2U) + 1U;
+  offsets.reserve(diameter * diameter);
 
   const auto radiusSquared = radiusCells * radiusCells;
   for (const auto deltaX : std::views::iota(-radiusCells, radiusCells + 1)) {
