@@ -38,50 +38,85 @@ struct StartGoalInfo {
 
 [[nodiscard]] auto isDiagonal(const Move &move) -> bool { return move.dx != 0 && move.dy != 0; }
 
-[[nodiscard]] auto canMoveDiagonal(const types::MapData &map, const utils::GridCoord &from,
-                                   const Move &move) -> bool {
+[[nodiscard]] auto cellCenterPose(const types::MapData &map, const utils::GridCoord &coord)
+    -> types::Pose {
+  const auto center = utils::cellCenter(map, coord);
+  return types::Pose{.x = center.x, .y = center.y, .theta = 0.0};
+}
+
+[[nodiscard]] auto isFreeCell(const types::MapData &map, const ICollisionChecker &collisionChecker,
+                              const types::Footprint &footprint, const utils::GridCoord &coord)
+    -> Result<bool> {
+  const auto pose = cellCenterPose(map, coord);
+  return collisionChecker.isFree(pose, footprint);
+}
+
+[[nodiscard]] auto canMoveDiagonal(const types::MapData &map, const ICollisionChecker &checker,
+                                   const types::Footprint &footprint, const utils::GridCoord &from,
+                                   const Move &move) -> Result<bool> {
   if (!isDiagonal(move)) {
     return true;
   }
 
   const auto sideX = utils::GridCoord{.x = from.x + move.dx, .y = from.y};
   const auto sideY = utils::GridCoord{.x = from.x, .y = from.y + move.dy};
-  return !utils::isObstacle(map, sideX) && !utils::isObstacle(map, sideY);
+  const auto sideXFree = isFreeCell(map, checker, footprint, sideX);
+  if (!sideXFree) {
+    return tl::make_unexpected(sideXFree.error());
+  }
+
+  const auto sideYFree = isFreeCell(map, checker, footprint, sideY);
+  if (!sideYFree) {
+    return tl::make_unexpected(sideYFree.error());
+  }
+
+  return *sideXFree && *sideYFree;
 }
 
 using Node = std::pair<double, std::size_t>;
 using Frontier = std::priority_queue<Node, std::vector<Node>, std::greater<>>;
 
-auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, const Move &move,
-                      std::vector<double> &distances,
+auto tryRelaxNeighbor(const types::MapData &map, const ICollisionChecker &checker,
+                      const types::Footprint &footprint, const CurrentNode &current,
+                      const Move &move, std::vector<double> &distances,
                       std::vector<std::optional<std::size_t>> &previous, Frontier &frontier)
-    -> void {
+    -> Result<void> {
   const auto neighbor =
       utils::GridCoord{.x = current.coord.x + move.dx, .y = current.coord.y + move.dy};
   if (!inBounds(map, neighbor)) {
-    return;
+    return {};
   }
 
-  if (!canMoveDiagonal(map, current.coord, move)) {
-    return;
+  const auto diagonalStatus = canMoveDiagonal(map, checker, footprint, current.coord, move);
+  if (!diagonalStatus) {
+    return tl::make_unexpected(diagonalStatus.error());
+  }
+  if (!*diagonalStatus) {
+    return {};
   }
 
-  if (utils::isObstacle(map, neighbor)) {
-    return;
+  const auto neighborFree = isFreeCell(map, checker, footprint, neighbor);
+  if (!neighborFree) {
+    return tl::make_unexpected(neighborFree.error());
+  }
+  if (!*neighborFree) {
+    return {};
   }
 
   const auto neighborIndex = utils::toIndex(map, neighbor);
   const auto nextCost = current.cost + move.cost;
   if (nextCost >= distances[neighborIndex]) {
-    return;
+    return {};
   }
 
   distances[neighborIndex] = nextCost;
   previous[neighborIndex] = current.index;
   frontier.emplace(nextCost, neighborIndex);
+  return {};
 }
 
-[[nodiscard]] auto validateInputs(const types::MapData &map, const types::Pose &start,
+[[nodiscard]] auto validateInputs(const types::MapData &map, const ICollisionChecker &checker,
+                                  const types::Footprint &footprint, const types::Pose &start,
                                   const types::Pose &goal) -> Result<StartGoalInfo> {
   const auto mapStatus = utils::isValidMap(map);
   if (!mapStatus) {
@@ -98,7 +133,16 @@ auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, con
     return tl::make_unexpected(goalCell.error());
   }
 
-  if (utils::isObstacle(map, *startCell) || utils::isObstacle(map, *goalCell)) {
+  const auto startFree = checker.isFree(start, footprint);
+  if (!startFree) {
+    return tl::make_unexpected(startFree.error());
+  }
+  const auto goalFree = checker.isFree(goal, footprint);
+  if (!goalFree) {
+    return tl::make_unexpected(goalFree.error());
+  }
+
+  if (!*startFree || !*goalFree) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message = "Start or goal cell is occupied by an obstacle."});
   }
@@ -108,7 +152,9 @@ auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, con
                        .startCenter = utils::cellCenter(map, *startCell)};
 }
 
-[[nodiscard]] auto computePrevious(const types::MapData &map, const StartGoalInfo &startGoal)
+[[nodiscard]] auto computePrevious(const types::MapData &map, const ICollisionChecker &checker,
+                                   const types::Footprint &footprint,
+                                   const StartGoalInfo &startGoal)
     -> Result<std::vector<std::optional<std::size_t>>> {
   const auto totalCells = utils::cellCount(map);
   auto previous = std::vector<std::optional<std::size_t>>(totalCells, std::nullopt);
@@ -140,7 +186,11 @@ auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, con
     const auto coord = utils::toCoord(map, current);
     const auto currentNode = CurrentNode{.coord = coord, .index = current, .cost = currentCost};
     for (const auto &move : moves) {
-      tryRelaxNeighbor(map, currentNode, move, distances, previous, frontier);
+      const auto relaxStatus = tryRelaxNeighbor(map, checker, footprint, currentNode, move,
+                                                distances, previous, frontier);
+      if (!relaxStatus) {
+        return tl::make_unexpected(relaxStatus.error());
+      }
     }
   }
 
@@ -175,9 +225,13 @@ auto tryRelaxNeighbor(const types::MapData &map, const CurrentNode &current, con
 
 } // namespace
 
+DijkstraPlanner::DijkstraPlanner(const ICollisionChecker &collisionChecker)
+    : collisionChecker_{collisionChecker} {}
+
 auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
-                           const types::Pose &goal) const -> Result<types::Path> {
-  const auto startGoal = validateInputs(map, start, goal);
+                           const types::Pose &goal, const types::Footprint &footprint) const
+    -> Result<types::Path> {
+  const auto startGoal = validateInputs(map, collisionChecker_.get(), footprint, start, goal);
   if (!startGoal) {
     return tl::make_unexpected(startGoal.error());
   }
@@ -186,7 +240,7 @@ auto DijkstraPlanner::plan(const types::MapData &map, const types::Pose &start,
     return types::Path{startGoal->startCenter};
   }
 
-  const auto previous = computePrevious(map, *startGoal);
+  const auto previous = computePrevious(map, collisionChecker_.get(), footprint, *startGoal);
   if (!previous) {
     return tl::make_unexpected(previous.error());
   }

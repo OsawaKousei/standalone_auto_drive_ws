@@ -59,6 +59,7 @@ enable_testing()
 add_library(ad_core
   src/features/planning/astar_planner.cpp
   src/features/planning/dijkstra_planner.cpp
+  src/features/planning/grid_collision_checker.cpp
   src/features/planning/planner_utils.cpp
   src/features/control/pure_pursuit.cpp
   src/features/localization/ransac_localizer.cpp

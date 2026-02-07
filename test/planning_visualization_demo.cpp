@@ -1,4 +1,5 @@
 #include "features/planning/astar_planner.hpp"
+#include "features/planning/grid_collision_checker.hpp"
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/types.hpp"
@@ -15,9 +16,16 @@ auto main() -> int {
   const auto map = *mapResult;
   const ad::types::Pose start{0.6, 0.6, 0.0};
   const ad::types::Pose goal{8.4, 5.4, 0.0};
+  const ad::types::Footprint footprint{{{-0.2, -0.1}, {0.3, -0.1}, {0.3, 0.1}, {-0.2, 0.1}}};
 
-  const ad::planning::AStarPlanner planner;
-  const auto pathResult = planner.plan(map, start, goal);
+  const auto checkerResult = ad::planning::GridCollisionChecker::create(map, footprint);
+  if (!checkerResult) {
+    fmt::print(stderr, "Collision checker error: {}\n", checkerResult.error().message);
+    return 1;
+  }
+
+  const ad::planning::AStarPlanner planner{*checkerResult};
+  const auto pathResult = planner.plan(map, start, goal, footprint);
   if (!pathResult) {
     fmt::print(stderr, "Planning error: {}\n", pathResult.error().message);
     return 1;
