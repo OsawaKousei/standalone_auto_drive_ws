@@ -1,5 +1,7 @@
 #include "pure_ekf_localizer.hpp"
 
+#include "shared/math_utils.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -62,27 +64,6 @@ struct HoughCandidate {
     normalizedAlpha = normalizeAngle(normalizedAlpha + std::numbers::pi);
   }
   return {normalizedRho, normalizedAlpha};
-}
-
-[[nodiscard]] auto matMultiply(const std::array<double, 9> &left,
-                               const std::array<double, 9> &right) -> std::array<double, 9> {
-  auto result = std::array<double, 9>{};
-  for (int row = 0; row < 3; ++row) {
-    for (int col = 0; col < 3; ++col) {
-      double sum = 0.0;
-      for (int k = 0; k < 3; ++k) {
-        sum += left[static_cast<std::size_t>(row * 3 + k)] *
-               right[static_cast<std::size_t>(k * 3 + col)];
-      }
-      result[static_cast<std::size_t>(row * 3 + col)] = sum;
-    }
-  }
-  return result;
-}
-
-[[nodiscard]] auto transpose(const std::array<double, 9> &matrix) -> std::array<double, 9> {
-  return {matrix[0], matrix[3], matrix[6], matrix[1], matrix[4],
-          matrix[7], matrix[2], matrix[5], matrix[8]};
 }
 
 } // namespace
@@ -316,8 +297,8 @@ auto PureEkfLocalizer::predict(const types::Twist &control, double dt) -> Status
   const auto f12 = control.v * cosTheta * dt;
 
   const auto f = std::array<double, 9>{1.0, 0.0, f02, 0.0, 1.0, f12, 0.0, 0.0, 1.0};
-  const auto fp = matMultiply(f, covariance_);
-  const auto fpt = matMultiply(fp, transpose(f));
+  const auto fp = math::multiply(f, covariance_);
+  const auto fpt = math::multiply(fp, math::transpose(f));
 
   auto pNew = fpt;
   const auto qPos = config_.ekf.processNoiseTranslation * dt;
