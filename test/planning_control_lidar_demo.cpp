@@ -106,7 +106,7 @@ auto main() -> int {
       return true;
     }
 
-    const auto scanStatus = viz.renderScan(state->pose, std::span{*scanResult}, mapGeometry);
+    const auto scanStatus = viz.renderScan(state->pose, *scanResult, mapGeometry);
     if (!scanStatus) {
       failure.emplace(scanStatus.error());
       return true;

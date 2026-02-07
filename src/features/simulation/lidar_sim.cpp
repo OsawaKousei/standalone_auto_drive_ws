@@ -6,6 +6,7 @@
 #include <numbers>
 #include <optional>
 #include <ranges>
+#include <vector>
 
 namespace {
 
@@ -75,16 +76,19 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
     return maxRange;
   };
 
-  auto scan = LidarScan{};
-  scan.reserve(rayCount);
+  auto ranges = std::vector<double>{};
+  ranges.reserve(rayCount);
 
   const auto rayIndices = std::views::iota(std::size_t{0}, rayCount);
-  std::ranges::transform(rayIndices, std::back_inserter(scan), [&](std::size_t index) -> double {
+  std::ranges::transform(rayIndices, std::back_inserter(ranges), [&](std::size_t index) -> double {
     const auto angle = pose.theta - std::numbers::pi + (angleStep * static_cast<double>(index));
     return traceRay(angle);
   });
 
-  return scan;
+  return LidarScan{.ranges = std::move(ranges),
+                   .minAngle = -std::numbers::pi,
+                   .angleIncrement = angleStep,
+                   .maxRange = maxRange};
 }
 
 } // namespace ad::simulation

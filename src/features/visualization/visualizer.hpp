@@ -32,7 +32,7 @@ public:
       -> Status;
   [[nodiscard]] auto renderRobot(const types::Pose &pose, const types::Footprint &footprint,
                                  const MapGeometry &map) const -> Status;
-  [[nodiscard]] auto renderScan(const types::Pose &pose, std::span<const double> ranges,
+  [[nodiscard]] auto renderScan(const types::Pose &pose, const types::LidarScan &scan,
                                 const MapGeometry &map) const -> Status;
   [[nodiscard]] auto presentFrame() const -> Status;
   [[nodiscard]] auto saveFigure(std::string_view path) const -> Status;

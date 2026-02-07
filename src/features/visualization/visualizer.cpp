@@ -174,9 +174,9 @@ auto Visualizer::renderRobot(const types::Pose &pose, const types::Footprint &fo
   return {};
 }
 
-auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ranges,
+auto Visualizer::renderScan(const types::Pose &pose, const types::LidarScan &scan,
                             const MapGeometry &map) const -> Status {
-  if (ranges.empty()) {
+  if (scan.ranges.empty()) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::EmptyCollection, .message = "Scan is empty."});
   }
@@ -185,13 +185,12 @@ auto Visualizer::renderScan(const types::Pose &pose, std::span<const double> ran
 
   auto xValues = std::vector<double>{};
   auto yValues = std::vector<double>{};
-  xValues.reserve(ranges.size());
-  yValues.reserve(ranges.size());
-  const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(ranges.size());
-  for (const auto angleIndex : std::views::iota(std::size_t{0}, ranges.size())) {
+  xValues.reserve(scan.ranges.size());
+  yValues.reserve(scan.ranges.size());
+  for (const auto angleIndex : std::views::iota(std::size_t{0}, scan.ranges.size())) {
     const auto angle =
-        pose.theta - std::numbers::pi + (angleStep * static_cast<double>(angleIndex));
-    const auto distance = ranges[angleIndex];
+        pose.theta + scan.minAngle + (scan.angleIncrement * static_cast<double>(angleIndex));
+    const auto distance = scan.ranges[angleIndex];
     xValues.push_back(toCell(pose.x + (std::cos(angle) * distance)));
     yValues.push_back(toCell(pose.y + (std::sin(angle) * distance)));
   }

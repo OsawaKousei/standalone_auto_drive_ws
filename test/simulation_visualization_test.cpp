@@ -52,8 +52,8 @@ TEST(LidarSimTest, DetectsObstacleAlongHeadingRay) {
 
   const auto scan = lidar.simulate(map, pose);
   ASSERT_TRUE(scan.has_value());
-  ASSERT_EQ(scan->size(), 4U);
-  EXPECT_NEAR((*scan)[2], 2.0, 1e-6);
+  ASSERT_EQ(scan->ranges.size(), 4U);
+  EXPECT_NEAR(scan->ranges[2], 2.0, 1e-6);
 }
 
 TEST(LidarSimTest, RejectsMismatchedGrid) {
@@ -77,7 +77,8 @@ TEST(VisualizerTest, RejectsEmptyPath) {
 
 TEST(VisualizerTest, RendersScanSummary) {
   const visualization::Visualizer viz;
-  const std::vector<double> ranges{1.0, 2.0, 1.5};
+  const types::LidarScan scan{
+      .ranges = {1.0, 2.0, 1.5}, .minAngle = -1.0, .angleIncrement = 1.0, .maxRange = 10.0};
   const types::MapData map{2, 2, 1.0, {0, 0, 0, 0}};
   const types::Pose pose{0.0, 0.0, 0.0};
 
@@ -87,7 +88,7 @@ TEST(VisualizerTest, RendersScanSummary) {
   const auto frameStatus = viz.renderFrame(*preparedMap);
   ASSERT_TRUE(frameStatus.has_value());
 
-  const auto status = viz.renderScan(pose, ranges, preparedMap->geometry);
+  const auto status = viz.renderScan(pose, scan, preparedMap->geometry);
   EXPECT_TRUE(status.has_value());
 
   const auto presentStatus = viz.presentFrame();

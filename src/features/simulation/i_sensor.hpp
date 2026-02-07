@@ -3,11 +3,9 @@
 #include "../../shared/result.hpp"
 #include "../../shared/types.hpp"
 
-#include <vector>
-
 namespace ad::simulation {
 
-using LidarScan = std::vector<double>;
+using LidarScan = types::LidarScan;
 
 class ISensorModel {
 public:
