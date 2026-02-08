@@ -111,7 +111,7 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
   const auto sinTheta = std::sin(state_.theta);
 
   auto buckets = std::vector<std::vector<types::Point>>(mapLines_.size());
-  for (const auto index : std::views::iota(std::size_t{0}, scan.ranges.size())) {
+  for (std::size_t index = 0; index < scan.ranges.size(); ++index) {
     const auto range = scan.ranges[index];
     if (!(range > 0.0) || range > scan.maxRange) {
       continue;
