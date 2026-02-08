@@ -169,8 +169,8 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
       continue;
     }
 
-    auto observation =
-        util::makeExpectedLine(mapLines_[lineIndex].model, state_.x, state_.y, state_.theta);
+    auto observation = util::makeExpectedLine(mapLines_[lineIndex].model,
+                                              types::Pose{state_.x, state_.y, state_.theta});
     observation.observed = fit->model;
     const auto pointCount = std::max(1.0, static_cast<double>(fit->pointCount));
     const auto baseRangeVar = config_.ekf.measurementNoiseRange * config_.ekf.measurementNoiseRange;
@@ -183,7 +183,8 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
         std::max(minAngleVar, (baseAngleVar * scale) + (fit->mse * kAngleMseScale));
     ++candidates;
 
-    if (!util::gateLineObservation(observation, covariance_, config_.gateThreshold)) {
+    if (!util::gateLineObservation(
+            observation, util::ObservationGateConfig{covariance_, config_.gateThreshold})) {
       continue;
     }
 
@@ -240,8 +241,9 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
   const Eigen::MatrixXd k = (covariance_ * h.transpose()) * sInv;
   const Eigen::Vector3d delta = k * residual;
 
-  state_ = State{state_.x + delta(0), state_.y + delta(1),
-                 util::normalizeAngle(state_.theta + delta(2))};
+  state_ = State{.x = state_.x + delta(0),
+                 .y = state_.y + delta(1),
+                 .theta = util::normalizeAngle(state_.theta + delta(2))};
 
   const Mat3 kh = (k * h).eval();
   const Mat3 pNew = (Mat3::Identity() - kh) * covariance_;
@@ -258,7 +260,7 @@ auto EkfLocalizer::estimate() const -> Result<LocalizerEstimate> {
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
   }
 
-  return LocalizerEstimate{.pose = types::Pose{state_.x, state_.y, state_.theta},
+  return LocalizerEstimate{.pose = types::Pose{.x = state_.x, .y = state_.y, .theta = state_.theta},
                            .covariance = covariance_,
                            .score = score_};
 }

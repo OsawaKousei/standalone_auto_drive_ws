@@ -1,6 +1,7 @@
 #include "localizer_util.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numbers>
 #include <optional>
@@ -13,6 +14,8 @@ namespace {
 
 constexpr double kEpsilon = 1e-9;
 constexpr double kGateEpsilon = 1e-12;
+constexpr double kTwo = 2.0;
+constexpr double kTwoPi = kTwo * std::numbers::pi;
 
 struct HoughCandidate {
   double rho;
@@ -23,9 +26,9 @@ struct HoughCandidate {
 } // namespace
 
 auto normalizeAngle(double angle) -> double {
-  angle = std::fmod(angle + std::numbers::pi, 2.0 * std::numbers::pi);
+  angle = std::fmod(angle + std::numbers::pi, kTwoPi);
   if (angle < 0.0) {
-    angle += 2.0 * std::numbers::pi;
+    angle += kTwoPi;
   }
   return angle - std::numbers::pi;
 }
@@ -57,12 +60,12 @@ auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Poin
   return points;
 }
 
-auto passesGate(double residual, double variance, double threshold) -> bool {
-  if (variance <= 0.0) {
+auto passesGate(const GateCheck &check) -> bool {
+  if (check.variance <= 0.0) {
     return false;
   }
-  const auto normalized = (residual * residual) / variance;
-  return normalized <= threshold;
+  const auto normalized = (check.residual * check.residual) / check.variance;
+  return normalized <= check.threshold;
 }
 
 auto toLineModel(LineModel raw) -> LineModel {
@@ -90,34 +93,36 @@ auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> 
   meanX /= count;
   meanY /= count;
 
-  double sxx = 0.0;
-  double sxy = 0.0;
-  double syy = 0.0;
+  auto momentSums = std::array<double, 3>{0.0, 0.0, 0.0};
   for (const auto &point : points) {
     const auto dx = point.x - meanX;
     const auto dy = point.y - meanY;
-    sxx += dx * dx;
-    sxy += dx * dy;
-    syy += dy * dy;
+    momentSums[0] += dx * dx;
+    momentSums[1] += dx * dy;
+    momentSums[2] += dy * dy;
   }
+
+  const auto sxx = momentSums[0];
+  const auto sxy = momentSums[1];
+  const auto syy = momentSums[2];
 
   if (sxx + syy < kEpsilon) {
     return std::nullopt;
   }
 
   const auto direction = 0.5 * std::atan2(2.0 * sxy, sxx - syy);
-  const auto normal = direction + 0.5 * std::numbers::pi;
-  const auto nx = std::cos(normal);
-  const auto ny = std::sin(normal);
-  const auto rho = (nx * meanX) + (ny * meanY);
+  const auto normal = direction + (0.5 * std::numbers::pi);
+  const auto normalX = std::cos(normal);
+  const auto normalY = std::sin(normal);
+  const auto rho = ((normalX * meanX) + (normalY * meanY));
 
   auto model = toLineModel(LineModel{.rho = rho, .alpha = normal});
 
-  const auto lineNx = std::cos(model.alpha);
-  const auto lineNy = std::sin(model.alpha);
+  const auto lineNormalX = std::cos(model.alpha);
+  const auto lineNormalY = std::sin(model.alpha);
   double mse = 0.0;
   for (const auto &point : points) {
-    const auto distance = (lineNx * point.x) + (lineNy * point.y) - model.rho;
+    const auto distance = ((lineNormalX * point.x) + (lineNormalY * point.y)) - model.rho;
     mse += distance * distance;
   }
   mse /= count;
@@ -125,12 +130,11 @@ auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> 
   return LineFit{.model = model, .alphaRaw = normal, .pointCount = points.size(), .mse = mse};
 }
 
-auto makeExpectedLine(const LineModel &mapLine, double x, double y, double theta)
-    -> LineObservation {
-  const auto nx = std::cos(mapLine.alpha);
-  const auto ny = std::sin(mapLine.alpha);
-  const auto rawRho = mapLine.rho - (nx * x) - (ny * y);
-  const auto rawAlpha = normalizeAngle(mapLine.alpha - theta);
+auto makeExpectedLine(const LineModel &mapLine, const types::Pose &pose) -> LineObservation {
+  const auto normalX = std::cos(mapLine.alpha);
+  const auto normalY = std::sin(mapLine.alpha);
+  const auto rawRho = mapLine.rho - (normalX * pose.x) - (normalY * pose.y);
+  const auto rawAlpha = normalizeAngle(mapLine.alpha - pose.theta);
 
   auto rhoSign = 1.0;
   auto rho = rawRho;
@@ -143,18 +147,19 @@ auto makeExpectedLine(const LineModel &mapLine, double x, double y, double theta
 
   return LineObservation{.observed = LineModel{.rho = 0.0, .alpha = 0.0},
                          .expected = LineModel{.rho = rho, .alpha = alpha},
-                         .nx = nx,
-                         .ny = ny,
+                         .nx = normalX,
+                         .ny = normalY,
                          .rhoSign = rhoSign,
                          .rangeVariance = 0.0,
                          .angleVariance = 0.0};
 }
 
-auto gateLineObservation(const LineObservation &observation, const CovarianceMatrix &covariance,
-                         double threshold) -> bool {
+auto gateLineObservation(const LineObservation &observation,
+                         const ObservationGateConfig &gateConfig) -> bool {
   const auto h00 = -observation.rhoSign * observation.nx;
   const auto h01 = -observation.rhoSign * observation.ny;
 
+  const auto &covariance = gateConfig.covariance;
   const auto p00 = covariance(0, 0);
   const auto p01 = covariance(0, 1);
   const auto p02 = covariance(0, 2);
@@ -183,7 +188,7 @@ auto gateLineObservation(const LineObservation &observation, const CovarianceMat
       normalizeAngle(observation.observed.alpha - observation.expected.alpha);
   const auto maha = (residualRho * (inv00 * residualRho + inv01 * residualAlpha)) +
                     (residualAlpha * (inv01 * residualRho + inv11 * residualAlpha));
-  return maha <= threshold;
+  return maha <= gateConfig.threshold;
 }
 
 auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature> {
@@ -237,8 +242,9 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
   const auto rhoMax = maxRho;
   const auto rhoStep = (rhoMax - rhoMin) / static_cast<double>(config.rhoBins - 1);
 
-  auto accumulator =
-      std::vector<int>(static_cast<std::size_t>(config.thetaBins * config.rhoBins), 0);
+  const auto thetaBins = static_cast<std::size_t>(config.thetaBins);
+  const auto rhoBins = static_cast<std::size_t>(config.rhoBins);
+  auto accumulator = std::vector<int>(thetaBins * rhoBins, 0);
 
   for (const auto &point : points) {
     for (int thetaIndex = 0; thetaIndex < config.thetaBins; ++thetaIndex) {
@@ -248,7 +254,8 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
       if (rhoIndex < 0 || rhoIndex >= config.rhoBins) {
         continue;
       }
-      const auto index = static_cast<std::size_t>((thetaIndex * config.rhoBins) + rhoIndex);
+      const auto index =
+          (static_cast<std::size_t>(thetaIndex) * rhoBins) + static_cast<std::size_t>(rhoIndex);
       ++accumulator[index];
     }
   }
@@ -256,7 +263,8 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
   auto candidates = std::vector<HoughCandidate>{};
   for (int thetaIndex = 0; thetaIndex < config.thetaBins; ++thetaIndex) {
     for (int rhoIndex = 0; rhoIndex < config.rhoBins; ++rhoIndex) {
-      const auto index = static_cast<std::size_t>((thetaIndex * config.rhoBins) + rhoIndex);
+      const auto index =
+          (static_cast<std::size_t>(thetaIndex) * rhoBins) + static_cast<std::size_t>(rhoIndex);
       const auto votes = accumulator[index];
       if (votes < config.minVotes) {
         continue;
