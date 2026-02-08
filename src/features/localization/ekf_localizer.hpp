@@ -32,10 +32,10 @@ private:
   EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                EkfLocalizerConfig config);
   EkfLocalizerConfig config_;
-  std::vector<util::MapLine> mapLines_;
+  std::vector<util::MapLine> mapLines_{};
   util::MapSignature mapSignature_;
   State state_;
-  CovarianceMatrix covariance_;
+  CovarianceMatrix covariance_{CovarianceMatrix::Zero()};
   double score_ = 0.0;
   bool hasState_ = false;
 };

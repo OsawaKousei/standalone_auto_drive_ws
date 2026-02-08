@@ -26,9 +26,9 @@ namespace ad::localization {
 
 EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                            EkfLocalizerConfig config)
-    : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
-      state_{.x = 0.0, .y = 0.0, .theta = 0.0}, covariance_{CovarianceMatrix::Zero()}, score_(0.0),
-      hasState_(false) {}
+    : config_(std::move(config)), mapLines_(std::move(mapLines)),
+      mapSignature_(std::move(signature)), state_{.x = 0.0, .y = 0.0, .theta = 0.0},
+      covariance_{CovarianceMatrix::Zero()} {}
 
 auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
     -> Result<std::unique_ptr<EkfLocalizer>> {
@@ -79,16 +79,16 @@ auto EkfLocalizer::predict(const types::Twist &control, double deltaT) -> Status
   const auto f02 = -control.v * sinTheta * deltaT;
   const auto f12 = control.v * cosTheta * deltaT;
 
-  Mat3 f;
-  f << 1.0, 0.0, f02, 0.0, 1.0, f12, 0.0, 0.0, 1.0;
+  const Mat3 stateTransition = (Mat3() << 1.0, 0.0, f02, 0.0, 1.0, f12, 0.0, 0.0, 1.0).finished();
 
-  Mat3 pNew = (f * covariance_ * f.transpose());
+  Mat3 newCovariance = Mat3::Zero();
+  newCovariance = stateTransition * covariance_ * stateTransition.transpose();
   const auto qPos = config_.ekf.processNoiseTranslation * deltaT;
   const auto qRot = config_.ekf.processNoiseRotation * deltaT;
-  pNew(0, 0) += qPos;
-  pNew(1, 1) += qPos;
-  pNew(2, 2) += qRot;
-  covariance_ = pNew;
+  newCovariance(0, 0) += qPos;
+  newCovariance(1, 1) += qPos;
+  newCovariance(2, 2) += qRot;
+  covariance_ = newCovariance;
   return {};
 }
 
@@ -111,7 +111,6 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
   const auto sinTheta = std::sin(state_.theta);
 
   auto buckets = std::vector<std::vector<types::Point>>(mapLines_.size());
-  int associationAttempts = 0;
   for (const auto index : std::views::iota(std::size_t{0}, scan.ranges.size())) {
     const auto range = scan.ranges[index];
     if (!(range > 0.0) || range > scan.maxRange) {
@@ -146,7 +145,6 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
       }
     }
 
-    ++associationAttempts;
     if (bestIndex >= mapLines_.size()) {
       continue;
     }
@@ -169,8 +167,9 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
       continue;
     }
 
-    auto observation = util::makeExpectedLine(mapLines_[lineIndex].model,
-                                              types::Pose{state_.x, state_.y, state_.theta});
+    auto observation =
+        util::makeExpectedLine(mapLines_[lineIndex].model,
+                               types::Pose{.x = state_.x, .y = state_.y, .theta = state_.theta});
     observation.observed = fit->model;
     const auto pointCount = std::max(1.0, static_cast<double>(fit->pointCount));
     const auto baseRangeVar = config_.ekf.measurementNoiseRange * config_.ekf.measurementNoiseRange;
@@ -184,7 +183,8 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
     ++candidates;
 
     if (!util::gateLineObservation(
-            observation, util::ObservationGateConfig{covariance_, config_.gateThreshold})) {
+            observation, util::ObservationGateConfig{.covariance = covariance_,
+                                                     .threshold = config_.gateThreshold})) {
       continue;
     }
 
@@ -200,8 +200,8 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
   const auto measurementCount = observations.size() * 2U;
   const auto measurementSize = static_cast<Eigen::Index>(measurementCount);
   Eigen::VectorXd residual = Eigen::VectorXd::Zero(measurementSize);
-  Eigen::MatrixXd h = Eigen::MatrixXd::Zero(measurementSize, 3);
-  Eigen::MatrixXd r = Eigen::MatrixXd::Zero(measurementSize, measurementSize);
+  Eigen::MatrixXd measurementMatrix = Eigen::MatrixXd::Zero(measurementSize, 3);
+  Eigen::MatrixXd measurementNoise = Eigen::MatrixXd::Zero(measurementSize, measurementSize);
 
   for (std::size_t index = 0; index < observations.size(); ++index) {
     const auto &obs = observations[index];
@@ -216,41 +216,44 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
     const auto hRhoY = -obs.rhoSign * obs.ny;
     const auto hAlphaTheta = -1.0;
 
-    h(row, 0) = hRhoX;
-    h(row, 1) = hRhoY;
-    h(row, 2) = 0.0;
+    measurementMatrix(row, 0) = hRhoX;
+    measurementMatrix(row, 1) = hRhoY;
+    measurementMatrix(row, 2) = 0.0;
 
-    h(row + 1, 0) = 0.0;
-    h(row + 1, 1) = 0.0;
-    h(row + 1, 2) = hAlphaTheta;
+    measurementMatrix(row + 1, 0) = 0.0;
+    measurementMatrix(row + 1, 1) = 0.0;
+    measurementMatrix(row + 1, 2) = hAlphaTheta;
 
-    r(row, row) = obs.rangeVariance;
-    r(row + 1, row + 1) = obs.angleVariance;
+    measurementNoise(row, row) = obs.rangeVariance;
+    measurementNoise(row + 1, row + 1) = obs.angleVariance;
   }
 
-  const Eigen::MatrixXd s = (h * covariance_ * h.transpose()) + r;
-  const auto sDecomp = s.ldlt();
-  if (sDecomp.info() != Eigen::Success) {
+  Eigen::MatrixXd innovationCovariance =
+      measurementMatrix * covariance_ * measurementMatrix.transpose();
+  innovationCovariance += measurementNoise;
+  const auto innovationDecomp = innovationCovariance.ldlt();
+  if (innovationDecomp.info() != Eigen::Success) {
     score_ = 0.0;
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "EKF update failed due to singular S matrix."});
   }
 
-  const Eigen::MatrixXd sInv =
-      sDecomp.solve(Eigen::MatrixXd::Identity(measurementSize, measurementSize));
-  const Eigen::MatrixXd k = (covariance_ * h.transpose()) * sInv;
-  const Eigen::Vector3d delta = k * residual;
+  const Eigen::MatrixXd innovationInv =
+      innovationDecomp.solve(Eigen::MatrixXd::Identity(measurementSize, measurementSize));
+  Eigen::MatrixXd kalmanGain = covariance_ * measurementMatrix.transpose() * innovationInv;
+  const Eigen::Vector3d delta = kalmanGain * residual;
 
   state_ = State{.x = state_.x + delta(0),
                  .y = state_.y + delta(1),
                  .theta = util::normalizeAngle(state_.theta + delta(2))};
 
-  const Mat3 kh = (k * h).eval();
-  const Mat3 pNew = (Mat3::Identity() - kh) * covariance_;
-  covariance_ = pNew;
+  const Mat3 kalmanProjection = (kalmanGain * measurementMatrix).eval();
+  Mat3 newCovariance = Mat3::Identity();
+  newCovariance -= kalmanProjection;
+  newCovariance *= covariance_;
+  covariance_ = newCovariance;
 
   score_ = candidates > 0 ? static_cast<double>(gatePassed) / static_cast<double>(candidates) : 0.0;
-  (void)associationAttempts;
   return {};
 }
 
