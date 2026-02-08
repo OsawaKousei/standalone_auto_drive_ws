@@ -9,8 +9,15 @@
   },
 
   "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+  "C_Cpp.codeAnalysis.clangTidy.path": "/usr/bin/clang-tidy",
   "C_Cpp.codeAnalysis.clangTidy.args": [
     "--header-filter=${workspaceFolder}/src/.*",
+    "--extra-arg-before=--target=x86_64-linux-gnu",
+    "--extra-arg-before=-march=x86-64",
+    "--extra-arg-before=-mmmx",
+    "--extra-arg-before=-msse",
+    "--extra-arg-before=-msse2",
+    "--extra-arg=-DEIGEN_DONT_VECTORIZE",
     "--extra-arg=-std=c++20",
     "--config-file=${workspaceFolder}/.clang-tidy"
   ],

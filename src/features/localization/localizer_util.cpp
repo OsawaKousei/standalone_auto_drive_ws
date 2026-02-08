@@ -44,8 +44,8 @@ auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Poin
   const auto height = static_cast<std::size_t>(map.height);
   auto points = std::vector<types::Point>{};
 
-  for (const auto rowIndex : std::views::iota(std::size_t{0}, height)) {
-    for (const auto colIndex : std::views::iota(std::size_t{0}, width)) {
+  for (std::size_t rowIndex = 0; rowIndex < height; ++rowIndex) {
+    for (std::size_t colIndex = 0; colIndex < width; ++colIndex) {
       const auto index = (rowIndex * width) + colIndex;
       if (map.grid[index] <= 0) {
         continue;
