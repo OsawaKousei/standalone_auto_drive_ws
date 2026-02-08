@@ -56,35 +56,35 @@ auto EkfLocalizer::reset(const types::Pose &initialPose, const CovarianceMatrix 
   return {};
 }
 
-auto EkfLocalizer::predict(const types::Twist &control, double dt) -> Status {
+auto EkfLocalizer::predict(const types::Twist &control, double deltaT) -> Status {
   if (!hasState_) {
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
   }
 
-  if (dt <= 0.0) {
+  if (deltaT <= 0.0) {
     return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Delta time must be positive."});
   }
 
   const auto cosTheta = std::cos(state_.theta);
   const auto sinTheta = std::sin(state_.theta);
-  const auto deltaX = control.v * cosTheta * dt;
-  const auto deltaY = control.v * sinTheta * dt;
-  const auto deltaTheta = control.w * dt;
+  const auto deltaX = control.v * cosTheta * deltaT;
+  const auto deltaY = control.v * sinTheta * deltaT;
+  const auto deltaTheta = control.w * deltaT;
 
   state_ = State{.x = state_.x + deltaX,
                  .y = state_.y + deltaY,
                  .theta = util::normalizeAngle(state_.theta + deltaTheta)};
 
-  const auto f02 = -control.v * sinTheta * dt;
-  const auto f12 = control.v * cosTheta * dt;
+  const auto f02 = -control.v * sinTheta * deltaT;
+  const auto f12 = control.v * cosTheta * deltaT;
 
   Mat3 f;
   f << 1.0, 0.0, f02, 0.0, 1.0, f12, 0.0, 0.0, 1.0;
 
   Mat3 pNew = (f * covariance_ * f.transpose());
-  const auto qPos = config_.ekf.processNoiseTranslation * dt;
-  const auto qRot = config_.ekf.processNoiseRotation * dt;
+  const auto qPos = config_.ekf.processNoiseTranslation * deltaT;
+  const auto qRot = config_.ekf.processNoiseRotation * deltaT;
   pNew(0, 0) += qPos;
   pNew(1, 1) += qPos;
   pNew(2, 2) += qRot;
