@@ -10,18 +10,8 @@
 
 namespace ad::localization {
 
-struct EkfLocalizerConfig {
-  const HoughConfig hough;
-  const EkfConfig ekf;
-  const double maxAssociationDistance;
-  const double segmentMargin;
-  const double gateThreshold;
-  const std::size_t minObservations;
-};
-
 class EkfLocalizer final : public ILocalizer {
 public:
-  [[nodiscard]] static auto defaultConfig() -> EkfLocalizerConfig;
   [[nodiscard]] static auto create(const types::MapData &map, EkfLocalizerConfig config)
       -> Result<std::unique_ptr<EkfLocalizer>>;
 

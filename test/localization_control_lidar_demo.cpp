@@ -1,5 +1,6 @@
 #include "features/control/pure_pursuit.hpp"
 #include "features/localization/ekf_localizer.hpp"
+#include "features/localization/localization_config.hpp"
 #include "features/planning/astar_planner.hpp"
 #include "features/planning/grid_collision_checker.hpp"
 #include "features/simulation/collision_checker.hpp"
@@ -73,8 +74,8 @@ auto main() -> int {
     return 1;
   }
 
-  auto localizerResult =
-      ad::localization::EkfLocalizer::create(map, ad::localization::EkfLocalizer::defaultConfig());
+  auto localizerResult = ad::localization::EkfLocalizer::create(
+      map, ad::localization::config::ekfLocalizerDefaultConfig());
   if (!localizerResult) {
     fmt::print(stderr, "Localizer error: {}\n", localizerResult.error().message);
     return 1;

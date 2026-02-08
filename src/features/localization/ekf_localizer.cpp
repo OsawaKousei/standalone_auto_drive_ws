@@ -24,25 +24,6 @@ using Mat3 = Eigen::Matrix<double, 3, 3, Eigen::RowMajor>;
 
 namespace ad::localization {
 
-auto EkfLocalizer::defaultConfig() -> EkfLocalizerConfig {
-  return EkfLocalizerConfig{.hough = HoughConfig{.thetaBins = 180,
-                                                 .rhoBins = 200,
-                                                 .minVotes = 25,
-                                                 .maxLines = 40,
-                                                 .inlierDistance = 0.12,
-                                                 .minSegmentLength = 0.8,
-                                                 .mergeRho = 0.2,
-                                                 .mergeTheta = 0.08},
-                            .ekf = EkfConfig{.processNoiseTranslation = 0.05,
-                                             .processNoiseRotation = 0.03,
-                                             .measurementNoiseRange = 0.12,
-                                             .measurementNoiseAngle = 0.12},
-                            .maxAssociationDistance = 0.3,
-                            .segmentMargin = 0.3,
-                            .gateThreshold = 6.0,
-                            .minObservations = 3U};
-}
-
 EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                            EkfLocalizerConfig config)
     : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
