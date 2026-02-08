@@ -9,7 +9,8 @@ set(COMMON_COMPILE_OPTIONS
   -Wall
   -Wextra
   -Werror
-  -fno-omit-frame-pointer)
+  -fno-omit-frame-pointer
+  -march=native)
 
 # --- 依存関係の定義 ---
 include(FetchContent)

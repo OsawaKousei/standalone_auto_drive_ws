@@ -18,6 +18,9 @@ Checks: >
   modernize-use-ranges,
   readability-identifier-naming
 
+ExtraArgs:
+  - -std=c++20
+
 CheckOptions:
   # 命名規則の設定
   - key: readability-identifier-naming.ClassCase
