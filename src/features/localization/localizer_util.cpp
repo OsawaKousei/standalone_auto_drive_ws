@@ -23,6 +23,149 @@ struct HoughCandidate {
   int votes;
 };
 
+struct HoughParams {
+  double thetaMin;
+  double thetaStep;
+  double rhoMin;
+  double rhoStep;
+  int thetaBins;
+  int rhoBins;
+  std::size_t thetaBinsSize;
+  std::size_t rhoBinsSize;
+};
+
+auto buildHoughParams(const HoughConfig &config, double maxRho) -> HoughParams {
+  const auto thetaMin = -0.5 * std::numbers::pi;
+  const auto thetaMax = 0.5 * std::numbers::pi;
+  const auto thetaStep = (thetaMax - thetaMin) / static_cast<double>(config.thetaBins - 1);
+  const auto rhoMin = -maxRho;
+  const auto rhoMax = maxRho;
+  const auto rhoStep = (rhoMax - rhoMin) / static_cast<double>(config.rhoBins - 1);
+
+  return HoughParams{.thetaMin = thetaMin,
+                     .thetaStep = thetaStep,
+                     .rhoMin = rhoMin,
+                     .rhoStep = rhoStep,
+                     .thetaBins = config.thetaBins,
+                     .rhoBins = config.rhoBins,
+                     .thetaBinsSize = static_cast<std::size_t>(config.thetaBins),
+                     .rhoBinsSize = static_cast<std::size_t>(config.rhoBins)};
+}
+
+auto buildAccumulator(const std::vector<types::Point> &points, const HoughParams &params)
+    -> std::vector<int> {
+  auto accumulator = std::vector<int>(params.thetaBinsSize * params.rhoBinsSize, 0);
+
+  for (const auto &point : points) {
+    for (int thetaIndex = 0; thetaIndex < params.thetaBins; ++thetaIndex) {
+      const auto theta = params.thetaMin + (params.thetaStep * static_cast<double>(thetaIndex));
+      const auto rho = (point.x * std::cos(theta)) + (point.y * std::sin(theta));
+      const auto rhoIndex = static_cast<int>(std::lround((rho - params.rhoMin) / params.rhoStep));
+      if (rhoIndex < 0 || rhoIndex >= params.rhoBins) {
+        continue;
+      }
+      const auto index = (static_cast<std::size_t>(thetaIndex) * params.rhoBinsSize) +
+                         static_cast<std::size_t>(rhoIndex);
+      ++accumulator[index];
+    }
+  }
+
+  return accumulator;
+}
+
+auto collectCandidates(const std::vector<int> &accumulator, const HoughParams &params,
+                       const HoughConfig &config) -> std::vector<HoughCandidate> {
+  auto candidates = std::vector<HoughCandidate>{};
+  for (int thetaIndex = 0; thetaIndex < params.thetaBins; ++thetaIndex) {
+    for (int rhoIndex = 0; rhoIndex < params.rhoBins; ++rhoIndex) {
+      const auto index = (static_cast<std::size_t>(thetaIndex) * params.rhoBinsSize) +
+                         static_cast<std::size_t>(rhoIndex);
+      const auto votes = accumulator[index];
+      if (votes < config.minVotes) {
+        continue;
+      }
+      const auto theta = params.thetaMin + (params.thetaStep * static_cast<double>(thetaIndex));
+      const auto rho = params.rhoMin + (params.rhoStep * static_cast<double>(rhoIndex));
+      candidates.push_back({rho, theta, votes});
+    }
+  }
+
+  return candidates;
+}
+
+auto isTooCloseToExisting(const LineModel &normalized, const std::vector<MapLine> &lines,
+                          const HoughConfig &config) -> bool {
+  return std::ranges::any_of(lines, [&](const auto &existing) {
+    const auto rhoDiff = std::abs(existing.model.rho - normalized.rho);
+    const auto alphaDiff = std::abs(normalizeAngle(existing.model.alpha - normalized.alpha));
+    return rhoDiff <= config.mergeRho && alphaDiff <= config.mergeTheta;
+  });
+}
+
+auto buildLineFromCandidate(const HoughCandidate &candidate,
+                            const std::vector<types::Point> &points, const HoughConfig &config,
+                            const LineModel &normalized) -> std::optional<MapLine> {
+  const auto normalX = std::cos(candidate.alpha);
+  const auto normalY = std::sin(candidate.alpha);
+  const auto tangentX = -normalY;
+  const auto tangentY = normalX;
+
+  auto minProjection = std::optional<double>{};
+  auto maxProjection = std::optional<double>{};
+  for (const auto &point : points) {
+    const auto distance = std::abs((normalX * point.x) + (normalY * point.y) - candidate.rho);
+    if (distance > config.inlierDistance) {
+      continue;
+    }
+
+    const auto projection = (tangentX * point.x) + (tangentY * point.y);
+    if (!minProjection || projection < *minProjection) {
+      minProjection = projection;
+    }
+    if (!maxProjection || projection > *maxProjection) {
+      maxProjection = projection;
+    }
+  }
+
+  if (!minProjection || !maxProjection) {
+    return std::nullopt;
+  }
+
+  const auto segmentLength = std::abs(*maxProjection - *minProjection);
+  if (segmentLength < config.minSegmentLength) {
+    return std::nullopt;
+  }
+
+  const auto startPoint =
+      types::Point{.x = (tangentX * (*minProjection)) + (normalX * candidate.rho),
+                   .y = (tangentY * (*minProjection)) + (normalY * candidate.rho)};
+  const auto endPoint =
+      types::Point{.x = (tangentX * (*maxProjection)) + (normalX * candidate.rho),
+                   .y = (tangentY * (*maxProjection)) + (normalY * candidate.rho)};
+
+  const auto segmentDeltaX = endPoint.x - startPoint.x;
+  const auto segmentDeltaY = endPoint.y - startPoint.y;
+  const auto segmentDistance = std::hypot(segmentDeltaX, segmentDeltaY);
+  if (segmentDistance < kEpsilon) {
+    return std::nullopt;
+  }
+
+  const auto directionX = segmentDeltaX / segmentDistance;
+  const auto directionY = segmentDeltaY / segmentDistance;
+  auto minProjValue = (directionX * startPoint.x) + (directionY * startPoint.y);
+  auto maxProjValue = (directionX * endPoint.x) + (directionY * endPoint.y);
+  if (minProjValue > maxProjValue) {
+    std::swap(minProjValue, maxProjValue);
+  }
+
+  return MapLine{types::LineSegment{startPoint, endPoint},
+                 normalized,
+                 directionX,
+                 directionY,
+                 minProjValue,
+                 maxProjValue};
+}
+
 } // namespace
 
 auto normalizeAngle(double angle) -> double {
@@ -95,11 +238,11 @@ auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> 
 
   auto momentSums = std::array<double, 3>{0.0, 0.0, 0.0};
   for (const auto &point : points) {
-    const auto dx = point.x - meanX;
-    const auto dy = point.y - meanY;
-    momentSums[0] += dx * dx;
-    momentSums[1] += dx * dy;
-    momentSums[2] += dy * dy;
+    const auto deltaX = point.x - meanX;
+    const auto deltaY = point.y - meanY;
+    momentSums[0] += deltaX * deltaX;
+    momentSums[1] += deltaX * deltaY;
+    momentSums[2] += deltaY * deltaY;
   }
 
   const auto sxx = momentSums[0];
@@ -234,46 +377,9 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Map resolution too small for Hough transform."});
   }
-
-  const auto thetaMin = -0.5 * std::numbers::pi;
-  const auto thetaMax = 0.5 * std::numbers::pi;
-  const auto thetaStep = (thetaMax - thetaMin) / static_cast<double>(config.thetaBins - 1);
-  const auto rhoMin = -maxRho;
-  const auto rhoMax = maxRho;
-  const auto rhoStep = (rhoMax - rhoMin) / static_cast<double>(config.rhoBins - 1);
-
-  const auto thetaBins = static_cast<std::size_t>(config.thetaBins);
-  const auto rhoBins = static_cast<std::size_t>(config.rhoBins);
-  auto accumulator = std::vector<int>(thetaBins * rhoBins, 0);
-
-  for (const auto &point : points) {
-    for (int thetaIndex = 0; thetaIndex < config.thetaBins; ++thetaIndex) {
-      const auto theta = thetaMin + (thetaStep * static_cast<double>(thetaIndex));
-      const auto rho = (point.x * std::cos(theta)) + (point.y * std::sin(theta));
-      const auto rhoIndex = static_cast<int>(std::lround((rho - rhoMin) / rhoStep));
-      if (rhoIndex < 0 || rhoIndex >= config.rhoBins) {
-        continue;
-      }
-      const auto index =
-          (static_cast<std::size_t>(thetaIndex) * rhoBins) + static_cast<std::size_t>(rhoIndex);
-      ++accumulator[index];
-    }
-  }
-
-  auto candidates = std::vector<HoughCandidate>{};
-  for (int thetaIndex = 0; thetaIndex < config.thetaBins; ++thetaIndex) {
-    for (int rhoIndex = 0; rhoIndex < config.rhoBins; ++rhoIndex) {
-      const auto index =
-          (static_cast<std::size_t>(thetaIndex) * rhoBins) + static_cast<std::size_t>(rhoIndex);
-      const auto votes = accumulator[index];
-      if (votes < config.minVotes) {
-        continue;
-      }
-      const auto theta = thetaMin + (thetaStep * static_cast<double>(thetaIndex));
-      const auto rho = rhoMin + (rhoStep * static_cast<double>(rhoIndex));
-      candidates.push_back({rho, theta, votes});
-    }
-  }
+  const auto params = buildHoughParams(config, maxRho);
+  const auto accumulator = buildAccumulator(points, params);
+  auto candidates = collectCandidates(accumulator, params, config);
 
   if (candidates.empty()) {
     return tl::make_unexpected(
@@ -291,72 +397,14 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
     }
 
     const auto normalized = toLineModel(LineModel{.rho = candidate.rho, .alpha = candidate.alpha});
-    bool tooClose = false;
-    for (const auto &existing : lines) {
-      const auto rhoDiff = std::abs(existing.model.rho - normalized.rho);
-      const auto alphaDiff = std::abs(normalizeAngle(existing.model.alpha - normalized.alpha));
-      if (rhoDiff <= config.mergeRho && alphaDiff <= config.mergeTheta) {
-        tooClose = true;
-        break;
-      }
-    }
-    if (tooClose) {
+    if (isTooCloseToExisting(normalized, lines, config)) {
       continue;
     }
-
-    const auto nx = std::cos(candidate.alpha);
-    const auto ny = std::sin(candidate.alpha);
-    const auto dx = -ny;
-    const auto dy = nx;
-
-    auto minProjection = std::optional<double>{};
-    auto maxProjection = std::optional<double>{};
-    for (const auto &point : points) {
-      const auto distance = std::abs((nx * point.x) + (ny * point.y) - candidate.rho);
-      if (distance > config.inlierDistance) {
-        continue;
-      }
-
-      const auto projection = (dx * point.x) + (dy * point.y);
-      if (!minProjection || projection < *minProjection) {
-        minProjection = projection;
-      }
-      if (!maxProjection || projection > *maxProjection) {
-        maxProjection = projection;
-      }
-    }
-
-    if (!minProjection || !maxProjection) {
+    const auto line = buildLineFromCandidate(candidate, points, config, normalized);
+    if (!line) {
       continue;
     }
-
-    const auto segmentLength = std::abs(*maxProjection - *minProjection);
-    if (segmentLength < config.minSegmentLength) {
-      continue;
-    }
-
-    const auto startPoint = types::Point{.x = (dx * (*minProjection)) + (nx * candidate.rho),
-                                         .y = (dy * (*minProjection)) + (ny * candidate.rho)};
-    const auto endPoint = types::Point{.x = (dx * (*maxProjection)) + (nx * candidate.rho),
-                                       .y = (dy * (*maxProjection)) + (ny * candidate.rho)};
-
-    const auto segDx = endPoint.x - startPoint.x;
-    const auto segDy = endPoint.y - startPoint.y;
-    const auto segLength = std::hypot(segDx, segDy);
-    if (segLength < kEpsilon) {
-      continue;
-    }
-
-    const auto dirX = segDx / segLength;
-    const auto dirY = segDy / segLength;
-    auto minProjValue = (dirX * startPoint.x) + (dirY * startPoint.y);
-    auto maxProjValue = (dirX * endPoint.x) + (dirY * endPoint.y);
-    if (minProjValue > maxProjValue) {
-      std::swap(minProjValue, maxProjValue);
-    }
-
-    lines.push_back(MapLine{types::LineSegment{startPoint, endPoint}, normalized, dirX, dirY,
-                            minProjValue, maxProjValue});
+    lines.push_back(*line);
   }
 
   if (lines.empty()) {
