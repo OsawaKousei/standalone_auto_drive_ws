@@ -55,10 +55,10 @@ struct MapSignature {
 [[nodiscard]] auto passesGate(double residual, double variance, double threshold) -> bool;
 [[nodiscard]] auto toLineModel(LineModel raw) -> LineModel;
 [[nodiscard]] auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit>;
-[[nodiscard]] auto makeExpectedLine(const LineModel &mapLine, double x, double y, double theta)
-    -> LineObservation;
+[[nodiscard]] auto makeExpectedLine(const LineModel &mapLine, double xValue, double yValue,
+                                    double theta) -> LineObservation;
 [[nodiscard]] auto gateLineObservation(const LineObservation &observation,
-                                       const std::array<double, 9> &covariance, double threshold)
+                                       const CovarianceMatrix &covariance, double threshold)
     -> bool;
 [[nodiscard]] auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
 [[nodiscard]] auto signatureMatches(const MapSignature &signature, const types::MapData &map)

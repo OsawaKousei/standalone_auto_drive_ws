@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Eigen/Dense>
 #include <cstddef>
 
 namespace ad::localization {
@@ -30,6 +31,8 @@ struct EkfLocalizerConfig {
   const double gateThreshold;
   const std::size_t minObservations;
 };
+
+using CovarianceMatrix = Eigen::Matrix3d;
 
 } // namespace ad::localization
 

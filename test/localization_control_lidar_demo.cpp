@@ -81,7 +81,10 @@ auto main() -> int {
     return 1;
   }
   auto localizer = std::move(*localizerResult);
-  const auto initialCovariance = std::array<double, 9>{0.5, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.2};
+  ad::localization::CovarianceMatrix initialCovariance = ad::localization::CovarianceMatrix::Zero();
+  initialCovariance(0, 0) = 0.5;
+  initialCovariance(1, 1) = 0.5;
+  initialCovariance(2, 2) = 0.2;
   const auto initStatus = localizer->reset(start, initialCovariance);
   if (!initStatus) {
     fmt::print(stderr, "Localizer error: {}\n", initStatus.error().message);

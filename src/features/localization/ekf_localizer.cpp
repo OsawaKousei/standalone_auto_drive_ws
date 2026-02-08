@@ -18,7 +18,7 @@ constexpr double kMinRangeVarianceFactor = 0.25;
 constexpr double kMinAngleVarianceFactor = 0.25;
 constexpr double kAngleMseScale = 0.1;
 
-using Mat3 = Eigen::Matrix<double, 3, 3, Eigen::RowMajor>;
+using Mat3 = ad::localization::CovarianceMatrix;
 
 } // namespace
 
@@ -27,9 +27,7 @@ namespace ad::localization {
 EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                            EkfLocalizerConfig config)
     : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
-      state_{0.0, 0.0, 0.0}, covariance_{}, score_(0.0), hasState_(false) {
-  covariance_.fill(0.0);
-}
+      state_{0.0, 0.0, 0.0}, covariance_{CovarianceMatrix::Zero()}, score_(0.0), hasState_(false) {}
 
 auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
     -> Result<std::unique_ptr<EkfLocalizer>> {
@@ -48,8 +46,8 @@ auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
   return Result<std::unique_ptr<EkfLocalizer>>(std::move(localizer));
 }
 
-auto EkfLocalizer::reset(const types::Pose &initialPose,
-                         const std::array<double, 9> &initialCovariance) -> Status {
+auto EkfLocalizer::reset(const types::Pose &initialPose, const CovarianceMatrix &initialCovariance)
+    -> Status {
   state_ = State{initialPose.x, initialPose.y, initialPose.theta};
   covariance_ = initialCovariance;
   score_ = 0.0;
@@ -82,15 +80,13 @@ auto EkfLocalizer::predict(const types::Twist &control, double dt) -> Status {
   Mat3 f;
   f << 1.0, 0.0, f02, 0.0, 1.0, f12, 0.0, 0.0, 1.0;
 
-  const Eigen::Map<const Mat3> p(covariance_.data());
-  Mat3 pNew = (f * p * f.transpose());
+  Mat3 pNew = (f * covariance_ * f.transpose());
   const auto qPos = config_.ekf.processNoiseTranslation * dt;
   const auto qRot = config_.ekf.processNoiseRotation * dt;
   pNew(0, 0) += qPos;
   pNew(1, 1) += qPos;
   pNew(2, 2) += qRot;
-
-  Eigen::Map<Mat3>(covariance_.data()) = pNew;
+  covariance_ = pNew;
   return {};
 }
 
@@ -229,8 +225,7 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
     r(row + 1, row + 1) = obs.angleVariance;
   }
 
-  const Eigen::Map<const Mat3> p(covariance_.data());
-  const Eigen::MatrixXd s = (h * p * h.transpose()) + r;
+  const Eigen::MatrixXd s = (h * covariance_ * h.transpose()) + r;
   const auto sDecomp = s.ldlt();
   if (sDecomp.info() != Eigen::Success) {
     score_ = 0.0;
@@ -240,15 +235,15 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
 
   const Eigen::MatrixXd sInv =
       sDecomp.solve(Eigen::MatrixXd::Identity(measurementSize, measurementSize));
-  const Eigen::MatrixXd k = (p * h.transpose()) * sInv;
+  const Eigen::MatrixXd k = (covariance_ * h.transpose()) * sInv;
   const Eigen::Vector3d delta = k * residual;
 
   state_ = State{state_.x + delta(0), state_.y + delta(1),
                  util::normalizeAngle(state_.theta + delta(2))};
 
   const Mat3 kh = (k * h).eval();
-  const Mat3 pNew = (Mat3::Identity() - kh) * p;
-  Eigen::Map<Mat3>(covariance_.data()) = pNew;
+  const Mat3 pNew = (Mat3::Identity() - kh) * covariance_;
+  covariance_ = pNew;
 
   score_ = candidates > 0 ? static_cast<double>(gatePassed) / static_cast<double>(candidates) : 0.0;
   (void)associationAttempts;

@@ -150,18 +150,18 @@ auto makeExpectedLine(const LineModel &mapLine, double x, double y, double theta
                          .angleVariance = 0.0};
 }
 
-auto gateLineObservation(const LineObservation &observation,
-                         const std::array<double, 9> &covariance, double threshold) -> bool {
+auto gateLineObservation(const LineObservation &observation, const CovarianceMatrix &covariance,
+                         double threshold) -> bool {
   const auto h00 = -observation.rhoSign * observation.nx;
   const auto h01 = -observation.rhoSign * observation.ny;
 
-  const auto p00 = covariance[0];
-  const auto p01 = covariance[1];
-  const auto p02 = covariance[2];
-  const auto p10 = covariance[3];
-  const auto p11 = covariance[4];
-  const auto p12 = covariance[5];
-  const auto p22 = covariance[8];
+  const auto p00 = covariance(0, 0);
+  const auto p01 = covariance(0, 1);
+  const auto p02 = covariance(0, 2);
+  const auto p10 = covariance(1, 0);
+  const auto p11 = covariance(1, 1);
+  const auto p12 = covariance(1, 2);
+  const auto p22 = covariance(2, 2);
 
   const auto s00 =
       (h00 * (p00 * h00 + p01 * h01)) + (h01 * (p10 * h00 + p11 * h01)) + observation.rangeVariance;

@@ -16,7 +16,7 @@ public:
       -> Result<std::unique_ptr<EkfLocalizer>>;
 
   [[nodiscard]] auto reset(const types::Pose &initialPose,
-                           const std::array<double, 9> &initialCovariance) -> Status override;
+                           const CovarianceMatrix &initialCovariance) -> Status override;
   [[nodiscard]] auto predict(const types::Twist &control, double deltaT) -> Status override;
   [[nodiscard]] auto update(const types::LidarScan &scan, const types::MapData &map)
       -> Status override;
@@ -35,7 +35,7 @@ private:
   std::vector<util::MapLine> mapLines_;
   util::MapSignature mapSignature_;
   State state_;
-  std::array<double, 9> covariance_;
+  CovarianceMatrix covariance_;
   double score_ = 0.0;
   bool hasState_ = false;
 };
