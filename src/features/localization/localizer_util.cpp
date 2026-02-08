@@ -72,7 +72,7 @@ auto toLineModel(LineModel raw) -> LineModel {
     normalizedRho = -normalizedRho;
     normalizedAlpha = normalizeAngle(normalizedAlpha + std::numbers::pi);
   }
-  return LineModel{normalizedRho, normalizedAlpha};
+  return LineModel{.rho = normalizedRho, .alpha = normalizedAlpha};
 }
 
 auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> {
@@ -111,7 +111,7 @@ auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> 
   const auto ny = std::sin(normal);
   const auto rho = (nx * meanX) + (ny * meanY);
 
-  auto model = toLineModel(LineModel{rho, normal});
+  auto model = toLineModel(LineModel{.rho = rho, .alpha = normal});
 
   const auto lineNx = std::cos(model.alpha);
   const auto lineNy = std::sin(model.alpha);
@@ -141,8 +141,8 @@ auto makeExpectedLine(const LineModel &mapLine, double x, double y, double theta
     alpha = normalizeAngle(alpha + std::numbers::pi);
   }
 
-  return LineObservation{.observed = LineModel{0.0, 0.0},
-                         .expected = LineModel{rho, alpha},
+  return LineObservation{.observed = LineModel{.rho = 0.0, .alpha = 0.0},
+                         .expected = LineModel{.rho = rho, .alpha = alpha},
                          .nx = nx,
                          .ny = ny,
                          .rhoSign = rhoSign,
@@ -272,8 +272,9 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
         Error{ErrorCode::EmptyCollection, "No Hough candidates met the vote threshold."});
   }
 
-  std::ranges::sort(candidates,
-                    [](const auto &left, const auto &right) { return left.votes > right.votes; });
+  std::ranges::sort(candidates, [](const auto &left, const auto &right) -> bool {
+    return left.votes > right.votes;
+  });
 
   auto lines = std::vector<MapLine>{};
   for (const auto &candidate : candidates) {
@@ -281,7 +282,7 @@ auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
       break;
     }
 
-    const auto normalized = toLineModel(LineModel{candidate.rho, candidate.alpha});
+    const auto normalized = toLineModel(LineModel{.rho = candidate.rho, .alpha = candidate.alpha});
     bool tooClose = false;
     for (const auto &existing : lines) {
       const auto rhoDiff = std::abs(existing.model.rho - normalized.rho);

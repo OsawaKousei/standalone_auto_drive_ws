@@ -38,23 +38,43 @@ using CovarianceMatrix = Eigen::Matrix3d;
 
 namespace ad::localization::config {
 
+constexpr int kDefaultThetaBins = 180;
+constexpr int kDefaultRhoBins = 200;
+constexpr int kDefaultMinVotes = 25;
+constexpr int kDefaultMaxLines = 40;
+constexpr double kDefaultInlierDistance = 0.12;
+constexpr double kDefaultMinSegmentLength = 0.8;
+constexpr double kDefaultMergeRho = 0.2;
+constexpr double kDefaultMergeTheta = 0.08;
+
+constexpr double kDefaultProcessNoiseTranslation = 0.05;
+constexpr double kDefaultProcessNoiseRotation = 0.03;
+constexpr double kDefaultMeasurementNoiseRange = 0.12;
+constexpr double kDefaultMeasurementNoiseAngle = 0.12;
+
+constexpr double kDefaultMaxAssociationDistance = 0.3;
+constexpr double kDefaultSegmentMargin = 0.3;
+constexpr double kDefaultGateThreshold = 6.0;
+constexpr std::size_t kDefaultMinObservations = 3U;
+
 [[nodiscard]] inline auto ekfLocalizerDefaultConfig() -> EkfLocalizerConfig {
-  return EkfLocalizerConfig{.hough = HoughConfig{.thetaBins = 180,
-                                                 .rhoBins = 200,
-                                                 .minVotes = 25,
-                                                 .maxLines = 40,
-                                                 .inlierDistance = 0.12,
-                                                 .minSegmentLength = 0.8,
-                                                 .mergeRho = 0.2,
-                                                 .mergeTheta = 0.08},
-                            .ekf = EkfConfig{.processNoiseTranslation = 0.05,
-                                             .processNoiseRotation = 0.03,
-                                             .measurementNoiseRange = 0.12,
-                                             .measurementNoiseAngle = 0.12},
-                            .maxAssociationDistance = 0.3,
-                            .segmentMargin = 0.3,
-                            .gateThreshold = 6.0,
-                            .minObservations = 3U};
+  return EkfLocalizerConfig{
+      .hough = HoughConfig{.thetaBins = kDefaultThetaBins,
+                           .rhoBins = kDefaultRhoBins,
+                           .minVotes = kDefaultMinVotes,
+                           .maxLines = kDefaultMaxLines,
+                           .inlierDistance = kDefaultInlierDistance,
+                           .minSegmentLength = kDefaultMinSegmentLength,
+                           .mergeRho = kDefaultMergeRho,
+                           .mergeTheta = kDefaultMergeTheta},
+      .ekf = EkfConfig{.processNoiseTranslation = kDefaultProcessNoiseTranslation,
+                       .processNoiseRotation = kDefaultProcessNoiseRotation,
+                       .measurementNoiseRange = kDefaultMeasurementNoiseRange,
+                       .measurementNoiseAngle = kDefaultMeasurementNoiseAngle},
+      .maxAssociationDistance = kDefaultMaxAssociationDistance,
+      .segmentMargin = kDefaultSegmentMargin,
+      .gateThreshold = kDefaultGateThreshold,
+      .minObservations = kDefaultMinObservations};
 }
 
 } // namespace ad::localization::config

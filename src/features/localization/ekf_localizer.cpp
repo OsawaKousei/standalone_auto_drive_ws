@@ -27,7 +27,8 @@ namespace ad::localization {
 EkfLocalizer::EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
                            EkfLocalizerConfig config)
     : config_(config), mapLines_(std::move(mapLines)), mapSignature_(signature),
-      state_{0.0, 0.0, 0.0}, covariance_{CovarianceMatrix::Zero()}, score_(0.0), hasState_(false) {}
+      state_{.x = 0.0, .y = 0.0, .theta = 0.0}, covariance_{CovarianceMatrix::Zero()}, score_(0.0),
+      hasState_(false) {}
 
 auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
     -> Result<std::unique_ptr<EkfLocalizer>> {
@@ -48,7 +49,7 @@ auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
 
 auto EkfLocalizer::reset(const types::Pose &initialPose, const CovarianceMatrix &initialCovariance)
     -> Status {
-  state_ = State{initialPose.x, initialPose.y, initialPose.theta};
+  state_ = State{.x = initialPose.x, .y = initialPose.y, .theta = initialPose.theta};
   covariance_ = initialCovariance;
   score_ = 0.0;
   hasState_ = true;
@@ -71,8 +72,9 @@ auto EkfLocalizer::predict(const types::Twist &control, double dt) -> Status {
   const auto deltaY = control.v * sinTheta * dt;
   const auto deltaTheta = control.w * dt;
 
-  state_ =
-      State{state_.x + deltaX, state_.y + deltaY, util::normalizeAngle(state_.theta + deltaTheta)};
+  state_ = State{.x = state_.x + deltaX,
+                 .y = state_.y + deltaY,
+                 .theta = util::normalizeAngle(state_.theta + deltaTheta)};
 
   const auto f02 = -control.v * sinTheta * dt;
   const auto f12 = control.v * cosTheta * dt;
