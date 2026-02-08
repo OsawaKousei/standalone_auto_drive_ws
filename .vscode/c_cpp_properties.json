@@ -5,10 +5,7 @@
       "includePath": ["${workspaceFolder}/src/**"],
       "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "compilerPath": "/usr/bin/clang++",
-      "defines": [
-        "EIGEN_DONT_VECTORIZE",
-        "EIGEN_DISABLE_UNALIGNED_ARRAY_ASSERT"
-      ],
+      "defines": [],
       "cStandard": "c17",
       "cppStandard": "c++20",
       "intelliSenseMode": "linux-clang-x64"
