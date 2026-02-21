@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hough_observation_model.hpp"
+#include "hough_ransac_config.hpp"
 #include "i_observation_model.hpp"
 #include "localizer_util.hpp"
 
@@ -8,13 +9,6 @@
 #include <vector>
 
 namespace ad::localization {
-
-struct RansacConfig {
-  const int maxIterations;
-  const double inlierDistance;
-  const std::size_t minInliers;
-  const double minInlierRatio;
-};
 
 struct HoughRansacObservationModelConfig {
   const HoughObservationModelConfig houghObservation;

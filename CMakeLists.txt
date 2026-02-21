@@ -81,6 +81,7 @@ add_library(ad_core
   src/features/localization/ekf_localizer.cpp
   src/features/localization/hough_line_extractor.cpp
   src/features/localization/hough_observation_model.cpp
+  src/features/localization/hough_ransac_core.cpp
   src/features/localization/hough_ransac_observation_model.cpp
   src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp

@@ -1,11 +1,12 @@
 #include "hough_ransac_observation_model.hpp"
 
 #include "hough_line_extractor.hpp"
+#include "hough_ransac_core.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <optional>
-#include <random>
 #include <vector>
 
 namespace {
@@ -14,7 +15,6 @@ constexpr double kReferencePoints = 40.0;
 constexpr double kMinRangeVarianceFactor = 0.25;
 constexpr double kMinAngleVarianceFactor = 0.25;
 constexpr double kAngleMseScale = 0.1;
-constexpr double kEpsilon = 1e-9;
 
 using Mat3 = ad::localization::CovarianceMatrix;
 
@@ -22,11 +22,6 @@ struct ObservationSummary {
   std::vector<ad::localization::util::LineObservation> observations;
   int gatePassed = 0;
   int candidates = 0;
-};
-
-struct RansacFitResult {
-  ad::localization::util::LineFit fit;
-  std::size_t inlierCount;
 };
 
 auto buildBuckets(const ad::types::LidarScan &scan,
@@ -82,90 +77,6 @@ auto buildBuckets(const ad::types::LidarScan &scan,
   return buckets;
 }
 
-auto lineFromTwoPoints(const ad::types::Point &p1, const ad::types::Point &p2)
-    -> std::optional<ad::localization::util::LineModel> {
-  const auto dx = p2.x - p1.x;
-  const auto dy = p2.y - p1.y;
-  const auto norm = std::hypot(dx, dy);
-  if (norm < kEpsilon) {
-    return std::nullopt;
-  }
-
-  const auto nx = -dy / norm;
-  const auto ny = dx / norm;
-  const auto rho = (nx * p1.x) + (ny * p1.y);
-  const auto alpha = std::atan2(ny, nx);
-  return ad::localization::util::toLineModel(
-      ad::localization::util::LineModel{.rho = rho, .alpha = alpha});
-}
-
-auto collectInliers(const std::vector<ad::types::Point> &points,
-                    const ad::localization::util::LineModel &model, double threshold)
-    -> std::vector<ad::types::Point> {
-  const auto nx = std::cos(model.alpha);
-  const auto ny = std::sin(model.alpha);
-
-  auto inliers = std::vector<ad::types::Point>{};
-  inliers.reserve(points.size());
-  for (const auto &point : points) {
-    const auto distance = std::abs((nx * point.x) + (ny * point.y) - model.rho);
-    if (distance <= threshold) {
-      inliers.push_back(point);
-    }
-  }
-
-  return inliers;
-}
-
-auto fitLineWithRansac(const std::vector<ad::types::Point> &points,
-                       const ad::localization::RansacConfig &config)
-    -> std::optional<RansacFitResult> {
-  if (points.size() < 2U || config.maxIterations <= 0 || !(config.inlierDistance > 0.0)) {
-    return std::nullopt;
-  }
-
-  std::mt19937 generator(static_cast<std::mt19937::result_type>(points.size() * 2654435761U));
-  std::uniform_int_distribution<std::size_t> distribution(0U, points.size() - 1U);
-
-  auto bestFit = std::optional<RansacFitResult>{};
-  for (int iteration = 0; iteration < config.maxIterations; ++iteration) {
-    const auto index1 = distribution(generator);
-    auto index2 = distribution(generator);
-    if (index1 == index2) {
-      continue;
-    }
-
-    auto model = lineFromTwoPoints(points[index1], points[index2]);
-    if (!model) {
-      continue;
-    }
-
-    auto inliers = collectInliers(points, *model, config.inlierDistance);
-    if (inliers.size() < config.minInliers) {
-      continue;
-    }
-
-    const auto inlierRatio =
-        static_cast<double>(inliers.size()) / static_cast<double>(points.size());
-    if (inlierRatio < config.minInlierRatio) {
-      continue;
-    }
-
-    const auto fit = ad::localization::util::fitLine(inliers);
-    if (!fit) {
-      continue;
-    }
-
-    const auto candidate = RansacFitResult{.fit = *fit, .inlierCount = inliers.size()};
-    if (!bestFit || candidate.inlierCount > bestFit->inlierCount ||
-        (candidate.inlierCount == bestFit->inlierCount && candidate.fit.mse < bestFit->fit.mse)) {
-      bestFit = candidate;
-    }
-  }
-
-  return bestFit;
-}
-
 auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets,
                        const std::vector<ad::localization::util::MapLine> &mapLines,
                        const ad::types::Pose &pose,
@@ -180,7 +91,10 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
       continue;
     }
 
-    const auto fitResult = fitLineWithRansac(bucket, config.ransac);
+    const auto randomSeed = static_cast<std::uint32_t>((lineIndex + 1U) * 0x9e3779b9U) ^
+                            static_cast<std::uint32_t>(bucket.size());
+    const auto fitResult =
+        ad::localization::ransac::fitLineToPoints(bucket, config.ransac, randomSeed);
     if (!fitResult) {
       continue;
     }
