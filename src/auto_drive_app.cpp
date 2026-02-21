@@ -108,9 +108,9 @@ struct LogSeries {
   logFile << "# path=" << serializePoints(series.path) << "\n";
   logFile << "# columns: "
              "step,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
+             "est_y,est_theta,v,vy,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
   logFile << "step,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
+             "est_y,est_theta,v,vy,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
   return logFile;
 }
 
@@ -157,9 +157,10 @@ auto appendLogEntry(std::ofstream &logFile, int step, double distanceAfter, doub
   logFile << step << ',' << distanceAfter << ',' << positionError << ',' << headingError << ','
           << estimateScore << ',' << truePose.x << ',' << truePose.y << ',' << truePose.theta << ','
           << estimatedPose.x << ',' << estimatedPose.y << ',' << estimatedPose.theta << ','
-          << appliedCommand.v << ',' << appliedCommand.w << ',' << (lidarUpdated ? 1 : 0) << ','
-          << odometryDelta.deltaForward << ',' << odometryDelta.deltaLateral << ','
-          << odometryDelta.deltaTheta << ',' << serializePoints(scanPoints) << '\n';
+          << appliedCommand.v << ',' << appliedCommand.vy << ',' << appliedCommand.w << ','
+          << (lidarUpdated ? 1 : 0) << ',' << odometryDelta.deltaForward << ','
+          << odometryDelta.deltaLateral << ',' << odometryDelta.deltaTheta << ','
+          << serializePoints(scanPoints) << '\n';
 }
 
 struct SimulationOutcome {
@@ -239,7 +240,7 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
                   auto &physics, std::ofstream &logFile) -> SimulationOutcome {
   auto outcome = SimulationOutcome{};
   auto trueState = std::optional<ad::simulation::MotionState>{ad::simulation::MotionState{
-      .pose = endpoints.start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
+      .pose = endpoints.start, .twist = ad::types::Twist{.v = 0.0, .vy = 0.0, .w = 0.0}}};
   auto lidarElapsed = 0.0;
   auto renderElapsed = 0.0;
   auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
@@ -251,7 +252,8 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
       break;
     }
 
-    const auto input = ad::control::ControlInput{.path = path, .currentPose = estimateResult->pose};
+    const auto input = ad::control::ControlInput{
+        .path = path, .currentPose = estimateResult->pose, .deltaSeconds = runtime.stepSeconds};
     const auto commandResult = controller->computeCommand(input);
     if (!commandResult) {
       outcome.failure.emplace(commandResult.error());

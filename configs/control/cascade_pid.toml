@@ -1,0 +1,12 @@
+lookahead_distance = 0.6
+max_linear_speed = 1.2
+max_angular_speed = 1.8
+position_kp = 1.2
+position_ki = 0.0
+position_kd = 0.1
+velocity_kp = 0.8
+velocity_ki = 0.0
+velocity_kd = 0.05
+heading_kp = 2.0
+heading_ki = 0.0
+heading_kd = 0.1

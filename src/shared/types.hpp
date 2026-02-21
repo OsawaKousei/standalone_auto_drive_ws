@@ -18,6 +18,7 @@ struct Pose {
 
 struct Twist {
   const double v;
+  const double vy;
   const double w;
 };
 

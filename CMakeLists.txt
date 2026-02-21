@@ -76,12 +76,14 @@ add_library(ad_core
   src/features/planning/grid_collision_checker.cpp
   src/features/planning/planner_utils.cpp
   src/features/control/pure_pursuit.cpp
+  src/features/control/cascade_pid.cpp
   src/features/control/controller_factory.cpp
   src/features/localization/ekf_localizer.cpp
   src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker.cpp
   src/features/simulation/unicycle_model.cpp
+  src/features/simulation/holonomic_model.cpp
   src/features/simulation/lidar_sensor.cpp
   src/features/simulation/odometry_sensor.cpp
   src/features/simulation/simulation_factory.cpp

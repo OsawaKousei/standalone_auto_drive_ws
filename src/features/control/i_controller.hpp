@@ -10,6 +10,7 @@ namespace ad::control {
 struct ControlInput {
   const std::span<const types::Point> path;
   const types::Pose currentPose;
+  const double deltaSeconds;
 };
 
 class IController {

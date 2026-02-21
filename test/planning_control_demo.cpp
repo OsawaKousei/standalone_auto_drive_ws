@@ -65,8 +65,8 @@ auto main() -> int {
                                                              .maxRotationStep = 0.05};
   const ad::simulation::CollisionChecker collisionChecker{map, footprint, collisionConfig};
 
-  auto state =
-      std::optional<ad::simulation::MotionState>{ad::simulation::MotionState{start, {0.0, 0.0}}};
+  auto state = std::optional<ad::simulation::MotionState>{
+      ad::simulation::MotionState{start, {.v = 0.0, .vy = 0.0, .w = 0.0}}};
   constexpr auto dt = 0.2;
   constexpr auto kGoalTolerance = 0.3;
   constexpr auto kFrameDelay = std::chrono::milliseconds{80};
@@ -79,7 +79,7 @@ auto main() -> int {
       return true;
     }
 
-    const auto input = ad::control::ControlInput{std::span{*pathResult}, state->pose};
+    const auto input = ad::control::ControlInput{std::span{*pathResult}, state->pose, dt};
     const auto commandResult = controller.computeCommand(input);
     if (!commandResult) {
       failure.emplace(commandResult.error());

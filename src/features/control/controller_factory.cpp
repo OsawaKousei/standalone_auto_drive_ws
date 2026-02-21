@@ -1,5 +1,6 @@
 #include "controller_factory.hpp"
 
+#include "cascade_pid.hpp"
 #include "pure_pursuit.hpp"
 
 namespace ad::control {
@@ -47,23 +48,163 @@ namespace {
                            .desiredLinearVelocity = *desiredLinearVelocityValue};
 }
 
+[[nodiscard]] auto parseCascadePidConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<CascadePidConfig> {
+  if (!configDoc.has_value()) {
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Control config is required for cascade_pid."});
+  }
+
+  const auto &cfg = *configDoc;
+
+  const auto lookaheadDistanceRaw = requiredRaw(cfg, "lookahead_distance");
+  if (!lookaheadDistanceRaw) {
+    return tl::make_unexpected(lookaheadDistanceRaw.error());
+  }
+  const auto lookaheadDistanceValue = ::ad::config::parseDoubleValue(*lookaheadDistanceRaw);
+  if (!lookaheadDistanceValue) {
+    return tl::make_unexpected(lookaheadDistanceValue.error());
+  }
+
+  const auto maxLinearSpeedRaw = requiredRaw(cfg, "max_linear_speed");
+  if (!maxLinearSpeedRaw) {
+    return tl::make_unexpected(maxLinearSpeedRaw.error());
+  }
+  const auto maxLinearSpeedValue = ::ad::config::parseDoubleValue(*maxLinearSpeedRaw);
+  if (!maxLinearSpeedValue) {
+    return tl::make_unexpected(maxLinearSpeedValue.error());
+  }
+
+  const auto maxAngularSpeedRaw = requiredRaw(cfg, "max_angular_speed");
+  if (!maxAngularSpeedRaw) {
+    return tl::make_unexpected(maxAngularSpeedRaw.error());
+  }
+  const auto maxAngularSpeedValue = ::ad::config::parseDoubleValue(*maxAngularSpeedRaw);
+  if (!maxAngularSpeedValue) {
+    return tl::make_unexpected(maxAngularSpeedValue.error());
+  }
+
+  const auto positionKpRaw = requiredRaw(cfg, "position_kp");
+  if (!positionKpRaw) {
+    return tl::make_unexpected(positionKpRaw.error());
+  }
+  const auto positionKpValue = ::ad::config::parseDoubleValue(*positionKpRaw);
+  if (!positionKpValue) {
+    return tl::make_unexpected(positionKpValue.error());
+  }
+
+  const auto positionKiRaw = requiredRaw(cfg, "position_ki");
+  if (!positionKiRaw) {
+    return tl::make_unexpected(positionKiRaw.error());
+  }
+  const auto positionKiValue = ::ad::config::parseDoubleValue(*positionKiRaw);
+  if (!positionKiValue) {
+    return tl::make_unexpected(positionKiValue.error());
+  }
+
+  const auto positionKdRaw = requiredRaw(cfg, "position_kd");
+  if (!positionKdRaw) {
+    return tl::make_unexpected(positionKdRaw.error());
+  }
+  const auto positionKdValue = ::ad::config::parseDoubleValue(*positionKdRaw);
+  if (!positionKdValue) {
+    return tl::make_unexpected(positionKdValue.error());
+  }
+
+  const auto velocityKpRaw = requiredRaw(cfg, "velocity_kp");
+  if (!velocityKpRaw) {
+    return tl::make_unexpected(velocityKpRaw.error());
+  }
+  const auto velocityKpValue = ::ad::config::parseDoubleValue(*velocityKpRaw);
+  if (!velocityKpValue) {
+    return tl::make_unexpected(velocityKpValue.error());
+  }
+
+  const auto velocityKiRaw = requiredRaw(cfg, "velocity_ki");
+  if (!velocityKiRaw) {
+    return tl::make_unexpected(velocityKiRaw.error());
+  }
+  const auto velocityKiValue = ::ad::config::parseDoubleValue(*velocityKiRaw);
+  if (!velocityKiValue) {
+    return tl::make_unexpected(velocityKiValue.error());
+  }
+
+  const auto velocityKdRaw = requiredRaw(cfg, "velocity_kd");
+  if (!velocityKdRaw) {
+    return tl::make_unexpected(velocityKdRaw.error());
+  }
+  const auto velocityKdValue = ::ad::config::parseDoubleValue(*velocityKdRaw);
+  if (!velocityKdValue) {
+    return tl::make_unexpected(velocityKdValue.error());
+  }
+
+  const auto headingKpRaw = requiredRaw(cfg, "heading_kp");
+  if (!headingKpRaw) {
+    return tl::make_unexpected(headingKpRaw.error());
+  }
+  const auto headingKpValue = ::ad::config::parseDoubleValue(*headingKpRaw);
+  if (!headingKpValue) {
+    return tl::make_unexpected(headingKpValue.error());
+  }
+
+  const auto headingKiRaw = requiredRaw(cfg, "heading_ki");
+  if (!headingKiRaw) {
+    return tl::make_unexpected(headingKiRaw.error());
+  }
+  const auto headingKiValue = ::ad::config::parseDoubleValue(*headingKiRaw);
+  if (!headingKiValue) {
+    return tl::make_unexpected(headingKiValue.error());
+  }
+
+  const auto headingKdRaw = requiredRaw(cfg, "heading_kd");
+  if (!headingKdRaw) {
+    return tl::make_unexpected(headingKdRaw.error());
+  }
+  const auto headingKdValue = ::ad::config::parseDoubleValue(*headingKdRaw);
+  if (!headingKdValue) {
+    return tl::make_unexpected(headingKdValue.error());
+  }
+
+  return CascadePidConfig{.lookaheadDistance = *lookaheadDistanceValue,
+                          .maxLinearSpeed = *maxLinearSpeedValue,
+                          .maxAngularSpeed = *maxAngularSpeedValue,
+                          .positionKp = *positionKpValue,
+                          .positionKi = *positionKiValue,
+                          .positionKd = *positionKdValue,
+                          .velocityKp = *velocityKpValue,
+                          .velocityKi = *velocityKiValue,
+                          .velocityKd = *velocityKdValue,
+                          .headingKp = *headingKpValue,
+                          .headingKi = *headingKiValue,
+                          .headingKd = *headingKdValue};
+}
+
 } // namespace
 
 auto createControllerFromConfig(std::string_view algorithm,
                                 const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<std::unique_ptr<IController>> {
-  if (algorithm != "pure_pursuit") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported control algorithm: " + std::string{algorithm}});
+  if (algorithm == "pure_pursuit") {
+    const auto configValue = parsePurePursuitConfig(configDoc);
+    if (!configValue) {
+      return tl::make_unexpected(configValue.error());
+    }
+
+    return std::make_unique<PurePursuitController>(*configValue);
   }
 
-  const auto configValue = parsePurePursuitConfig(configDoc);
-  if (!configValue) {
-    return tl::make_unexpected(configValue.error());
+  if (algorithm == "cascade_pid") {
+    const auto configValue = parseCascadePidConfig(configDoc);
+    if (!configValue) {
+      return tl::make_unexpected(configValue.error());
+    }
+
+    return std::make_unique<CascadePidController>(*configValue);
   }
 
-  return std::make_unique<PurePursuitController>(*configValue);
+  return tl::make_unexpected(
+      Error{.code = ErrorCode::InvalidInput,
+            .message = "Unsupported control algorithm: " + std::string{algorithm}});
 }
 
 } // namespace ad::control

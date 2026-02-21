@@ -14,12 +14,13 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
         Error{.code = ErrorCode::InvalidInput, .message = "Delta time must be positive."});
   }
 
-  if (!std::isfinite(command.v) || !std::isfinite(command.w)) {
+  if (!std::isfinite(command.v) || !std::isfinite(command.vy) || !std::isfinite(command.w)) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "Command velocities must be finite."});
   }
 
-  if (!std::isfinite(state.twist.v) || !std::isfinite(state.twist.w)) {
+  if (!std::isfinite(state.twist.v) || !std::isfinite(state.twist.vy) ||
+      !std::isfinite(state.twist.w)) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "Current velocities must be finite."});
   }
@@ -38,6 +39,7 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
 
   const auto speedLimitedCommand =
       types::Twist{.v = std::clamp(command.v, -config_.maxLinearSpeed, config_.maxLinearSpeed),
+                   .vy = 0.0,
                    .w = std::clamp(command.w, -config_.maxAngularSpeed, config_.maxAngularSpeed)};
 
   const auto maxLinearStepDelta = config_.maxLinearAcceleration * deltaSeconds;
@@ -62,6 +64,7 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
 
   const auto saturatedCommand = types::Twist{
       .v = std::clamp(appliedLinearVelocity, -config_.maxLinearSpeed, config_.maxLinearSpeed),
+      .vy = 0.0,
       .w = std::clamp(appliedAngularVelocity, -config_.maxAngularSpeed, config_.maxAngularSpeed)};
 
   const auto deltaX = saturatedCommand.v * std::cos(state.pose.theta) * deltaSeconds;

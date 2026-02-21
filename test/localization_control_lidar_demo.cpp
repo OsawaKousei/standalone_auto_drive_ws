@@ -160,7 +160,7 @@ auto main() -> int {
       return true;
     }
 
-    const auto input = ad::control::ControlInput{std::span{*pathResult}, estimateResult->pose};
+    const auto input = ad::control::ControlInput{std::span{*pathResult}, estimateResult->pose, dt};
     const auto commandResult = controller.computeCommand(input);
     if (!commandResult) {
       failure.emplace(commandResult.error());
@@ -172,8 +172,8 @@ auto main() -> int {
                                 : 1.0;
     const auto scaledV = commandResult->v * scoreScale;
     const auto scaledW = commandResult->w;
-    const auto appliedCommand =
-        ad::types::Twist{.v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
+    const auto appliedCommand = ad::types::Twist{
+        .v = scaledV, .vy = 0.0, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
 
     const auto predictStatus = localizer->predict(appliedCommand, dt);
     if (!predictStatus) {

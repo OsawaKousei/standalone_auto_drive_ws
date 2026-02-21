@@ -67,7 +67,7 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
   const auto deltaY = target.y - pose.y;
   const auto distance = std::hypot(deltaX, deltaY);
   if (distance <= 0.0) {
-    return types::Twist{.v = 0.0, .w = 0.0};
+    return types::Twist{.v = 0.0, .vy = 0.0, .w = 0.0};
   }
 
   const auto cosTheta = std::cos(pose.theta);
@@ -80,10 +80,10 @@ auto PurePursuitController::computeCommand(const ControlInput &input) const
   const auto angularVelocity = curvature * linearVelocity;
 
   if (xLocal < 0.0) {
-    return types::Twist{.v = -linearVelocity, .w = angularVelocity};
+    return types::Twist{.v = -linearVelocity, .vy = 0.0, .w = angularVelocity};
   }
 
-  return types::Twist{.v = linearVelocity, .w = angularVelocity};
+  return types::Twist{.v = linearVelocity, .vy = 0.0, .w = angularVelocity};
 }
 
 } // namespace ad::control

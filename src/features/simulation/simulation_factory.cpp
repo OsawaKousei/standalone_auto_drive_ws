@@ -1,5 +1,6 @@
 #include "simulation_factory.hpp"
 
+#include "holonomic_model.hpp"
 #include "lidar_sensor.hpp"
 #include "odometry_sensor.hpp"
 #include "unicycle_model.hpp"
@@ -159,6 +160,107 @@ namespace {
                              .tauAngular = *tauAngularValue};
 }
 
+[[nodiscard]] auto parseHolonomicConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<HolonomicModelConfig> {
+  if (!configDoc.has_value()) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Physics config is required."});
+  }
+
+  const auto &cfg = *configDoc;
+
+  const auto maxLinearSpeedX = requiredRaw(cfg, "max_linear_speed_x", "physics");
+  if (!maxLinearSpeedX) {
+    return tl::make_unexpected(maxLinearSpeedX.error());
+  }
+  const auto maxLinearSpeedXValue = ::ad::config::parseDoubleValue(*maxLinearSpeedX);
+  if (!maxLinearSpeedXValue) {
+    return tl::make_unexpected(maxLinearSpeedXValue.error());
+  }
+
+  const auto maxLinearSpeedY = requiredRaw(cfg, "max_linear_speed_y", "physics");
+  if (!maxLinearSpeedY) {
+    return tl::make_unexpected(maxLinearSpeedY.error());
+  }
+  const auto maxLinearSpeedYValue = ::ad::config::parseDoubleValue(*maxLinearSpeedY);
+  if (!maxLinearSpeedYValue) {
+    return tl::make_unexpected(maxLinearSpeedYValue.error());
+  }
+
+  const auto maxAngularSpeed = requiredRaw(cfg, "max_angular_speed", "physics");
+  if (!maxAngularSpeed) {
+    return tl::make_unexpected(maxAngularSpeed.error());
+  }
+  const auto maxAngularSpeedValue = ::ad::config::parseDoubleValue(*maxAngularSpeed);
+  if (!maxAngularSpeedValue) {
+    return tl::make_unexpected(maxAngularSpeedValue.error());
+  }
+
+  const auto maxLinearAccelerationX = requiredRaw(cfg, "max_linear_acceleration_x", "physics");
+  if (!maxLinearAccelerationX) {
+    return tl::make_unexpected(maxLinearAccelerationX.error());
+  }
+  const auto maxLinearAccelerationXValue = ::ad::config::parseDoubleValue(*maxLinearAccelerationX);
+  if (!maxLinearAccelerationXValue) {
+    return tl::make_unexpected(maxLinearAccelerationXValue.error());
+  }
+
+  const auto maxLinearAccelerationY = requiredRaw(cfg, "max_linear_acceleration_y", "physics");
+  if (!maxLinearAccelerationY) {
+    return tl::make_unexpected(maxLinearAccelerationY.error());
+  }
+  const auto maxLinearAccelerationYValue = ::ad::config::parseDoubleValue(*maxLinearAccelerationY);
+  if (!maxLinearAccelerationYValue) {
+    return tl::make_unexpected(maxLinearAccelerationYValue.error());
+  }
+
+  const auto maxAngularAcceleration = requiredRaw(cfg, "max_angular_acceleration", "physics");
+  if (!maxAngularAcceleration) {
+    return tl::make_unexpected(maxAngularAcceleration.error());
+  }
+  const auto maxAngularAccelerationValue = ::ad::config::parseDoubleValue(*maxAngularAcceleration);
+  if (!maxAngularAccelerationValue) {
+    return tl::make_unexpected(maxAngularAccelerationValue.error());
+  }
+
+  const auto tauLinearX = requiredRaw(cfg, "tau_linear_x", "physics");
+  if (!tauLinearX) {
+    return tl::make_unexpected(tauLinearX.error());
+  }
+  const auto tauLinearXValue = ::ad::config::parseDoubleValue(*tauLinearX);
+  if (!tauLinearXValue) {
+    return tl::make_unexpected(tauLinearXValue.error());
+  }
+
+  const auto tauLinearY = requiredRaw(cfg, "tau_linear_y", "physics");
+  if (!tauLinearY) {
+    return tl::make_unexpected(tauLinearY.error());
+  }
+  const auto tauLinearYValue = ::ad::config::parseDoubleValue(*tauLinearY);
+  if (!tauLinearYValue) {
+    return tl::make_unexpected(tauLinearYValue.error());
+  }
+
+  const auto tauAngular = requiredRaw(cfg, "tau_angular", "physics");
+  if (!tauAngular) {
+    return tl::make_unexpected(tauAngular.error());
+  }
+  const auto tauAngularValue = ::ad::config::parseDoubleValue(*tauAngular);
+  if (!tauAngularValue) {
+    return tl::make_unexpected(tauAngularValue.error());
+  }
+
+  return HolonomicModelConfig{.maxLinearSpeedX = *maxLinearSpeedXValue,
+                              .maxLinearSpeedY = *maxLinearSpeedYValue,
+                              .maxAngularSpeed = *maxAngularSpeedValue,
+                              .maxLinearAccelerationX = *maxLinearAccelerationXValue,
+                              .maxLinearAccelerationY = *maxLinearAccelerationYValue,
+                              .maxAngularAcceleration = *maxAngularAccelerationValue,
+                              .tauLinearX = *tauLinearXValue,
+                              .tauLinearY = *tauLinearYValue,
+                              .tauAngular = *tauAngularValue};
+}
+
 [[nodiscard]] auto parseOdometryConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<OdometrySensorConfig> {
   if (!configDoc.has_value()) {
@@ -238,18 +340,27 @@ auto createOdometrySensorFromConfig(std::string_view algorithm,
 auto createPhysicsFromConfig(std::string_view algorithm,
                              const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<std::unique_ptr<IPhysicsModel>> {
-  if (algorithm != "unicycle") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported physics algorithm: " + std::string{algorithm}});
+  if (algorithm == "unicycle") {
+    const auto configValue = parseUnicycleConfig(configDoc);
+    if (!configValue) {
+      return tl::make_unexpected(configValue.error());
+    }
+
+    return std::make_unique<UnicycleModel>(*configValue);
   }
 
-  const auto configValue = parseUnicycleConfig(configDoc);
-  if (!configValue) {
-    return tl::make_unexpected(configValue.error());
+  if (algorithm == "holonomic") {
+    const auto configValue = parseHolonomicConfig(configDoc);
+    if (!configValue) {
+      return tl::make_unexpected(configValue.error());
+    }
+
+    return std::make_unique<HolonomicModel>(*configValue);
   }
 
-  return std::make_unique<UnicycleModel>(*configValue);
+  return tl::make_unexpected(
+      Error{.code = ErrorCode::InvalidInput,
+            .message = "Unsupported physics algorithm: " + std::string{algorithm}});
 }
 
 } // namespace ad::simulation
