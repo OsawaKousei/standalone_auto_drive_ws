@@ -6,7 +6,7 @@
 #include "../features/planning/planner_factory.hpp"
 #include "../features/simulation/collision_checker.hpp"
 #include "../features/simulation/i_physics.hpp"
-#include "../features/simulation/i_sensor.hpp"
+#include "../features/simulation/lidar_sensor.hpp"
 #include "../features/simulation/odometry_sensor.hpp"
 #include "result.hpp"
 #include "text_config.hpp"
@@ -73,9 +73,9 @@ struct ScenarioConfig {
 [[nodiscard]] auto createController(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<control::IController>>;
 [[nodiscard]] auto createLidarSensor(const ScenarioConfig &scenario)
-    -> Result<std::unique_ptr<simulation::ILidarSensor>>;
+    -> Result<std::unique_ptr<simulation::LidarSensor>>;
 [[nodiscard]] auto createOdometrySensor(const ScenarioConfig &scenario)
-    -> Result<std::unique_ptr<simulation::IOdometrySensor>>;
+    -> Result<std::unique_ptr<simulation::OdometrySensor>>;
 [[nodiscard]] auto createPhysics(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<simulation::IPhysicsModel>>;
 [[nodiscard]] auto resolvePath(const ScenarioConfig &scenario, std::string_view path)

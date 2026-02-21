@@ -30,25 +30,12 @@ constexpr int kDefaultSeed = 0;
 
 } // namespace config
 
-class IOdometrySensor {
-public:
-  virtual ~IOdometrySensor() = default;
-  IOdometrySensor() = default;
-  IOdometrySensor(const IOdometrySensor &) = delete;
-  auto operator=(const IOdometrySensor &) -> IOdometrySensor & = delete;
-  IOdometrySensor(IOdometrySensor &&) = delete;
-  auto operator=(IOdometrySensor &&) -> IOdometrySensor & = delete;
-  [[nodiscard]] virtual auto measure(const types::Pose &previousPose,
-                                     const types::Pose &currentPose) const
-      -> Result<types::OdometryDelta> = 0;
-};
-
-class OdometrySensor final : public IOdometrySensor {
+class OdometrySensor {
 public:
   explicit OdometrySensor(OdometrySensorConfig config = config::odometryDefaultConfig());
 
   [[nodiscard]] auto measure(const types::Pose &previousPose, const types::Pose &currentPose) const
-      -> Result<types::OdometryDelta> override;
+      -> Result<types::OdometryDelta>;
 
 private:
   const OdometrySensorConfig config_;

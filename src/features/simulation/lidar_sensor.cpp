@@ -1,4 +1,4 @@
-#include "lidar_sim.hpp"
+#include "lidar_sensor.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -41,10 +41,10 @@ namespace {
 
 namespace ad::simulation {
 
-LidarSim::LidarSim(LidarSimConfig config) : config_(config) {}
+LidarSensor::LidarSensor(LidarSensorConfig config) : config_(config) {}
 
-auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) const
-    -> Result<LidarScan> {
+auto LidarSensor::simulate(const types::MapData &map, const types::Pose &pose) const
+    -> Result<types::LidarScan> {
   if (!mapHasConsistentGrid(map)) {
     return tl::make_unexpected(Error{.code = ErrorCode::SizeMismatch,
                                      .message = "Map grid size does not match width and height."});
@@ -97,10 +97,10 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
     return traceRay(angle);
   });
 
-  return LidarScan{.ranges = std::move(ranges),
-                   .minAngle = config_.minAngle,
-                   .angleIncrement = angleStep,
-                   .maxRange = maxRange};
+  return types::LidarScan{.ranges = std::move(ranges),
+                          .minAngle = config_.minAngle,
+                          .angleIncrement = angleStep,
+                          .maxRange = maxRange};
 }
 
 } // namespace ad::simulation

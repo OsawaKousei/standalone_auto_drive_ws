@@ -455,13 +455,13 @@ auto createController(const ScenarioConfig &scenario)
 }
 
 auto createLidarSensor(const ScenarioConfig &scenario)
-    -> Result<std::unique_ptr<simulation::ILidarSensor>> {
+    -> Result<std::unique_ptr<simulation::LidarSensor>> {
   return simulation::createLidarSensorFromConfig(scenario.lidarSensor.algorithm,
                                                  scenario.algorithmConfigDocs.lidarSensor);
 }
 
 auto createOdometrySensor(const ScenarioConfig &scenario)
-    -> Result<std::unique_ptr<simulation::IOdometrySensor>> {
+    -> Result<std::unique_ptr<simulation::OdometrySensor>> {
   return simulation::createOdometrySensorFromConfig(scenario.odometrySensor.algorithm,
                                                     scenario.algorithmConfigDocs.odometrySensor);
 }

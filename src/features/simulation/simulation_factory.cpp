@@ -1,6 +1,6 @@
 #include "simulation_factory.hpp"
 
-#include "lidar_sim.hpp"
+#include "lidar_sensor.hpp"
 #include "odometry_sensor.hpp"
 #include "unicycle_model.hpp"
 
@@ -9,7 +9,7 @@ namespace ad::simulation {
 namespace {
 
 [[nodiscard]] auto parseLidarConfig(const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<LidarSimConfig> {
+    -> Result<LidarSensorConfig> {
   auto rayCountValue = config::kDefaultRayCount;
   auto minAngleValue = config::kDefaultMinAngle;
   auto maxAngleValue = config::kDefaultMaxAngle;
@@ -65,11 +65,11 @@ namespace {
     rangeStepValue = *parsed;
   }
 
-  return LidarSimConfig{.rayCount = rayCountValue,
-                        .minAngle = minAngleValue,
-                        .maxAngle = maxAngleValue,
-                        .maxRange = maxRangeValue,
-                        .rangeStep = rangeStepValue};
+  return LidarSensorConfig{.rayCount = rayCountValue,
+                           .minAngle = minAngleValue,
+                           .maxAngle = maxAngleValue,
+                           .maxRange = maxRangeValue,
+                           .rangeStep = rangeStepValue};
 }
 
 [[nodiscard]] auto parseUnicycleConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -160,7 +160,7 @@ namespace {
 
 auto createLidarSensorFromConfig(std::string_view algorithm,
                                  const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<std::unique_ptr<ILidarSensor>> {
+    -> Result<std::unique_ptr<LidarSensor>> {
   if (algorithm != "lidar") {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
@@ -172,12 +172,12 @@ auto createLidarSensorFromConfig(std::string_view algorithm,
     return tl::make_unexpected(configValue.error());
   }
 
-  return std::make_unique<LidarSim>(*configValue);
+  return std::make_unique<LidarSensor>(*configValue);
 }
 
 auto createOdometrySensorFromConfig(std::string_view algorithm,
                                     const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<std::unique_ptr<IOdometrySensor>> {
+    -> Result<std::unique_ptr<OdometrySensor>> {
   if (algorithm != "odometry") {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,

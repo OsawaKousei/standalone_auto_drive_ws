@@ -1,7 +1,7 @@
 #pragma once
 
 #include "i_physics.hpp"
-#include "i_sensor.hpp"
+#include "lidar_sensor.hpp"
 #include "odometry_sensor.hpp"
 
 #include "../../shared/result.hpp"
@@ -16,12 +16,12 @@ namespace ad::simulation {
 [[nodiscard]] auto
 createLidarSensorFromConfig(std::string_view algorithm,
                             const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<std::unique_ptr<ILidarSensor>>;
+    -> Result<std::unique_ptr<LidarSensor>>;
 
 [[nodiscard]] auto
 createOdometrySensorFromConfig(std::string_view algorithm,
                                const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<std::unique_ptr<IOdometrySensor>>;
+    -> Result<std::unique_ptr<OdometrySensor>>;
 
 [[nodiscard]] auto createPhysicsFromConfig(std::string_view algorithm,
                                            const std::optional<::ad::config::TextConfig> &configDoc)

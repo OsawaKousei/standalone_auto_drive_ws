@@ -82,7 +82,7 @@ add_library(ad_core
   src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker.cpp
   src/features/simulation/unicycle_model.cpp
-  src/features/simulation/lidar_sim.cpp
+  src/features/simulation/lidar_sensor.cpp
   src/features/simulation/odometry_sensor.cpp
   src/features/simulation/simulation_factory.cpp
   src/features/visualization/visualizer.cpp
