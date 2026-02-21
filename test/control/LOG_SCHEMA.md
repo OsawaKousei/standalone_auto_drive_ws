@@ -16,6 +16,7 @@
 - `# control_test log`
 - `# scenario_config=test/control/configs/control.toml`
 - `# path_point_count=411`
+- `# path=<x:y;x:y;...>`
 - `# columns: step,time,...,odom_dtheta`
 
 ## 2. CSVカラム定義

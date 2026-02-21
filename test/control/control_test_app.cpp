@@ -78,6 +78,17 @@ struct ProgramOptions {
   return std::hypot(goal.x - pose.x, goal.y - pose.y);
 }
 
+[[nodiscard]] auto serializePoints(std::span<const types::Point> points) -> std::string {
+  auto output = std::string{};
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    if (index != 0U) {
+      output.push_back(';');
+    }
+    output += fmt::format("{:.8f}:{:.8f}", points[index].x, points[index].y);
+  }
+  return output;
+}
+
 [[nodiscard]] auto nearestPathIndex(const types::Pose &pose, std::span<const types::Point> path)
     -> std::size_t {
   auto nearestIndex = std::size_t{0};
@@ -423,6 +434,7 @@ struct ProgramOptions {
   logFile << "# control_test log\n";
   logFile << "# scenario_config=" << scenarioPath << "\n";
   logFile << "# path_point_count=" << path.size() << "\n";
+  logFile << "# path=" << serializePoints(path) << "\n";
   logFile << "# columns: "
              "step,time,dist_goal,cross_track,nearest_idx,true_x,true_y,true_theta,"
              "odom_x,odom_y,odom_theta,track_err,track_heading_err,cmd_v,cmd_vy,cmd_w,"

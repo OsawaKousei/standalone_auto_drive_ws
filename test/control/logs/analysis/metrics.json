@@ -1,0 +1,13 @@
+{
+  "rmse": 0.0,
+  "max_deviation": 0.11118674,
+  "mean_speed": 1.2,
+  "max_speed": 1.2,
+  "max_angular_speed": 2.56372346,
+  "max_acceleration": 0.0,
+  "max_angular_acceleration": 36.12040899999997,
+  "max_jerk": 0.0,
+  "curvature_fitness": 0.19070615460986007,
+  "curvature_rmse": 1.657021493116477,
+  "oscillation_count": 15
+}
