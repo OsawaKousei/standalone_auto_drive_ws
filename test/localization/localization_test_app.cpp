@@ -3,6 +3,14 @@
 #include "features/planning/planner_factory.hpp"
 #include "features/simulation/collision_checker/collision_checker.hpp"
 #include "features/simulation/simulation_factory.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#endif
+#include "features/visualization/visualizer.hpp"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
 #include "shared/text_config.hpp"
@@ -58,6 +66,7 @@ struct TestScenarioConfig {
 
 struct ProgramOptions {
   std::string scenarioPath;
+  bool render;
 };
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
@@ -101,6 +110,20 @@ struct ProgramOptions {
     const auto angle = scan.minAngle + (scan.angleIncrement * static_cast<double>(index));
     const auto range = scan.ranges[index];
     points.push_back(types::Point{.x = range * std::cos(angle), .y = range * std::sin(angle)});
+  }
+  return points;
+}
+
+[[nodiscard]] auto scanToWorldPoints(const types::Pose &pose, const types::LidarScan &scan)
+    -> std::vector<types::Point> {
+  auto points = std::vector<types::Point>{};
+  points.reserve(scan.ranges.size());
+  for (std::size_t index = 0; index < scan.ranges.size(); ++index) {
+    const auto angle =
+        pose.theta + scan.minAngle + (scan.angleIncrement * static_cast<double>(index));
+    const auto range = scan.ranges[index];
+    points.push_back(types::Point{.x = pose.x + (range * std::cos(angle)),
+                                  .y = pose.y + (range * std::sin(angle))});
   }
   return points;
 }
@@ -344,12 +367,22 @@ struct ProgramOptions {
 
 [[nodiscard]] auto parseProgramOptions(std::span<char *> arguments) -> Result<ProgramOptions> {
   auto scenarioPath = std::string{"test/localization/configs/localization.toml"};
+  auto render = false;
 
   for (std::size_t index = 1; index < arguments.size(); ++index) {
     const auto argument = std::string_view{arguments[index]};
+    if (argument == "--render") {
+      render = true;
+      continue;
+    }
+    if (argument == "--no-render") {
+      render = false;
+      continue;
+    }
     if (argument == "-h" || argument == "--help") {
       return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                       .message = "Usage: localization_test_app [scenario.toml]"});
+                                       .message = "Usage: localization_test_app [scenario.toml] "
+                                                  "[--render|--no-render]"});
     }
     if (!argument.empty() && argument.front() == '-') {
       return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
@@ -358,7 +391,50 @@ struct ProgramOptions {
     scenarioPath = std::string{argument};
   }
 
-  return ProgramOptions{.scenarioPath = scenarioPath};
+  return ProgramOptions{.scenarioPath = scenarioPath, .render = render};
+}
+
+[[nodiscard]] auto renderFrame(const ad::visualization::Visualizer &viz,
+                               const ad::visualization::Visualizer::PreparedMap &preparedMap,
+                               std::span<const types::Point> path, const types::Pose &robotPose,
+                               const types::Pose &goal, const types::Footprint &footprint,
+                               const std::optional<std::vector<types::Point>> &scanWorldPoints)
+    -> std::optional<ad::Error> {
+  const auto &mapGeometry = preparedMap.geometry;
+  const auto frameStatus = viz.renderFrame(preparedMap);
+  if (!frameStatus) {
+    return frameStatus.error();
+  }
+
+  const auto pathStatus = viz.renderPath(path, mapGeometry);
+  if (!pathStatus) {
+    return pathStatus.error();
+  }
+
+  const auto goalStatus =
+      viz.renderMarker(types::Point{.x = goal.x, .y = goal.y}, mapGeometry, 18.0, "red");
+  if (!goalStatus) {
+    return goalStatus.error();
+  }
+
+  if (scanWorldPoints.has_value() && !scanWorldPoints->empty()) {
+    const auto scanStatus = viz.renderPoints(*scanWorldPoints, mapGeometry, 8.0, "green");
+    if (!scanStatus) {
+      return scanStatus.error();
+    }
+  }
+
+  const auto robotStatus = viz.renderRobot(robotPose, footprint, mapGeometry);
+  if (!robotStatus) {
+    return robotStatus.error();
+  }
+
+  const auto presentStatus = viz.presentFrame();
+  if (!presentStatus) {
+    return presentStatus.error();
+  }
+
+  return std::nullopt;
 }
 
 [[nodiscard]] auto initializeLogFile(std::span<const types::Point> path,
@@ -423,6 +499,22 @@ int main(int argc, char **argv) {
     return 1;
   }
   const auto &map = *mapResult;
+
+  auto visualizer = std::optional<ad::visualization::Visualizer>{};
+  auto preparedMap = std::optional<ad::visualization::Visualizer::PreparedMap>{};
+  auto *visualizerPtr = static_cast<ad::visualization::Visualizer *>(nullptr);
+  auto *preparedMapPtr = static_cast<ad::visualization::Visualizer::PreparedMap *>(nullptr);
+  if (optionsResult->render) {
+    const auto preparedMapResult = ad::visualization::Visualizer::prepareMap(map);
+    if (!preparedMapResult) {
+      fmt::print(stderr, "Render error: {}\n", preparedMapResult.error().message);
+      return 1;
+    }
+    visualizer.emplace();
+    preparedMap.emplace(*preparedMapResult);
+    visualizerPtr = &visualizer.value();
+    preparedMapPtr = &preparedMap.value();
+  }
 
   const auto localizationConfig = ad::localization_test::loadAlgorithmConfig(
       scenario.baseDir, scenario.localization.configPath);
@@ -538,6 +630,18 @@ int main(int argc, char **argv) {
   auto reachedGoal = false;
   std::optional<ad::Error> failure;
   auto lidarElapsed = 0.0;
+  auto renderElapsed = 0.0;
+  auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
+
+  if (optionsResult->render) {
+    const auto renderError = ad::localization_test::renderFrame(
+        *visualizerPtr, *preparedMapPtr, std::span{*pathResult}, trueState->pose, scenario.goal,
+        scenario.footprint, std::nullopt);
+    if (renderError) {
+      fmt::print(stderr, "Render error: {}\n", renderError->message);
+      return 1;
+    }
+  }
 
   for (int step = 0; step < scenario.runtime.maxSteps; ++step) {
     const auto estimateBefore = (*localizerResult)->estimate();
@@ -629,8 +733,27 @@ int main(int argc, char **argv) {
       scanMaxRange = scanResult->maxRange;
       scanRangesSerialized = ad::localization_test::serializeValues(scanResult->ranges);
       scanPointsRobotSerialized = ad::localization_test::serializePoints(robotScanPoints);
+      lastScanWorldPoints.emplace(
+          ad::localization_test::scanToWorldPoints(trueState->pose, *scanResult));
       lidarUpdated = true;
       lidarElapsed = std::fmod(lidarElapsed, scenario.runtime.lidarDeltaT);
+    }
+
+    if (optionsResult->render) {
+      renderElapsed += scenario.runtime.stepSeconds;
+      const auto shouldRender =
+          lidarUpdated ||
+          (renderElapsed + ad::localization_test::kScheduleEpsilon >= scenario.runtime.lidarDeltaT);
+      if (shouldRender) {
+        const auto renderError = ad::localization_test::renderFrame(
+            *visualizerPtr, *preparedMapPtr, std::span{*pathResult}, trueState->pose, scenario.goal,
+            scenario.footprint, lastScanWorldPoints);
+        if (renderError) {
+          failure.emplace(*renderError);
+          break;
+        }
+        renderElapsed = std::fmod(renderElapsed, scenario.runtime.lidarDeltaT);
+      }
     }
 
     const auto estimateAfter = (*localizerResult)->estimate();
