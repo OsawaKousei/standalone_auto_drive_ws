@@ -1,7 +1,7 @@
 #include "hough_ransac_observation_model.hpp"
 
 #include "hough_line_extractor.hpp"
-#include "hough_ransac_core.hpp"
+#include "ransac_core.hpp"
 
 #include <algorithm>
 #include <cmath>
