@@ -18,9 +18,9 @@ constexpr double kMinAngleVarianceFactor = 0.25;
 constexpr double kAngleMseScale = 0.1;
 constexpr double kDefaultCandidateAngleGate = 0.20;
 constexpr double kDefaultCandidateRhoGate = 0.50;
-constexpr double kDefaultInlierAngleThreshold = 0.16;
+constexpr double kDefaultInlierAngleThreshold = 0.22;
 constexpr double kMinSampleAngleSeparation = 0.10;
-constexpr double kMinOrientationDiversity = 0.03;
+constexpr double kMinOrientationDiversity = 0.01;
 constexpr std::size_t kMaxCandidatesPerScanLine = 4U;
 constexpr std::size_t kMaxTotalCandidates = 160U;
 constexpr double kSolveEpsilon = 1e-8;
@@ -335,6 +335,29 @@ auto hasOrientationDiversity(const std::vector<MatchedPair> &pairs,
   return diversity >= kMinOrientationDiversity;
 }
 
+auto selectFallbackInliers(const ad::types::Pose &predictedPose,
+                           const std::vector<CandidatePair> &candidates,
+                           const std::vector<ad::localization::util::MapLine> &scanLines,
+                           const std::vector<ad::localization::util::MapLine> &mapLines,
+                           const ad::localization::HoughRansacObservationModelConfig &config)
+    -> std::vector<MatchedPair> {
+  auto fallback = selectInliers(predictedPose, candidates, scanLines, mapLines, config);
+  if (fallback.empty()) {
+    return fallback;
+  }
+
+  std::sort(fallback.begin(), fallback.end(),
+            [](const auto &left, const auto &right) -> bool { return left.score < right.score; });
+
+  const auto upperBound =
+      std::max(config.houghObservation.minObservations, config.ransac.minInliers);
+  if (fallback.size() > upperBound) {
+    fallback.resize(upperBound);
+  }
+
+  return fallback;
+}
+
 auto fillObservationNoise(ad::localization::util::LineObservation &observation,
                           const ad::localization::HoughObservationModelConfig &config,
                           double residualRho, double residualAlpha) -> void {
@@ -401,7 +424,10 @@ auto buildObservations(const std::vector<ad::localization::util::MapLine> &scanL
   }
 
   if (bestInliers.empty()) {
-    return summary;
+    bestInliers = selectFallbackInliers(predictedPose, candidates, scanLines, mapLines, config);
+    if (bestInliers.size() < config.houghObservation.minObservations) {
+      return summary;
+    }
   }
 
   summary.observations.reserve(bestInliers.size());
