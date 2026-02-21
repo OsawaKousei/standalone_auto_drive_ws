@@ -117,4 +117,4 @@ endmacro()
 
 add_ad_executable(auto_drive_app src/auto_drive_app.cpp)
 add_ad_executable(auto_drive_log_replay src/auto_drive_log_replay.cpp)
-add_ad_executable(path_following_test_app test/path_following/path_following_test_app.cpp)
+add_ad_executable(control_test_app test/control/control_test_app.cpp)

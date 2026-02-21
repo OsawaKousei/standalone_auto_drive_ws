@@ -1,6 +1,6 @@
-# path_following_test.log スキーマ仕様
+# control_test.log スキーマ仕様
 
-対象ログ: `test/path_following/logs/path_following_test.log`
+対象ログ: `test/control/logs/control_test.log`
 
 ## 1. ファイル構成
 
@@ -13,8 +13,8 @@
 
 ### 1.1 ヘッダ例
 
-- `# path_following_test log`
-- `# scenario_config=test/path_following/configs/path_following.toml`
+- `# control_test log`
+- `# scenario_config=test/control/configs/control.toml`
 - `# path_point_count=411`
 - `# columns: step,time,...,odom_dtheta`
 

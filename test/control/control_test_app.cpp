@@ -28,7 +28,7 @@
 #include <string_view>
 #include <vector>
 
-namespace ad::path_following_test {
+namespace ad::control_test {
 
 constexpr auto kLogPrecision = 8;
 constexpr auto kAnglePeriod = 2.0 * std::numbers::pi;
@@ -340,7 +340,7 @@ struct ProgramOptions {
 }
 
 [[nodiscard]] auto parseProgramOptions(std::span<char *> arguments) -> Result<ProgramOptions> {
-  auto scenarioPath = std::string{"test/path_following/configs/path_following.toml"};
+  auto scenarioPath = std::string{"test/control/configs/control.toml"};
   auto render = false;
 
   for (std::size_t index = 1; index < arguments.size(); ++index) {
@@ -354,9 +354,9 @@ struct ProgramOptions {
       continue;
     }
     if (argument == "-h" || argument == "--help") {
-      return tl::make_unexpected(Error{
-          .code = ErrorCode::InvalidInput,
-          .message = "Usage: path_following_test_app [scenario.toml] [--render|--no-render]"});
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput,
+                .message = "Usage: control_test_app [scenario.toml] [--render|--no-render]"});
     }
     if (!argument.empty() && argument.front() == '-') {
       return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
@@ -407,20 +407,20 @@ struct ProgramOptions {
                                      std::string_view scenarioPath)
     -> std::optional<std::ofstream> {
   std::error_code fsError;
-  std::filesystem::create_directories("test/path_following/logs", fsError);
+  std::filesystem::create_directories("test/control/logs", fsError);
   if (fsError) {
     fmt::print(stderr, "Log directory error: {}\n", fsError.message());
     return std::nullopt;
   }
 
-  auto logFile = std::ofstream{"test/path_following/logs/path_following_test.log"};
+  auto logFile = std::ofstream{"test/control/logs/control_test.log"};
   if (!logFile.is_open()) {
     fmt::print(stderr, "Log file error: failed to open log file.\n");
     return std::nullopt;
   }
 
   logFile << std::fixed << std::setprecision(kLogPrecision);
-  logFile << "# path_following_test log\n";
+  logFile << "# control_test log\n";
   logFile << "# scenario_config=" << scenarioPath << "\n";
   logFile << "# path_point_count=" << path.size() << "\n";
   logFile << "# columns: "
@@ -433,11 +433,11 @@ struct ProgramOptions {
   return logFile;
 }
 
-} // namespace ad::path_following_test
+} // namespace ad::control_test
 
 int main(int argc, char **argv) {
   const auto arguments = std::span<char *>{argv, static_cast<std::size_t>(argc)};
-  const auto optionsResult = ad::path_following_test::parseProgramOptions(arguments);
+  const auto optionsResult = ad::control_test::parseProgramOptions(arguments);
   if (!optionsResult) {
     fmt::print(stderr, "Argument error: {}\n", optionsResult.error().message);
     return 1;
@@ -445,14 +445,14 @@ int main(int argc, char **argv) {
   const auto &options = *optionsResult;
   const auto &scenarioPath = options.scenarioPath;
 
-  const auto scenarioResult = ad::path_following_test::loadScenario(scenarioPath);
+  const auto scenarioResult = ad::control_test::loadScenario(scenarioPath);
   if (!scenarioResult) {
     fmt::print(stderr, "Scenario load error: {}\n", scenarioResult.error().message);
     return 1;
   }
   const auto &scenario = *scenarioResult;
 
-  const auto mapPath = ad::path_following_test::resolvePath(scenario.baseDir, scenario.mapYamlPath);
+  const auto mapPath = ad::control_test::resolvePath(scenario.baseDir, scenario.mapYamlPath);
   const auto mapResult = ad::loadMapFromYaml(mapPath);
   if (!mapResult) {
     fmt::print(stderr, "Map load error: {}\n", mapResult.error().message);
@@ -473,28 +473,28 @@ int main(int argc, char **argv) {
   }
 
   const auto planningConfig =
-      ad::path_following_test::loadAlgorithmConfig(scenario.baseDir, scenario.planning.configPath);
+      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.planning.configPath);
   if (!planningConfig) {
     fmt::print(stderr, "Planning config load error: {}\n", planningConfig.error().message);
     return 1;
   }
 
   const auto controllerConfig =
-      ad::path_following_test::loadAlgorithmConfig(scenario.baseDir, scenario.control.configPath);
+      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.control.configPath);
   if (!controllerConfig) {
     fmt::print(stderr, "Controller config load error: {}\n", controllerConfig.error().message);
     return 1;
   }
 
-  const auto odometryConfig = ad::path_following_test::loadAlgorithmConfig(
-      scenario.baseDir, scenario.odometrySensor.configPath);
+  const auto odometryConfig =
+      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.odometrySensor.configPath);
   if (!odometryConfig) {
     fmt::print(stderr, "Odometry config load error: {}\n", odometryConfig.error().message);
     return 1;
   }
 
   const auto physicsConfig =
-      ad::path_following_test::loadAlgorithmConfig(scenario.baseDir, scenario.physics.configPath);
+      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.physics.configPath);
   if (!physicsConfig) {
     fmt::print(stderr, "Physics config load error: {}\n", physicsConfig.error().message);
     return 1;
@@ -542,7 +542,7 @@ int main(int argc, char **argv) {
   const ad::simulation::CollisionChecker collisionChecker{map, scenario.footprint,
                                                           scenario.collision};
 
-  auto logFile = ad::path_following_test::initializeLogFile(std::span{*pathResult}, scenarioPath);
+  auto logFile = ad::control_test::initializeLogFile(std::span{*pathResult}, scenarioPath);
   if (!logFile) {
     return 1;
   }
@@ -556,8 +556,8 @@ int main(int argc, char **argv) {
 
   if (options.render) {
     const auto renderError =
-        ad::path_following_test::renderFrame(*visualizer, *preparedMap, std::span{*pathResult},
-                                             trueState->pose, scenario.goal, scenario.footprint);
+        ad::control_test::renderFrame(*visualizer, *preparedMap, std::span{*pathResult},
+                                      trueState->pose, scenario.goal, scenario.footprint);
     if (renderError) {
       fmt::print(stderr, "Render error: {}\n", renderError->message);
       return 1;
@@ -600,17 +600,17 @@ int main(int argc, char **argv) {
 
     trueState.emplace(
         ad::simulation::MotionState{.pose = nextState->pose, .twist = nextState->twist});
-    odometryPose.emplace(ad::path_following_test::integrateOdometry(*odometryPose, *odometryDelta));
+    odometryPose.emplace(ad::control_test::integrateOdometry(*odometryPose, *odometryDelta));
 
-    const auto distGoal = ad::path_following_test::distanceToGoal(trueState->pose, scenario.goal);
+    const auto distGoal = ad::control_test::distanceToGoal(trueState->pose, scenario.goal);
     const auto crossTrack =
-        ad::path_following_test::minDistanceToPath(trueState->pose, std::span{*pathResult});
+        ad::control_test::minDistanceToPath(trueState->pose, std::span{*pathResult});
     const auto nearestIndex =
-        ad::path_following_test::nearestPathIndex(*odometryPose, std::span{*pathResult});
+        ad::control_test::nearestPathIndex(*odometryPose, std::span{*pathResult});
     const auto trackingError =
         std::hypot(odometryPose->x - trueState->pose.x, odometryPose->y - trueState->pose.y);
-    const auto trackingHeadingError = std::abs(
-        ad::path_following_test::normalizeAngle(odometryPose->theta - trueState->pose.theta));
+    const auto trackingHeadingError =
+        std::abs(ad::control_test::normalizeAngle(odometryPose->theta - trueState->pose.theta));
 
     *logFile << step << ',' << (scenario.runtime.stepSeconds * static_cast<double>(step + 1)) << ','
              << distGoal << ',' << crossTrack << ',' << nearestIndex << ',' << trueState->pose.x
@@ -622,11 +622,11 @@ int main(int argc, char **argv) {
 
     if (options.render) {
       renderElapsed += scenario.runtime.stepSeconds;
-      if (renderElapsed + ad::path_following_test::kRenderScheduleEpsilon >=
+      if (renderElapsed + ad::control_test::kRenderScheduleEpsilon >=
           scenario.runtime.renderDeltaT) {
-        const auto renderError = ad::path_following_test::renderFrame(
-            *visualizer, *preparedMap, std::span{*pathResult}, trueState->pose, scenario.goal,
-            scenario.footprint);
+        const auto renderError =
+            ad::control_test::renderFrame(*visualizer, *preparedMap, std::span{*pathResult},
+                                          trueState->pose, scenario.goal, scenario.footprint);
         if (renderError) {
           failure.emplace(*renderError);
           break;
@@ -644,15 +644,14 @@ int main(int argc, char **argv) {
   *logFile << "# result=" << (reachedGoal && !failure ? "success" : "failure") << '\n';
   if (failure) {
     *logFile << "# error=" << failure->message << '\n';
-    fmt::print(stderr, "Path following error: {}\n", failure->message);
+    fmt::print(stderr, "Control test error: {}\n", failure->message);
   }
 
   if (!reachedGoal) {
-    fmt::print(stderr, "Path following test ended before reaching the goal.\n");
+    fmt::print(stderr, "Control test ended before reaching the goal.\n");
     return 1;
   }
 
-  fmt::print("Path following test reached goal. Log: "
-             "test/path_following/logs/path_following_test.log\n");
+  fmt::print("Control test reached goal. Log: test/control/logs/control_test.log\n");
   return 0;
 }
