@@ -105,8 +105,28 @@ namespace {
     return tl::make_unexpected(maxAngularSpeedValue.error());
   }
 
+  const auto linearAcceleration = requiredRaw(cfg, "max_linear_acceleration", "physics");
+  if (!linearAcceleration) {
+    return tl::make_unexpected(linearAcceleration.error());
+  }
+  const auto maxLinearAccelerationValue = ::ad::config::parseDoubleValue(*linearAcceleration);
+  if (!maxLinearAccelerationValue) {
+    return tl::make_unexpected(maxLinearAccelerationValue.error());
+  }
+
+  const auto angularAcceleration = requiredRaw(cfg, "max_angular_acceleration", "physics");
+  if (!angularAcceleration) {
+    return tl::make_unexpected(angularAcceleration.error());
+  }
+  const auto maxAngularAccelerationValue = ::ad::config::parseDoubleValue(*angularAcceleration);
+  if (!maxAngularAccelerationValue) {
+    return tl::make_unexpected(maxAngularAccelerationValue.error());
+  }
+
   return UnicycleModelConfig{.maxLinearSpeed = *maxLinearSpeedValue,
-                             .maxAngularSpeed = *maxAngularSpeedValue};
+                             .maxAngularSpeed = *maxAngularSpeedValue,
+                             .maxLinearAcceleration = *maxLinearAccelerationValue,
+                             .maxAngularAcceleration = *maxAngularAccelerationValue};
 }
 
 [[nodiscard]] auto parseOdometryConfig(const std::optional<::ad::config::TextConfig> &configDoc)

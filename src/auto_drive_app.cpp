@@ -72,7 +72,7 @@ constexpr auto kLidarScheduleEpsilon =
 }
 
 struct RuntimeConfig {
-  double odometryDeltaT;
+  double stepSeconds;
   double lidarDeltaT;
   double renderDeltaT;
   double goalTolerance;
@@ -101,7 +101,7 @@ struct LogSeries {
 
   logFile << std::fixed << std::setprecision(kLogPrecision);
   logFile << "# localization_control_lidar_demo log\n";
-  logFile << "# odometry_dt=" << runtime.odometryDeltaT << ", lidar_dt=" << runtime.lidarDeltaT
+  logFile << "# odometry_dt=" << runtime.stepSeconds << ", lidar_dt=" << runtime.lidarDeltaT
           << ", render_dt=" << runtime.renderDeltaT << ", goal_tolerance=" << runtime.goalTolerance
           << ", max_steps=" << runtime.maxSteps << "\n";
   logFile << "# footprint=" << serializePoints(series.footprint) << "\n";
@@ -172,6 +172,10 @@ struct SimulationEndpoints {
   const types::Pose &goal;
 };
 
+[[nodiscard]] auto stepToSeconds(const RuntimeConfig &runtime, int steps) -> double {
+  return runtime.stepSeconds * static_cast<double>(steps);
+}
+
 [[nodiscard]] auto
 updateLidarIfDue(auto &lidarSensor, auto &localizer, const auto &map, const types::Pose &pose,
                  const RuntimeConfig &runtime, double &lidarElapsed,
@@ -180,7 +184,7 @@ updateLidarIfDue(auto &lidarSensor, auto &localizer, const auto &map, const type
     -> std::optional<ad::Error> {
   lidarUpdated = false;
   scanPoints.clear();
-  lidarElapsed += runtime.odometryDeltaT;
+  lidarElapsed += stepToSeconds(runtime, 1);
   if (lidarElapsed + kLidarScheduleEpsilon < runtime.lidarDeltaT) {
     return std::nullopt;
   }
@@ -209,7 +213,7 @@ renderIfDue(const ad::visualization::Visualizer &viz, const auto &preparedMap,
             const types::Pose &pose, const types::Footprint &footprint,
             const RuntimeConfig &runtime, bool lidarUpdated, double &renderElapsed)
     -> std::optional<ad::Error> {
-  renderElapsed += runtime.odometryDeltaT;
+  renderElapsed += stepToSeconds(runtime, 1);
   const auto shouldRender =
       lidarUpdated || (renderElapsed + kLidarScheduleEpsilon >= runtime.renderDeltaT);
   if (!shouldRender) {
@@ -255,7 +259,8 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
     }
     const auto appliedCommand = *commandResult;
 
-    const auto nextState = physics->propagate(*trueState, appliedCommand, runtime.odometryDeltaT);
+    const auto nextState =
+        physics->propagate(*trueState, appliedCommand, stepToSeconds(runtime, 1));
     if (!nextState) {
       outcome.failure.emplace(nextState.error());
       break;
@@ -419,12 +424,12 @@ auto main(int argc, char **argv) -> int {
 
   const ad::simulation::CollisionChecker collisionChecker{map, footprint, scenario.collision};
 
-  const auto odometryDeltaT = scenario.runtime.odometryDeltaT;
+  const auto stepSeconds = scenario.runtime.stepSeconds;
   const auto lidarDeltaT = scenario.runtime.lidarDeltaT;
   const auto renderDeltaT = scenario.runtime.renderDeltaT;
   const auto kGoalTolerance = scenario.runtime.goalTolerance;
   const auto kMaxSteps = scenario.runtime.maxSteps;
-  const auto runtime = ad::demo::RuntimeConfig{.odometryDeltaT = odometryDeltaT,
+  const auto runtime = ad::demo::RuntimeConfig{.stepSeconds = stepSeconds,
                                                .lidarDeltaT = lidarDeltaT,
                                                .renderDeltaT = renderDeltaT,
                                                .goalTolerance = kGoalTolerance,

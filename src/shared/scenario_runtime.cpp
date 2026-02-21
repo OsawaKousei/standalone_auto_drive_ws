@@ -140,9 +140,9 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
 }
 
 [[nodiscard]] auto parseRuntimeConfig(const config::TextConfig &cfg) -> Result<RuntimeConfig> {
-  const auto odometryDeltaT = requiredDouble(cfg, "simulation.runtime", "odometry_delta_t");
-  if (!odometryDeltaT) {
-    return tl::make_unexpected(odometryDeltaT.error());
+  const auto stepSeconds = requiredDouble(cfg, "simulation.runtime", "step_seconds");
+  if (!stepSeconds) {
+    return tl::make_unexpected(stepSeconds.error());
   }
 
   const auto lidarDeltaT = requiredDouble(cfg, "simulation.runtime", "lidar_delta_t");
@@ -165,13 +165,13 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
     return tl::make_unexpected(goalTolerance.error());
   }
 
-  if (*odometryDeltaT <= 0.0 || *lidarDeltaT <= 0.0 || *renderDeltaT <= 0.0 ||
-      *lidarDeltaT < *odometryDeltaT || *maxSteps <= 0 || *goalTolerance <= 0.0) {
+  if (*stepSeconds <= 0.0 || *lidarDeltaT <= 0.0 || *renderDeltaT <= 0.0 ||
+      *lidarDeltaT < *stepSeconds || *maxSteps <= 0 || *goalTolerance <= 0.0) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message = "simulation.runtime has invalid values."});
   }
 
-  return RuntimeConfig{.odometryDeltaT = *odometryDeltaT,
+  return RuntimeConfig{.stepSeconds = *stepSeconds,
                        .lidarDeltaT = *lidarDeltaT,
                        .renderDeltaT = *renderDeltaT,
                        .maxSteps = *maxSteps,

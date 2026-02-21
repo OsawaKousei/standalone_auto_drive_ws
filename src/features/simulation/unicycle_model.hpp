@@ -7,6 +7,8 @@ namespace ad::simulation {
 struct UnicycleModelConfig {
   const double maxLinearSpeed;
   const double maxAngularSpeed;
+  const double maxLinearAcceleration;
+  const double maxAngularAcceleration;
 };
 
 class UnicycleModel final : public IPhysicsModel {

@@ -26,7 +26,7 @@ struct AlgorithmSpec {
 };
 
 struct RuntimeConfig {
-  const double odometryDeltaT;
+  const double stepSeconds;
   const double lidarDeltaT;
   const double renderDeltaT;
   const int maxSteps;
