@@ -1,16 +1,16 @@
 {
-  "rmse": 0.23760368951432528,
-  "max_deviation": 0.65025382,
-  "mean_speed": 1.709705239994696,
-  "max_speed": 2.1373750383127783,
+  "rmse": 0.2316147684763661,
+  "max_deviation": 0.51752261,
+  "mean_speed": 1.9067016281049223,
+  "max_speed": 2.717646494153581,
   "max_angular_speed": 1.2000000000000266,
-  "max_acceleration": 2.8284273673542186,
-  "max_angular_acceleration": 1.2001000000208017,
-  "max_jerk": 565.6366963883228,
-  "curvature_fitness": 0.1881775894916698,
-  "curvature_rmse": 1.6703691370738818,
+  "max_acceleration": 2.8283670759268205,
+  "max_angular_acceleration": 1.2001000000206685,
+  "max_jerk": 565.6726735709188,
+  "curvature_fitness": 0.168820612178366,
+  "curvature_rmse": 1.7789185942136971,
   "oscillation_count": 5,
-  "heading_error_rmse": 0.8313103976335865,
-  "heading_error_max": 2.0916867733974573,
-  "goal_reach_time": 13.78
+  "heading_error_rmse": 0.7987931965637799,
+  "heading_error_max": 1.9627049833974572,
+  "goal_reach_time": 13.11
 }

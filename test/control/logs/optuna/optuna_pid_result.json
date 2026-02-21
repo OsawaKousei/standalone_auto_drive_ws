@@ -1,18 +1,18 @@
 {
   "study_name": "pid_goal_reach_time",
-  "best_trial": 12,
-  "best_value": 12.31,
+  "best_trial": 943,
+  "best_value": 11.53,
   "best_params": {
-    "lookahead_distance": 0.6463059904071777,
-    "position_kp": 3.5106181103617224,
-    "position_ki": 0.2880747009992324,
-    "position_kd": 0.05046934657097083,
-    "velocity_kp": 0.08193947455155509,
-    "velocity_ki": 0.01679294246723606,
-    "velocity_kd": 1.9840739416861017,
-    "heading_kp": 2.0567957295978974,
-    "heading_ki": 0.12784881967156905,
-    "heading_kd": 1.475163564673923
+    "lookahead_distance": 0.7948977296170824,
+    "position_kp": 4.048884632465537,
+    "position_ki": 0.2773947893174215,
+    "position_kd": 0.5137882932523816,
+    "velocity_kp": 2.315971452993745,
+    "velocity_ki": 0.3374684042440531,
+    "velocity_kd": 4.5233424472923165,
+    "heading_kp": 1.211573701511095,
+    "heading_ki": 0.0013330919442411091,
+    "heading_kd": 8.77982994458858
   },
   "fixed_params": {
     "max_linear_speed": 2.0,
@@ -20,16 +20,16 @@
   },
   "search_space": {
     "lookahead_distance": {
-      "low": 0.125,
-      "high": 2.0
+      "low": 0.16157649760175,
+      "high": 2.585223961628
     },
     "position_kp": {
       "low": 0.0,
-      "high": 4.199999999999999
+      "high": 21.06370866216
     },
     "position_ki": {
       "low": 0.0,
-      "high": 0.5
+      "high": 2.304597607992
     },
     "position_kd": {
       "low": 0.0,
@@ -45,23 +45,23 @@
     },
     "velocity_kd": {
       "low": 0.0,
-      "high": 2.0
+      "high": 11.90444365014
     },
     "heading_kp": {
       "low": 0.0,
-      "high": 6.0
+      "high": 12.3407743776
     },
     "heading_ki": {
       "low": 0.0,
-      "high": 0.5
+      "high": 1.022790557376
     },
     "heading_kd": {
       "low": 0.0,
-      "high": 2.0
+      "high": 8.850981388020001
     }
   },
-  "n_trials": 22,
-  "n_complete": 21,
+  "n_trials": 1000,
+  "n_complete": 1000,
   "backup_path": "/workspace/test/control/configs/control/pid.toml.optuna.bak",
   "pid_config": "/workspace/test/control/configs/control/pid.toml",
   "final_config_mode": "applied_best"
