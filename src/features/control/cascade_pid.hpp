@@ -55,6 +55,7 @@ private:
   mutable PidState headingState_{};
   mutable PidState yawRateState_{};
   mutable std::optional<types::Pose> previousPose_{};
+  mutable std::optional<types::Twist> previousCommand_{};
 };
 
 } // namespace ad::control
