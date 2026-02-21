@@ -1,6 +1,7 @@
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
+#include "shared/text_config.hpp"
 #include "shared/types.hpp"
 
 #include <chrono>
@@ -369,97 +370,97 @@ struct LogColumns {
                  .renderDeltaT = renderDeltaT};
 }
 
-struct Args {
+struct ReplayConfig {
   std::string logPath = "logs/localization_control_lidar_demo.log";
   std::string mapPath = "tools/map.yaml";
   int delayMs = 80;
-  std::optional<double> odometryDeltaTOverride;
-  std::optional<double> renderDeltaTOverride;
+  std::optional<double> odometryDeltaT;
+  std::optional<double> renderDeltaT;
 };
 
-[[nodiscard]] auto parseArgs(int argc, char **argv) -> Result<Args> {
-  auto args = Args{};
-  for (int index = 1; index < argc; ++index) {
-    const std::string_view token{argv[index]};
-    if (token == "--log" && index + 1 < argc) {
-      args.logPath = argv[++index];
-      continue;
-    }
-    if (token == "--map" && index + 1 < argc) {
-      args.mapPath = argv[++index];
-      continue;
-    }
-    if (token == "--delay-ms" && index + 1 < argc) {
-      try {
-        args.delayMs = std::stoi(argv[++index]);
-      } catch (const std::exception &) {
-        return tl::make_unexpected(
-            Error{.code = ErrorCode::InvalidInput, .message = "delay-ms must be an integer."});
-      }
-      continue;
-    }
-    if (token == "--odometry-dt" && index + 1 < argc) {
-      try {
-        args.odometryDeltaTOverride = std::stod(argv[++index]);
-      } catch (const std::exception &) {
-        return tl::make_unexpected(
-            Error{.code = ErrorCode::InvalidInput, .message = "odometry-dt must be a number."});
-      }
-      continue;
-    }
-    if (token == "--render-dt" && index + 1 < argc) {
-      try {
-        args.renderDeltaTOverride = std::stod(argv[++index]);
-      } catch (const std::exception &) {
-        return tl::make_unexpected(
-            Error{.code = ErrorCode::InvalidInput, .message = "render-dt must be a number."});
-      }
-      continue;
-    }
-    if (token == "--help") {
-      return tl::make_unexpected(
-          Error{.code = ErrorCode::InvalidInput,
-                .message = "Usage: localization_control_lidar_log_replay [--log PATH] [--map PATH] "
-                           "[--delay-ms N] [--odometry-dt SEC] [--render-dt SEC]"});
-    }
+[[nodiscard]] auto loadReplayConfig(const std::string &path) -> Result<ReplayConfig> {
+  const auto cfgResult = ad::config::loadTextConfig(path);
+  if (!cfgResult) {
+    return tl::make_unexpected(cfgResult.error());
+  }
+  const auto &cfg = *cfgResult;
 
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "Unknown argument."});
+  auto replay = ReplayConfig{};
+
+  if (const auto value = cfg.findRaw("replay", "log_path")) {
+    const auto parsed = ad::config::parseQuotedString(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.logPath = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay", "map_path")) {
+    const auto parsed = ad::config::parseQuotedString(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.mapPath = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay", "delay_ms")) {
+    const auto parsed = ad::config::parseIntValue(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.delayMs = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay.runtime", "odometry_delta_t")) {
+    const auto parsed = ad::config::parseDoubleValue(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.odometryDeltaT = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay.runtime", "render_delta_t")) {
+    const auto parsed = ad::config::parseDoubleValue(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.renderDeltaT = *parsed;
   }
 
-  if (args.delayMs < 0) {
+  if (replay.delayMs < 0) {
     return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "delay-ms must be non-negative."});
+        Error{.code = ErrorCode::InvalidInput, .message = "replay.delay_ms must be non-negative."});
   }
-  if (args.odometryDeltaTOverride && *args.odometryDeltaTOverride <= 0.0) {
+  if (replay.odometryDeltaT && *replay.odometryDeltaT <= 0.0) {
     return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "odometry-dt must be positive."});
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "replay.runtime.odometry_delta_t must be positive."});
   }
-  if (args.renderDeltaTOverride && *args.renderDeltaTOverride <= 0.0) {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "render-dt must be positive."});
+  if (replay.renderDeltaT && *replay.renderDeltaT <= 0.0) {
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "replay.runtime.render_delta_t must be positive."});
   }
 
-  return args;
+  return replay;
 }
 
 } // namespace ad::demo
 
-auto main(int argc, char **argv) -> int {
-  const auto argsResult = ad::demo::parseArgs(argc, argv);
-  if (!argsResult) {
-    fmt::print(stderr, "{}\n", argsResult.error().message);
+auto main() -> int {
+  const auto replayConfigResult = ad::demo::loadReplayConfig("configs/replay.toml");
+  if (!replayConfigResult) {
+    fmt::print(stderr, "Replay config error: {}\n", replayConfigResult.error().message);
     return 1;
   }
-  const auto args = *argsResult;
+  const auto &replayConfig = *replayConfigResult;
 
-  const auto mapResult = ad::loadMapFromYaml(args.mapPath);
+  const auto &logPath = replayConfig.logPath;
+  const auto &mapPath = replayConfig.mapPath;
+  const auto delayMs = replayConfig.delayMs;
+
+  const auto mapResult = ad::loadMapFromYaml(mapPath);
   if (!mapResult) {
     fmt::print(stderr, "Map load error: {}\n", mapResult.error().message);
     return 1;
   }
 
-  const auto logDataResult = ad::demo::parseLogFile(args.logPath);
+  const auto logDataResult = ad::demo::parseLogFile(logPath);
   if (!logDataResult) {
     fmt::print(stderr, "Log parse error: {}\n", logDataResult.error().message);
     return 1;
@@ -484,9 +485,9 @@ auto main(int argc, char **argv) -> int {
   const auto defaultOdometryDeltaT = 0.02;
   const auto defaultRenderDeltaT = 0.1;
   const auto odometryDeltaT =
-      args.odometryDeltaTOverride.value_or(logData.odometryDeltaT.value_or(defaultOdometryDeltaT));
+      replayConfig.odometryDeltaT.value_or(logData.odometryDeltaT.value_or(defaultOdometryDeltaT));
   const auto renderDeltaT =
-      args.renderDeltaTOverride.value_or(logData.renderDeltaT.value_or(defaultRenderDeltaT));
+      replayConfig.renderDeltaT.value_or(logData.renderDeltaT.value_or(defaultRenderDeltaT));
   auto renderElapsed = 0.0;
   auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
 
@@ -569,7 +570,7 @@ auto main(int argc, char **argv) -> int {
     }
 
     renderElapsed = std::fmod(renderElapsed, renderDeltaT);
-    std::this_thread::sleep_for(std::chrono::milliseconds{args.delayMs});
+    std::this_thread::sleep_for(std::chrono::milliseconds{delayMs});
   }
 
   const auto saveStatus = viz.saveFigure("localization_control_lidar_log_replay.png");
