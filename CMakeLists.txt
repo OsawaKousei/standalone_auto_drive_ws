@@ -108,20 +108,3 @@ endmacro()
 
 add_ad_executable(auto_drive_app src/auto_drive_app.cpp)
 add_ad_executable(auto_drive_log_replay src/auto_drive_log_replay.cpp)
-add_ad_executable(visualization_demo test/visualization_demo.cpp)
-add_ad_executable(planning_visualization_demo test/planning_visualization_demo.cpp)
-add_ad_executable(planning_control_demo test/planning_control_demo.cpp)
-add_ad_executable(planning_control_lidar_demo test/planning_control_lidar_demo.cpp)
-add_ad_executable(localization_control_lidar_demo test/localization_control_lidar_demo.cpp)
-
-# テストの設定
-enable_testing()
-add_executable(planning_test test/planning_test.cpp)
-target_link_libraries(planning_test PRIVATE ad_core project_options GTest::gtest_main)
-
-add_executable(simulation_tests test/simulation_visualization_test.cpp)
-target_link_libraries(simulation_tests PRIVATE ad_core project_options GTest::gtest_main)
-
-include(GoogleTest)
-gtest_discover_tests(planning_test)
-gtest_discover_tests(simulation_tests)

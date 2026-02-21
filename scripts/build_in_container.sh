@@ -7,6 +7,12 @@ set -e # エラーが発生したら停止
 # プロジェクトルートの取得
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
+PROJECT_VENV_DOCKER="${PROJECT_ROOT}/.venv_docker"
+
+# コンテナ側は常に .venv_docker を利用する
+export UV_PROJECT_ENVIRONMENT="${PROJECT_VENV_DOCKER}"
+export VIRTUAL_ENV="${PROJECT_VENV_DOCKER}"
+export PATH="${PROJECT_VENV_DOCKER}/bin:${PATH}"
 
 echo "0. Git safe.directory を設定中..."
 if command -v git >/dev/null 2>&1; then
@@ -23,7 +29,7 @@ fi
 echo "1. uv sync で依存関係を確認中..."
 # コンテナ内の .venv_docker が最新であることを保証
 # (ホストのキャッシュをマウントしていれば一瞬で終わります)
-uv sync
+uv sync --active
 
 echo "2. CMake 構成中..."
 # Dockerfileで設定した環境変数 (CC=gcc-12, CXX=g++-12) が自動で使われます
@@ -38,7 +44,7 @@ cmake --build "${BUILD_DIR}" -j$(nproc)
 # 成果物の確認
 if [ -f "${BUILD_DIR}/auto_drive_app" ]; then
     echo "========================="
-    echo "   🎉 ビルド成功 🎉"
+    echo "   　　ビルド成功 　　　 "
     echo "========================="
     echo "実行ファイル: ${BUILD_DIR}/auto_drive_app"
 else
