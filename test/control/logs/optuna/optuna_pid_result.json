@@ -1,0 +1,68 @@
+{
+  "study_name": "pid_goal_reach_time",
+  "best_trial": 12,
+  "best_value": 12.31,
+  "best_params": {
+    "lookahead_distance": 0.6463059904071777,
+    "position_kp": 3.5106181103617224,
+    "position_ki": 0.2880747009992324,
+    "position_kd": 0.05046934657097083,
+    "velocity_kp": 0.08193947455155509,
+    "velocity_ki": 0.01679294246723606,
+    "velocity_kd": 1.9840739416861017,
+    "heading_kp": 2.0567957295978974,
+    "heading_ki": 0.12784881967156905,
+    "heading_kd": 1.475163564673923
+  },
+  "fixed_params": {
+    "max_linear_speed": 2.0,
+    "max_angular_speed": 1.2
+  },
+  "search_space": {
+    "lookahead_distance": {
+      "low": 0.125,
+      "high": 2.0
+    },
+    "position_kp": {
+      "low": 0.0,
+      "high": 4.199999999999999
+    },
+    "position_ki": {
+      "low": 0.0,
+      "high": 0.5
+    },
+    "position_kd": {
+      "low": 0.0,
+      "high": 2.0
+    },
+    "velocity_kp": {
+      "low": 0.0,
+      "high": 3.0
+    },
+    "velocity_ki": {
+      "low": 0.0,
+      "high": 0.5
+    },
+    "velocity_kd": {
+      "low": 0.0,
+      "high": 2.0
+    },
+    "heading_kp": {
+      "low": 0.0,
+      "high": 6.0
+    },
+    "heading_ki": {
+      "low": 0.0,
+      "high": 0.5
+    },
+    "heading_kd": {
+      "low": 0.0,
+      "high": 2.0
+    }
+  },
+  "n_trials": 22,
+  "n_complete": 21,
+  "backup_path": "/workspace/test/control/configs/control/pid.toml.optuna.bak",
+  "pid_config": "/workspace/test/control/configs/control/pid.toml",
+  "final_config_mode": "applied_best"
+}
