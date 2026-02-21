@@ -1,6 +1,7 @@
 #include "hough_observation_model.hpp"
 
 #include "hough_line_extractor.hpp"
+#include "observation_model_common.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,11 +9,6 @@
 #include <vector>
 
 namespace {
-
-constexpr double kReferencePoints = 40.0;
-constexpr double kMinRangeVarianceFactor = 0.25;
-constexpr double kMinAngleVarianceFactor = 0.25;
-constexpr double kAngleMseScale = 0.1;
 
 using Mat3 = ad::localization::CovarianceMatrix;
 
@@ -97,15 +93,8 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
     auto observation = ad::localization::util::makeExpectedLine(
         mapLines[lineIndex].model, ad::types::Pose{.x = pose.x, .y = pose.y, .theta = pose.theta});
     observation.observed = fit->model;
-    const auto pointCount = std::max(1.0, static_cast<double>(fit->pointCount));
-    const auto baseRangeVar = config.measurementNoiseRange * config.measurementNoiseRange;
-    const auto baseAngleVar = config.measurementNoiseAngle * config.measurementNoiseAngle;
-    const auto scale = std::max(1.0, kReferencePoints / pointCount);
-    const auto minRangeVar = baseRangeVar * kMinRangeVarianceFactor;
-    const auto minAngleVar = baseAngleVar * kMinAngleVarianceFactor;
-    observation.rangeVariance = std::max(minRangeVar, (baseRangeVar * scale) + fit->mse);
-    observation.angleVariance =
-        std::max(minAngleVar, (baseAngleVar * scale) + (fit->mse * kAngleMseScale));
+    ad::localization::observation_model_common::applyObservationNoiseFromMse(
+        observation, config, static_cast<double>(fit->pointCount), fit->mse);
     ++summary.candidates;
 
     if (!ad::localization::util::gateLineObservation(
@@ -119,45 +108,6 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
   }
 
   return summary;
-}
-
-auto buildMeasurementData(const std::vector<ad::localization::util::LineObservation> &observations,
-                          double score) -> ad::localization::ObservationUpdateInput {
-  ad::localization::ObservationUpdateInput data{};
-  const auto measurementCount = observations.size() * 2U;
-  const auto size = static_cast<Eigen::Index>(measurementCount);
-  data.residual = Eigen::VectorXd::Zero(size);
-  data.measurementMatrix = Eigen::MatrixXd::Zero(size, 3);
-  data.measurementNoise = Eigen::MatrixXd::Zero(size, size);
-  data.score = score;
-
-  for (std::size_t index = 0; index < observations.size(); ++index) {
-    const auto &obs = observations[index];
-    const auto row = static_cast<Eigen::Index>(index * 2U);
-
-    const auto residualRho = obs.observed.rho - obs.expected.rho;
-    const auto residualAlpha =
-        ad::localization::util::normalizeAngle(obs.observed.alpha - obs.expected.alpha);
-    data.residual(row) = residualRho;
-    data.residual(row + 1) = residualAlpha;
-
-    const auto hRhoX = -obs.rhoSign * obs.nx;
-    const auto hRhoY = -obs.rhoSign * obs.ny;
-    const auto hAlphaTheta = -1.0;
-
-    data.measurementMatrix(row, 0) = hRhoX;
-    data.measurementMatrix(row, 1) = hRhoY;
-    data.measurementMatrix(row, 2) = 0.0;
-
-    data.measurementMatrix(row + 1, 0) = 0.0;
-    data.measurementMatrix(row + 1, 1) = 0.0;
-    data.measurementMatrix(row + 1, 2) = hAlphaTheta;
-
-    data.measurementNoise(row, row) = obs.rangeVariance;
-    data.measurementNoise(row + 1, row + 1) = obs.angleVariance;
-  }
-
-  return data;
 }
 
 } // namespace
@@ -212,7 +162,8 @@ auto HoughObservationModel::buildUpdateInput(const types::LidarScan &scan,
   const auto score = summary.candidates > 0 ? static_cast<double>(summary.gatePassed) /
                                                   static_cast<double>(summary.candidates)
                                             : 0.0;
-  return {buildMeasurementData(summary.observations, score)};
+  return {ad::localization::observation_model_common::buildMeasurementData(summary.observations,
+                                                                           score)};
 }
 
 } // namespace ad::localization

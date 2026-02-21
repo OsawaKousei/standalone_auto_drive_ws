@@ -87,6 +87,141 @@ auto drawUniqueSample(std::mt19937 &generator, std::size_t pointCount, std::size
   return sample;
 }
 
+auto transformScanLineToMap(const ad::localization::util::LineModel &scanLine,
+                            const ad::types::Pose &pose) -> ad::localization::util::LineModel {
+  const auto alphaMap = ad::localization::util::normalizeAngle(scanLine.alpha + pose.theta);
+  const auto rhoMap = scanLine.rho + (pose.x * std::cos(alphaMap)) + (pose.y * std::sin(alphaMap));
+  return ad::localization::util::toLineModel(
+      ad::localization::util::LineModel{.rho = rhoMap, .alpha = alphaMap});
+}
+
+auto sampleTwoDistinct(std::mt19937 &generator, std::size_t count)
+    -> std::optional<std::pair<std::size_t, std::size_t>> {
+  if (count < 2U) {
+    return std::nullopt;
+  }
+
+  std::uniform_int_distribution<std::size_t> distribution(0U, count - 1U);
+  const auto index0 = distribution(generator);
+  auto index1 = distribution(generator);
+  if (index0 == index1) {
+    return std::nullopt;
+  }
+  return std::pair<std::size_t, std::size_t>{index0, index1};
+}
+
+auto estimatePoseFromTwoPairs(const ad::localization::ransac::LinePairCandidate &pair0,
+                              const ad::localization::ransac::LinePairCandidate &pair1)
+    -> std::optional<ad::types::Pose> {
+  if (pair0.scanLineIndex == pair1.scanLineIndex || pair0.mapLineIndex == pair1.mapLineIndex) {
+    return std::nullopt;
+  }
+
+  const auto theta0 =
+      ad::localization::util::normalizeAngle(pair0.mapLine.alpha - pair0.scanLine.alpha);
+  const auto theta1 =
+      ad::localization::util::normalizeAngle(pair1.mapLine.alpha - pair1.scanLine.alpha);
+  const auto theta =
+      std::atan2(std::sin(theta0) + std::sin(theta1), std::cos(theta0) + std::cos(theta1));
+
+  auto matrix00 = 0.0;
+  auto matrix01 = 0.0;
+  auto matrix11 = 0.0;
+  auto rhs0 = 0.0;
+  auto rhs1 = 0.0;
+
+  const auto addEquation = [&](const ad::localization::util::LineModel &scanLine,
+                               const ad::localization::util::LineModel &mapLine) {
+    const auto alpha = ad::localization::util::normalizeAngle(scanLine.alpha + theta);
+    const auto normalX = std::cos(alpha);
+    const auto normalY = std::sin(alpha);
+    const auto rhs = mapLine.rho - scanLine.rho;
+
+    matrix00 += normalX * normalX;
+    matrix01 += normalX * normalY;
+    matrix11 += normalY * normalY;
+    rhs0 += normalX * rhs;
+    rhs1 += normalY * rhs;
+  };
+
+  addEquation(pair0.scanLine, pair0.mapLine);
+  addEquation(pair1.scanLine, pair1.mapLine);
+
+  const auto determinant = (matrix00 * matrix11) - (matrix01 * matrix01);
+  if (std::abs(determinant) < kEpsilon) {
+    return std::nullopt;
+  }
+
+  const auto poseX = ((matrix11 * rhs0) - (matrix01 * rhs1)) / determinant;
+  const auto poseY = ((matrix00 * rhs1) - (matrix01 * rhs0)) / determinant;
+  if (!std::isfinite(poseX) || !std::isfinite(poseY) || !std::isfinite(theta)) {
+    return std::nullopt;
+  }
+
+  return ad::types::Pose{.x = poseX, .y = poseY, .theta = theta};
+}
+
+auto collectLinePairInliers(
+    const ad::types::Pose &hypothesisPose,
+    const std::vector<ad::localization::ransac::LinePairCandidate> &candidates,
+    const ad::localization::ransac::LinePairRansacConfig &config)
+    -> std::vector<ad::localization::ransac::LinePairMatch> {
+  auto matches = std::vector<ad::localization::ransac::LinePairMatch>{};
+  matches.reserve(candidates.size());
+
+  for (const auto &candidate : candidates) {
+    const auto transformed = transformScanLineToMap(candidate.scanLine, hypothesisPose);
+
+    const auto angleResidual = std::abs(
+        ad::localization::util::normalizeAngle(transformed.alpha - candidate.mapLine.alpha));
+    if (angleResidual > config.inlierAngleThreshold) {
+      continue;
+    }
+
+    const auto rhoResidual = std::abs(transformed.rho - candidate.mapLine.rho);
+    if (rhoResidual > config.inlierRhoThreshold) {
+      continue;
+    }
+
+    const auto score =
+        angleResidual + (rhoResidual / std::max(config.inlierRhoThreshold, kEpsilon));
+    matches.push_back(
+        ad::localization::ransac::LinePairMatch{.scanLineIndex = candidate.scanLineIndex,
+                                                .mapLineIndex = candidate.mapLineIndex,
+                                                .angleResidual = angleResidual,
+                                                .rhoResidual = rhoResidual,
+                                                .score = score});
+  }
+
+  std::sort(matches.begin(), matches.end(),
+            [](const auto &left, const auto &right) { return left.score < right.score; });
+
+  auto selected = std::vector<ad::localization::ransac::LinePairMatch>{};
+  auto usedScan = std::vector<std::size_t>{};
+  auto usedMap = std::vector<std::size_t>{};
+  usedScan.reserve(matches.size());
+  usedMap.reserve(matches.size());
+
+  for (const auto &match : matches) {
+    const auto scanAlreadyUsed =
+        std::find(usedScan.begin(), usedScan.end(), match.scanLineIndex) != usedScan.end();
+    if (scanAlreadyUsed) {
+      continue;
+    }
+    const auto mapAlreadyUsed =
+        std::find(usedMap.begin(), usedMap.end(), match.mapLineIndex) != usedMap.end();
+    if (mapAlreadyUsed) {
+      continue;
+    }
+
+    usedScan.push_back(match.scanLineIndex);
+    usedMap.push_back(match.mapLineIndex);
+    selected.push_back(match);
+  }
+
+  return selected;
+}
+
 } // namespace
 
 namespace ad::localization::ransac {
@@ -190,6 +325,52 @@ auto fitLineToPoints(const std::vector<types::Point> &points, const RansacConfig
                                 .inlierSpan = inlierSpan,
                                 .inlierIndices = indices};
   return bestFit;
+}
+
+auto runLinePairRansac(const std::vector<LinePairCandidate> &candidates,
+                       const LinePairRansacConfig &config, std::uint32_t randomSeed)
+    -> std::vector<LinePairMatch> {
+  if (candidates.size() < 2U || config.maxIterations <= 0 || config.minInliers < 2U ||
+      config.minInlierRatio <= 0.0 || config.minInlierRatio > 1.0 ||
+      config.inlierAngleThreshold <= 0.0 || config.inlierRhoThreshold <= 0.0 ||
+      config.lineCountForRatio == 0U) {
+    return {};
+  }
+
+  const auto seed =
+      randomSeed == 0U ? static_cast<std::uint32_t>(candidates.size() * 2654435761U) : randomSeed;
+  auto generator = std::mt19937(seed);
+  auto bestInliers = std::vector<LinePairMatch>{};
+
+  for (int iteration = 0; iteration < config.maxIterations; ++iteration) {
+    const auto sample = sampleTwoDistinct(generator, candidates.size());
+    if (!sample) {
+      continue;
+    }
+
+    const auto poseHypothesis =
+        estimatePoseFromTwoPairs(candidates[sample->first], candidates[sample->second]);
+    if (!poseHypothesis) {
+      continue;
+    }
+
+    auto inliers = collectLinePairInliers(*poseHypothesis, candidates, config);
+    if (inliers.size() < config.minInliers) {
+      continue;
+    }
+
+    const auto inlierRatio =
+        static_cast<double>(inliers.size()) / static_cast<double>(config.lineCountForRatio);
+    if (inlierRatio < config.minInlierRatio) {
+      continue;
+    }
+
+    if (inliers.size() > bestInliers.size()) {
+      bestInliers = std::move(inliers);
+    }
+  }
+
+  return bestInliers;
 }
 
 } // namespace ad::localization::ransac

@@ -42,4 +42,32 @@ struct RansacLineFitResult {
                                    const RansacConfig &config, std::uint32_t randomSeed = 0U)
     -> std::optional<RansacLineFitResult>;
 
+struct LinePairCandidate {
+  std::size_t scanLineIndex;
+  std::size_t mapLineIndex;
+  util::LineModel scanLine;
+  util::LineModel mapLine;
+};
+
+struct LinePairMatch {
+  std::size_t scanLineIndex;
+  std::size_t mapLineIndex;
+  double angleResidual;
+  double rhoResidual;
+  double score;
+};
+
+struct LinePairRansacConfig {
+  int maxIterations;
+  std::size_t minInliers;
+  double minInlierRatio;
+  double inlierAngleThreshold;
+  double inlierRhoThreshold;
+  std::size_t lineCountForRatio;
+};
+
+[[nodiscard]] auto runLinePairRansac(const std::vector<LinePairCandidate> &candidates,
+                                     const LinePairRansacConfig &config,
+                                     std::uint32_t randomSeed = 0U) -> std::vector<LinePairMatch>;
+
 } // namespace ad::localization::ransac
