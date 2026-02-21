@@ -1,3 +1,0 @@
-forward_noise_stddev = 0.020
-lateral_noise_stddev = 0.008
-theta_noise_stddev = 0.012

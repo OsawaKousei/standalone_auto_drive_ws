@@ -13,21 +13,20 @@ merge_theta = 0.08
 [ekf]
 process_noise_translation = 0.05
 process_noise_rotation = 0.03
-measurement_noise_range = 0.35
-measurement_noise_angle = 0.35
+measurement_noise_range = 0.12
+measurement_noise_angle = 0.12
 
 [association]
-max_association_distance = 0.32
+max_association_distance = 0.3
 segment_margin = 0.3
-gate_threshold = 5.5
-min_observations = 2
+gate_threshold = 6.0
+min_observations = 3
 
 [ransac]
-max_iterations = 120
-inlier_distance = 0.14
-min_inliers = 5
-min_inlier_ratio = 0.20
-min_inlier_span = 0.35
+max_iterations = 80
+inlier_distance = 0.1
+min_inliers = 8
+min_inlier_ratio = 0.35
 
 [initial_covariance]
 xx = 0.5
