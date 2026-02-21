@@ -1,4 +1,4 @@
-observation_model = "hough_line"
+observation_model = "hough_ransac_line"
 
 [hough]
 theta_bins = 180
