@@ -107,9 +107,9 @@ struct LogSeries {
   logFile << "# footprint=" << serializePoints(series.footprint) << "\n";
   logFile << "# path=" << serializePoints(series.path) << "\n";
   logFile << "# columns: "
-             "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
+             "step,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
              "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
-  logFile << "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
+  logFile << "step,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
              "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
   return logFile;
 }
@@ -149,18 +149,17 @@ struct LogSeries {
   return std::nullopt;
 }
 
-auto appendLogEntry(std::ofstream &logFile, int step, double distanceBefore, double distanceAfter,
-                    double positionError, double headingError, double estimateScore,
-                    const types::Pose &truePose, const types::Pose &estimatedPose,
-                    const types::Twist &appliedCommand, bool lidarUpdated,
-                    const auto &odometryDelta, std::span<const types::Point> scanPoints) -> void {
-  logFile << step << ',' << distanceBefore << ',' << distanceAfter << ',' << positionError << ','
-          << headingError << ',' << estimateScore << ',' << truePose.x << ',' << truePose.y << ','
-          << truePose.theta << ',' << estimatedPose.x << ',' << estimatedPose.y << ','
-          << estimatedPose.theta << ',' << appliedCommand.v << ',' << appliedCommand.w << ','
-          << (lidarUpdated ? 1 : 0) << ',' << odometryDelta.deltaForward << ','
-          << odometryDelta.deltaLateral << ',' << odometryDelta.deltaTheta << ','
-          << serializePoints(scanPoints) << '\n';
+auto appendLogEntry(std::ofstream &logFile, int step, double distanceAfter, double positionError,
+                    double headingError, double estimateScore, const types::Pose &truePose,
+                    const types::Pose &estimatedPose, const types::Twist &appliedCommand,
+                    bool lidarUpdated, const auto &odometryDelta,
+                    std::span<const types::Point> scanPoints) -> void {
+  logFile << step << ',' << distanceAfter << ',' << positionError << ',' << headingError << ','
+          << estimateScore << ',' << truePose.x << ',' << truePose.y << ',' << truePose.theta << ','
+          << estimatedPose.x << ',' << estimatedPose.y << ',' << estimatedPose.theta << ','
+          << appliedCommand.v << ',' << appliedCommand.w << ',' << (lidarUpdated ? 1 : 0) << ','
+          << odometryDelta.deltaForward << ',' << odometryDelta.deltaLateral << ','
+          << odometryDelta.deltaTheta << ',' << serializePoints(scanPoints) << '\n';
 }
 
 struct SimulationOutcome {
@@ -256,8 +255,6 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
     }
     const auto appliedCommand = *commandResult;
 
-    const auto distanceBefore = distanceToGoal(trueState->pose, endpoints.goal);
-
     const auto nextState = physics->propagate(*trueState, appliedCommand, runtime.odometryDeltaT);
     if (!nextState) {
       outcome.failure.emplace(nextState.error());
@@ -322,7 +319,7 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
     }
 
     const auto distanceAfter = distanceToGoal(trueState->pose, endpoints.goal);
-    appendLogEntry(logFile, step, distanceBefore, distanceAfter, positionError, headingError,
+    appendLogEntry(logFile, step, distanceAfter, positionError, headingError,
                    updatedEstimate->score, trueState->pose, updatedEstimate->pose, appliedCommand,
                    lidarUpdated, *odometryDelta, scanPoints);
 
