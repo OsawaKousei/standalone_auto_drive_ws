@@ -72,14 +72,18 @@ find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
 add_library(ad_core
   src/features/planning/astar_planner.cpp
   src/features/planning/dijkstra_planner.cpp
+  src/features/planning/planner_factory.cpp
   src/features/planning/grid_collision_checker.cpp
   src/features/planning/planner_utils.cpp
   src/features/control/pure_pursuit.cpp
+  src/features/control/controller_factory.cpp
   src/features/localization/ekf_localizer.cpp
+  src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker.cpp
   src/features/simulation/unicycle_model.cpp
   src/features/simulation/lidar_sim.cpp
+  src/features/simulation/simulation_factory.cpp
   src/features/visualization/visualizer.cpp
   src/shared/map_loader.cpp
   src/shared/text_config.cpp

@@ -1,16 +1,11 @@
 #include "scenario_runtime.hpp"
 
-#include "../features/control/pure_pursuit.hpp"
-#include "../features/localization/ekf_localizer.hpp"
-#include "../features/localization/localization_config.hpp"
-#include "../features/planning/astar_planner.hpp"
-#include "../features/planning/dijkstra_planner.hpp"
-#include "../features/simulation/lidar_sim.hpp"
-#include "../features/simulation/unicycle_model.hpp"
+#include "../features/control/controller_factory.hpp"
+#include "../features/localization/localizer_factory.hpp"
+#include "../features/planning/planner_factory.hpp"
+#include "../features/simulation/simulation_factory.hpp"
 #include "text_config.hpp"
 
-#include <Eigen/Dense>
-#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -354,268 +349,6 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   return std::optional<config::TextConfig>{*loaded};
 }
 
-[[nodiscard]] auto parseEkfConfig(const ScenarioConfig &scenario)
-    -> Result<localization::EkfLocalizerConfig> {
-  auto configValue = localization::config::ekfLocalizerDefaultConfig();
-
-  const auto loaded = loadIfExists(scenario, scenario.localization.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  if (!loaded->has_value()) {
-    return configValue;
-  }
-  const auto &cfg = **loaded;
-
-  const auto readInt = [&](std::string_view section, std::string_view key,
-                           int current) -> Result<int> {
-    const auto raw = cfg.findRaw(section, key);
-    if (!raw) {
-      return current;
-    }
-    return config::parseIntValue(*raw);
-  };
-  const auto readDouble = [&](std::string_view section, std::string_view key,
-                              double current) -> Result<double> {
-    const auto raw = cfg.findRaw(section, key);
-    if (!raw) {
-      return current;
-    }
-    return config::parseDoubleValue(*raw);
-  };
-
-  const auto thetaBins = readInt("hough", "theta_bins", configValue.hough.thetaBins);
-  if (!thetaBins) {
-    return tl::make_unexpected(thetaBins.error());
-  }
-  const auto rhoBins = readInt("hough", "rho_bins", configValue.hough.rhoBins);
-  if (!rhoBins) {
-    return tl::make_unexpected(rhoBins.error());
-  }
-  const auto minVotes = readInt("hough", "min_votes", configValue.hough.minVotes);
-  if (!minVotes) {
-    return tl::make_unexpected(minVotes.error());
-  }
-  const auto maxLines = readInt("hough", "max_lines", configValue.hough.maxLines);
-  if (!maxLines) {
-    return tl::make_unexpected(maxLines.error());
-  }
-  const auto inlierDistance =
-      readDouble("hough", "inlier_distance", configValue.hough.inlierDistance);
-  if (!inlierDistance) {
-    return tl::make_unexpected(inlierDistance.error());
-  }
-  const auto minSegmentLength =
-      readDouble("hough", "min_segment_length", configValue.hough.minSegmentLength);
-  if (!minSegmentLength) {
-    return tl::make_unexpected(minSegmentLength.error());
-  }
-  const auto mergeRho = readDouble("hough", "merge_rho", configValue.hough.mergeRho);
-  if (!mergeRho) {
-    return tl::make_unexpected(mergeRho.error());
-  }
-  const auto mergeTheta = readDouble("hough", "merge_theta", configValue.hough.mergeTheta);
-  if (!mergeTheta) {
-    return tl::make_unexpected(mergeTheta.error());
-  }
-
-  const auto processNoiseTranslation =
-      readDouble("ekf", "process_noise_translation", configValue.ekf.processNoiseTranslation);
-  if (!processNoiseTranslation) {
-    return tl::make_unexpected(processNoiseTranslation.error());
-  }
-  const auto processNoiseRotation =
-      readDouble("ekf", "process_noise_rotation", configValue.ekf.processNoiseRotation);
-  if (!processNoiseRotation) {
-    return tl::make_unexpected(processNoiseRotation.error());
-  }
-  const auto measurementNoiseRange =
-      readDouble("ekf", "measurement_noise_range", configValue.ekf.measurementNoiseRange);
-  if (!measurementNoiseRange) {
-    return tl::make_unexpected(measurementNoiseRange.error());
-  }
-  const auto measurementNoiseAngle =
-      readDouble("ekf", "measurement_noise_angle", configValue.ekf.measurementNoiseAngle);
-  if (!measurementNoiseAngle) {
-    return tl::make_unexpected(measurementNoiseAngle.error());
-  }
-
-  const auto maxAssociationDistance =
-      readDouble("association", "max_association_distance", configValue.maxAssociationDistance);
-  if (!maxAssociationDistance) {
-    return tl::make_unexpected(maxAssociationDistance.error());
-  }
-  const auto segmentMargin = readDouble("association", "segment_margin", configValue.segmentMargin);
-  if (!segmentMargin) {
-    return tl::make_unexpected(segmentMargin.error());
-  }
-  const auto gateThreshold = readDouble("association", "gate_threshold", configValue.gateThreshold);
-  if (!gateThreshold) {
-    return tl::make_unexpected(gateThreshold.error());
-  }
-  const auto minObservations =
-      readInt("association", "min_observations", static_cast<int>(configValue.minObservations));
-  if (!minObservations) {
-    return tl::make_unexpected(minObservations.error());
-  }
-
-  return localization::EkfLocalizerConfig{
-      .hough = localization::HoughConfig{.thetaBins = *thetaBins,
-                                         .rhoBins = *rhoBins,
-                                         .minVotes = *minVotes,
-                                         .maxLines = *maxLines,
-                                         .inlierDistance = *inlierDistance,
-                                         .minSegmentLength = *minSegmentLength,
-                                         .mergeRho = *mergeRho,
-                                         .mergeTheta = *mergeTheta},
-      .ekf = localization::EkfConfig{.processNoiseTranslation = *processNoiseTranslation,
-                                     .processNoiseRotation = *processNoiseRotation,
-                                     .measurementNoiseRange = *measurementNoiseRange,
-                                     .measurementNoiseAngle = *measurementNoiseAngle},
-      .maxAssociationDistance = *maxAssociationDistance,
-      .segmentMargin = *segmentMargin,
-      .gateThreshold = *gateThreshold,
-      .minObservations = static_cast<std::size_t>(*minObservations)};
-}
-
-[[nodiscard]] auto parsePurePursuitConfig(const ScenarioConfig &scenario)
-    -> Result<control::PurePursuitConfig> {
-  auto lookaheadDistanceValue = control::config::kDefaultLookaheadDistance;
-  auto desiredLinearVelocityValue = control::config::kDefaultDesiredLinearVelocity;
-  const auto loaded = loadIfExists(scenario, scenario.control.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  if (!loaded->has_value()) {
-    return control::config::purePursuitDefaultConfig();
-  }
-
-  const auto &cfg = **loaded;
-  const auto lookaheadRaw = cfg.findRaw("", "lookahead_distance");
-  if (lookaheadRaw) {
-    const auto parsed = config::parseDoubleValue(*lookaheadRaw);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    lookaheadDistanceValue = *parsed;
-  }
-
-  const auto velocityRaw = cfg.findRaw("", "desired_linear_velocity");
-  if (velocityRaw) {
-    const auto parsed = config::parseDoubleValue(*velocityRaw);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    desiredLinearVelocityValue = *parsed;
-  }
-
-  return control::PurePursuitConfig{.lookaheadDistance = lookaheadDistanceValue,
-                                    .desiredLinearVelocity = desiredLinearVelocityValue};
-}
-
-[[nodiscard]] auto parseLidarConfig(const ScenarioConfig &scenario)
-    -> Result<simulation::LidarSimConfig> {
-  auto rayCountValue = simulation::config::kDefaultRayCount;
-  auto minAngleValue = simulation::config::kDefaultMinAngle;
-  auto maxAngleValue = simulation::config::kDefaultMaxAngle;
-  auto maxRangeValue = simulation::config::kDefaultMaxRange;
-  auto rangeStepValue = simulation::config::kDefaultRangeStep;
-  const auto loaded = loadIfExists(scenario, scenario.sensor.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  if (!loaded->has_value()) {
-    return simulation::config::lidarDefaultConfig();
-  }
-
-  const auto &cfg = **loaded;
-  const auto rayCount = cfg.findRaw("", "ray_count");
-  if (rayCount) {
-    const auto parsed = config::parseIntValue(*rayCount);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    rayCountValue = *parsed;
-  }
-
-  const auto minAngle = cfg.findRaw("", "min_angle");
-  if (minAngle) {
-    const auto parsed = config::parseDoubleValue(*minAngle);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    minAngleValue = *parsed;
-  }
-
-  const auto maxAngle = cfg.findRaw("", "max_angle");
-  if (maxAngle) {
-    const auto parsed = config::parseDoubleValue(*maxAngle);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxAngleValue = *parsed;
-  }
-
-  const auto maxRange = cfg.findRaw("", "max_range");
-  if (maxRange) {
-    const auto parsed = config::parseDoubleValue(*maxRange);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxRangeValue = *parsed;
-  }
-
-  const auto rangeStep = cfg.findRaw("", "range_step");
-  if (rangeStep) {
-    const auto parsed = config::parseDoubleValue(*rangeStep);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    rangeStepValue = *parsed;
-  }
-
-  return simulation::LidarSimConfig{.rayCount = rayCountValue,
-                                    .minAngle = minAngleValue,
-                                    .maxAngle = maxAngleValue,
-                                    .maxRange = maxRangeValue,
-                                    .rangeStep = rangeStepValue};
-}
-
-[[nodiscard]] auto parseUnicycleConfig(const ScenarioConfig &scenario)
-    -> Result<simulation::UnicycleModelConfig> {
-  auto maxLinearSpeedValue = simulation::config::kDefaultMaxLinearSpeed;
-  auto maxAngularSpeedValue = simulation::config::kDefaultMaxAngularSpeed;
-  const auto loaded = loadIfExists(scenario, scenario.physics.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  if (!loaded->has_value()) {
-    return simulation::config::unicycleDefaultConfig();
-  }
-
-  const auto &cfg = **loaded;
-  const auto linear = cfg.findRaw("", "max_linear_speed");
-  if (linear) {
-    const auto parsed = config::parseDoubleValue(*linear);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxLinearSpeedValue = *parsed;
-  }
-
-  const auto angular = cfg.findRaw("", "max_angular_speed");
-  if (angular) {
-    const auto parsed = config::parseDoubleValue(*angular);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxAngularSpeedValue = *parsed;
-  }
-
-  return simulation::UnicycleModelConfig{.maxLinearSpeed = maxLinearSpeedValue,
-                                         .maxAngularSpeed = maxAngularSpeedValue};
-}
-
 } // namespace
 
 auto resolvePath(const ScenarioConfig &scenario, std::string_view path) -> std::string {
@@ -711,86 +444,44 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
 
 auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)
     -> Result<std::unique_ptr<localization::ILocalizer>> {
-  if (scenario.localization.algorithm != "ekf") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported localization algorithm: " + scenario.localization.algorithm});
+  const auto loaded = loadIfExists(scenario, scenario.localization.configPath);
+  if (!loaded) {
+    return tl::make_unexpected(loaded.error());
   }
-
-  const auto configValue = parseEkfConfig(scenario);
-  if (!configValue) {
-    return tl::make_unexpected(configValue.error());
-  }
-  auto localizer = localization::EkfLocalizer::create(map, *configValue);
-  if (!localizer) {
-    return tl::make_unexpected(localizer.error());
-  }
-
-  auto derived = std::move(*localizer);
-  std::unique_ptr<localization::ILocalizer> base{derived.release()};
-  return base;
+  return localization::createLocalizerFromConfig(scenario.localization.algorithm, map, *loaded);
 }
 
 auto createPlanner(const ScenarioConfig &scenario,
                    const planning::ICollisionChecker &collisionChecker)
     -> Result<std::unique_ptr<planning::IPlanner>> {
-  if (scenario.planning.algorithm == "astar") {
-    return std::unique_ptr<planning::IPlanner>{new planning::AStarPlanner{collisionChecker}};
-  }
-  if (scenario.planning.algorithm == "dijkstra") {
-    return std::unique_ptr<planning::IPlanner>{new planning::DijkstraPlanner{collisionChecker}};
-  }
-  return tl::make_unexpected(
-      Error{.code = ErrorCode::InvalidInput,
-            .message = "Unsupported planning algorithm: " + scenario.planning.algorithm});
+  return planning::createPlannerFromConfig(scenario.planning.algorithm, collisionChecker);
 }
 
 auto createController(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<control::IController>> {
-  if (scenario.control.algorithm != "pure_pursuit") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported control algorithm: " + scenario.control.algorithm});
+  const auto loaded = loadIfExists(scenario, scenario.control.configPath);
+  if (!loaded) {
+    return tl::make_unexpected(loaded.error());
   }
-
-  const auto configValue = parsePurePursuitConfig(scenario);
-  if (!configValue) {
-    return tl::make_unexpected(configValue.error());
-  }
-
-  return std::unique_ptr<control::IController>{new control::PurePursuitController{*configValue}};
+  return control::createControllerFromConfig(scenario.control.algorithm, *loaded);
 }
 
 auto createSensor(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<simulation::ISensorModel>> {
-  if (scenario.sensor.algorithm != "lidar") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported sensor algorithm: " + scenario.sensor.algorithm});
+  const auto loaded = loadIfExists(scenario, scenario.sensor.configPath);
+  if (!loaded) {
+    return tl::make_unexpected(loaded.error());
   }
-
-  const auto configValue = parseLidarConfig(scenario);
-  if (!configValue) {
-    return tl::make_unexpected(configValue.error());
-  }
-
-  return std::unique_ptr<simulation::ISensorModel>{new simulation::LidarSim{*configValue}};
+  return simulation::createSensorFromConfig(scenario.sensor.algorithm, *loaded);
 }
 
 auto createPhysics(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<simulation::IPhysicsModel>> {
-  if (scenario.physics.algorithm != "unicycle") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported physics algorithm: " + scenario.physics.algorithm});
+  const auto loaded = loadIfExists(scenario, scenario.physics.configPath);
+  if (!loaded) {
+    return tl::make_unexpected(loaded.error());
   }
-
-  const auto configValue = parseUnicycleConfig(scenario);
-  if (!configValue) {
-    return tl::make_unexpected(configValue.error());
-  }
-
-  return std::unique_ptr<simulation::IPhysicsModel>{new simulation::UnicycleModel{*configValue}};
+  return simulation::createPhysicsFromConfig(scenario.physics.algorithm, *loaded);
 }
 
 } // namespace ad::scenario
