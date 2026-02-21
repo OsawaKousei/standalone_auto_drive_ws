@@ -3,6 +3,8 @@
 #include "../../shared/result.hpp"
 #include "../../shared/types.hpp"
 
+#include <random>
+
 namespace ad::simulation {
 
 struct LidarSensorConfig {
@@ -11,6 +13,7 @@ struct LidarSensorConfig {
   const double maxAngle;
   const double maxRange;
   const double rangeStep;
+  const double rangeNoiseStddev;
 };
 
 class LidarSensor {
@@ -21,6 +24,7 @@ public:
 
 private:
   const LidarSensorConfig config_;
+  mutable std::mt19937 generator_;
 };
 
 } // namespace ad::simulation

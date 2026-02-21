@@ -9,6 +9,8 @@ struct UnicycleModelConfig {
   const double maxAngularSpeed;
   const double maxLinearAcceleration;
   const double maxAngularAcceleration;
+  const double tauLinear;
+  const double tauAngular;
 };
 
 class UnicycleModel final : public IPhysicsModel {

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <numbers>
 #include <optional>
+#include <random>
 #include <ranges>
 #include <vector>
 
@@ -41,7 +42,8 @@ namespace {
 
 namespace ad::simulation {
 
-LidarSensor::LidarSensor(LidarSensorConfig config) : config_(config) {}
+LidarSensor::LidarSensor(LidarSensorConfig config)
+    : config_(config), generator_(std::random_device{}()) {}
 
 auto LidarSensor::simulate(const types::MapData &map, const types::Pose &pose) const
     -> Result<types::LidarScan> {
@@ -65,10 +67,22 @@ auto LidarSensor::simulate(const types::MapData &map, const types::Pose &pose) c
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "Lidar angle range is invalid."});
   }
+  if (config_.rangeNoiseStddev < 0.0 || !std::isfinite(config_.rangeNoiseStddev)) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Lidar noise stddev is invalid."});
+  }
   const auto angleStep =
       rayCount > 1U ? (config_.maxAngle - config_.minAngle) / static_cast<double>(rayCount - 1U)
                     : 0.0;
   const auto stepLimit = static_cast<std::size_t>(std::ceil(maxRange / rangeStep));
+
+  const auto sampleNoise = [&]() {
+    if (config_.rangeNoiseStddev == 0.0) {
+      return 0.0;
+    }
+    auto distribution = std::normal_distribution<double>{0.0, config_.rangeNoiseStddev};
+    return distribution(generator_);
+  };
 
   const auto traceRay = [&](double angle) -> double {
     const auto steps = std::views::iota(std::size_t{1}, stepLimit + 1);
@@ -94,7 +108,9 @@ auto LidarSensor::simulate(const types::MapData &map, const types::Pose &pose) c
   const auto rayIndices = std::views::iota(std::size_t{0}, rayCount);
   std::ranges::transform(rayIndices, std::back_inserter(ranges), [&](std::size_t index) -> double {
     const auto angle = pose.theta + config_.minAngle + (angleStep * static_cast<double>(index));
-    return traceRay(angle);
+    const auto noiselessRange = traceRay(angle);
+    const auto noisyRange = noiselessRange + sampleNoise();
+    return std::clamp(noisyRange, 0.0, maxRange);
   });
 
   return types::LidarScan{.ranges = std::move(ranges),

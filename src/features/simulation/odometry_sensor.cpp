@@ -20,7 +20,7 @@ constexpr auto kAnglePeriod = 2.0 * std::numbers::pi;
 namespace ad::simulation {
 
 OdometrySensor::OdometrySensor(OdometrySensorConfig config)
-    : config_(config), generator_(static_cast<std::mt19937::result_type>(config.seed)) {}
+    : config_(config), generator_(std::random_device{}()) {}
 
 auto OdometrySensor::measure(const types::Pose &previousPose, const types::Pose &currentPose) const
     -> Result<types::OdometryDelta> {

@@ -30,6 +30,11 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
         Error{.code = ErrorCode::InvalidInput,
               .message = "Model speed and acceleration limits must be positive."});
   }
+  if (config_.tauLinear < 0.0 || config_.tauAngular < 0.0 || !std::isfinite(config_.tauLinear) ||
+      !std::isfinite(config_.tauAngular)) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Model lag constants are invalid."});
+  }
 
   const auto speedLimitedCommand =
       types::Twist{.v = std::clamp(command.v, -config_.maxLinearSpeed, config_.maxLinearSpeed),
@@ -38,12 +43,22 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
   const auto maxLinearStepDelta = config_.maxLinearAcceleration * deltaSeconds;
   const auto maxAngularStepDelta = config_.maxAngularAcceleration * deltaSeconds;
 
+  const auto linearAlpha =
+      config_.tauLinear == 0.0 ? 1.0 : (deltaSeconds / (config_.tauLinear + deltaSeconds));
+  const auto angularAlpha =
+      config_.tauAngular == 0.0 ? 1.0 : (deltaSeconds / (config_.tauAngular + deltaSeconds));
+
+  const auto laggedLinearTarget =
+      state.twist.v + (linearAlpha * (speedLimitedCommand.v - state.twist.v));
+  const auto laggedAngularTarget =
+      state.twist.w + (angularAlpha * (speedLimitedCommand.w - state.twist.w));
+
   const auto appliedLinearVelocity =
       state.twist.v +
-      std::clamp(speedLimitedCommand.v - state.twist.v, -maxLinearStepDelta, maxLinearStepDelta);
+      std::clamp(laggedLinearTarget - state.twist.v, -maxLinearStepDelta, maxLinearStepDelta);
   const auto appliedAngularVelocity =
       state.twist.w +
-      std::clamp(speedLimitedCommand.w - state.twist.w, -maxAngularStepDelta, maxAngularStepDelta);
+      std::clamp(laggedAngularTarget - state.twist.w, -maxAngularStepDelta, maxAngularStepDelta);
 
   const auto saturatedCommand = types::Twist{
       .v = std::clamp(appliedLinearVelocity, -config_.maxLinearSpeed, config_.maxLinearSpeed),

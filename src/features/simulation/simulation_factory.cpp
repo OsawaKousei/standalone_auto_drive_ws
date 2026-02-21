@@ -72,11 +72,21 @@ namespace {
     return tl::make_unexpected(rangeStepValue.error());
   }
 
+  const auto rangeNoiseStddev = requiredRaw(cfg, "range_noise_stddev", "lidar");
+  if (!rangeNoiseStddev) {
+    return tl::make_unexpected(rangeNoiseStddev.error());
+  }
+  const auto rangeNoiseStddevValue = ::ad::config::parseDoubleValue(*rangeNoiseStddev);
+  if (!rangeNoiseStddevValue) {
+    return tl::make_unexpected(rangeNoiseStddevValue.error());
+  }
+
   return LidarSensorConfig{.rayCount = *rayCountValue,
                            .minAngle = *minAngleValue,
                            .maxAngle = *maxAngleValue,
                            .maxRange = *maxRangeValue,
-                           .rangeStep = *rangeStepValue};
+                           .rangeStep = *rangeStepValue,
+                           .rangeNoiseStddev = *rangeNoiseStddevValue};
 }
 
 [[nodiscard]] auto parseUnicycleConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -123,10 +133,30 @@ namespace {
     return tl::make_unexpected(maxAngularAccelerationValue.error());
   }
 
+  const auto tauLinear = requiredRaw(cfg, "tau_linear", "physics");
+  if (!tauLinear) {
+    return tl::make_unexpected(tauLinear.error());
+  }
+  const auto tauLinearValue = ::ad::config::parseDoubleValue(*tauLinear);
+  if (!tauLinearValue) {
+    return tl::make_unexpected(tauLinearValue.error());
+  }
+
+  const auto tauAngular = requiredRaw(cfg, "tau_angular", "physics");
+  if (!tauAngular) {
+    return tl::make_unexpected(tauAngular.error());
+  }
+  const auto tauAngularValue = ::ad::config::parseDoubleValue(*tauAngular);
+  if (!tauAngularValue) {
+    return tl::make_unexpected(tauAngularValue.error());
+  }
+
   return UnicycleModelConfig{.maxLinearSpeed = *maxLinearSpeedValue,
                              .maxAngularSpeed = *maxAngularSpeedValue,
                              .maxLinearAcceleration = *maxLinearAccelerationValue,
-                             .maxAngularAcceleration = *maxAngularAccelerationValue};
+                             .maxAngularAcceleration = *maxAngularAccelerationValue,
+                             .tauLinear = *tauLinearValue,
+                             .tauAngular = *tauAngularValue};
 }
 
 [[nodiscard]] auto parseOdometryConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -164,19 +194,9 @@ namespace {
     return tl::make_unexpected(thetaNoiseStddevValue.error());
   }
 
-  const auto seed = requiredRaw(cfg, "seed", "odometry");
-  if (!seed) {
-    return tl::make_unexpected(seed.error());
-  }
-  const auto seedValue = ::ad::config::parseIntValue(*seed);
-  if (!seedValue) {
-    return tl::make_unexpected(seedValue.error());
-  }
-
   return OdometrySensorConfig{.forwardNoiseStddev = *forwardNoiseStddevValue,
                               .lateralNoiseStddev = *lateralNoiseStddevValue,
-                              .thetaNoiseStddev = *thetaNoiseStddevValue,
-                              .seed = *seedValue};
+                              .thetaNoiseStddev = *thetaNoiseStddevValue};
 }
 
 } // namespace

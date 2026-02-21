@@ -11,7 +11,6 @@ struct OdometrySensorConfig {
   const double forwardNoiseStddev;
   const double lateralNoiseStddev;
   const double thetaNoiseStddev;
-  const int seed;
 };
 
 class OdometrySensor {
