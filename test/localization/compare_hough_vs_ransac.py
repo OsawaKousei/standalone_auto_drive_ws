@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("test/localization/logs/ab_compare"),
+        default=Path("test/localization/logs/analysis/ab_compare"),
         help="Directory for A/B logs and reports",
     )
     parser.add_argument(
@@ -91,12 +91,12 @@ def run_case(
             "--log",
             str(case_log),
             "--out-dir",
-            str(case_dir / "analysis"),
+            str(case_dir),
         ],
         check=True,
     )
 
-    metrics_path = case_dir / "analysis" / "metrics.json"
+    metrics_path = case_dir / "metrics.json"
     return json.loads(metrics_path.read_text(encoding="utf-8"))
 
 

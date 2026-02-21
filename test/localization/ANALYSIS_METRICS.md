@@ -5,7 +5,7 @@
 ## 1. 入出力
 
 - 入力ログ（既定）: `test/localization/logs/localization_test.log`
-- 出力ディレクトリ（既定）: `test/localization/logs/analysis`
+- 出力ディレクトリ（既定）: `test/localization/logs/analysis/localization_test`
 - 実行例:
   - `python3 test/localization/analyze_localization_log.py`
 

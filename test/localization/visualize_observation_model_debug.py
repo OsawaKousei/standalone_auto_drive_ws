@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("test/localization/logs/analysis"),
+        default=Path("test/localization/logs/analysis/observation_model_debug"),
         help="Output directory",
     )
     return parser.parse_args()
