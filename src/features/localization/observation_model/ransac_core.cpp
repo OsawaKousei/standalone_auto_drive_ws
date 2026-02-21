@@ -327,50 +327,69 @@ auto fitLineToPoints(const std::vector<types::Point> &points, const PointLineRan
   return bestFit;
 }
 
-auto runLinePairRansac(const std::vector<LinePairCandidate> &candidates,
-                       const LinePairRansacConfig &config, std::uint32_t randomSeed)
-    -> std::vector<LinePairMatch> {
-  if (candidates.size() < 2U || config.maxIterations <= 0 || config.minInliers < 2U ||
-      config.minInlierRatio <= 0.0 || config.minInlierRatio > 1.0 ||
-      config.inlierAngleThreshold <= 0.0 || config.inlierRhoThreshold <= 0.0 ||
-      config.lineCountForRatio == 0U) {
-    return {};
+auto runLinePairRansacWithDiagnostics(const std::vector<LinePairCandidate> &candidates,
+                                      const LinePairRansacConfig &config, std::uint32_t randomSeed)
+    -> LinePairRansacResult {
+  auto result = LinePairRansacResult{};
+  result.diagnostics.iterationsRequested = config.maxIterations;
+
+  if (config.maxIterations <= 0 || config.minInliers < 2U || config.minInlierRatio <= 0.0 ||
+      config.minInlierRatio > 1.0 || config.inlierAngleThreshold <= 0.0 ||
+      config.inlierRhoThreshold <= 0.0) {
+    result.diagnostics.configurationValid = false;
+    return result;
+  }
+
+  if (candidates.size() < 2U || config.lineCountForRatio == 0U) {
+    return result;
   }
 
   const auto seed =
       randomSeed == 0U ? static_cast<std::uint32_t>(candidates.size() * 2654435761U) : randomSeed;
   auto generator = std::mt19937(seed);
-  auto bestInliers = std::vector<LinePairMatch>{};
 
   for (int iteration = 0; iteration < config.maxIterations; ++iteration) {
     const auto sample = sampleTwoDistinct(generator, candidates.size());
     if (!sample) {
+      ++result.diagnostics.duplicateSampleRejects;
       continue;
     }
 
     const auto poseHypothesis =
         estimatePoseFromTwoPairs(candidates[sample->first], candidates[sample->second]);
     if (!poseHypothesis) {
+      ++result.diagnostics.hypothesisRejects;
       continue;
     }
 
     auto inliers = collectLinePairInliers(*poseHypothesis, candidates, config);
     if (inliers.size() < config.minInliers) {
+      ++result.diagnostics.minInlierRejects;
       continue;
     }
 
     const auto inlierRatio =
         static_cast<double>(inliers.size()) / static_cast<double>(config.lineCountForRatio);
     if (inlierRatio < config.minInlierRatio) {
+      ++result.diagnostics.ratioRejects;
       continue;
     }
 
-    if (inliers.size() > bestInliers.size()) {
-      bestInliers = std::move(inliers);
+    ++result.diagnostics.acceptedHypotheses;
+
+    if (inliers.size() > result.inliers.size()) {
+      result.inliers = std::move(inliers);
     }
   }
 
-  return bestInliers;
+  result.diagnostics.bestInlierCount = result.inliers.size();
+  return result;
+}
+
+auto runLinePairRansac(const std::vector<LinePairCandidate> &candidates,
+                       const LinePairRansacConfig &config, std::uint32_t randomSeed)
+    -> std::vector<LinePairMatch> {
+  return runLinePairRansacWithDiagnostics(candidates, config, randomSeed).inliers;
 }
 
 } // namespace ad::localization::ransac

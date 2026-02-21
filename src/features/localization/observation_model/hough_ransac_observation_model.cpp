@@ -7,6 +7,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <mutex>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -22,6 +28,56 @@ struct ObservationSummary {
   int gatePassed = 0;
   int candidates = 0;
 };
+
+struct UpdateDebugRecord {
+  std::size_t scanPointCount = 0U;
+  std::size_t scanLineCount = 0U;
+  std::size_t candidatePairCount = 0U;
+  std::size_t ransacInlierCount = 0U;
+  int observationCandidates = 0;
+  int observationGatePassed = 0;
+  std::size_t finalObservationCount = 0U;
+  std::size_t minObservations = 0U;
+  ad::localization::ransac::LinePairRansacDiagnostics ransacDiagnostics{};
+  std::string reason;
+};
+
+auto appendUpdateDebugCsv(const UpdateDebugRecord &record) -> void {
+  static std::mutex mutex;
+  const auto lock = std::lock_guard<std::mutex>{mutex};
+
+  std::error_code error;
+  std::filesystem::create_directories("test/localization/logs", error);
+
+  constexpr auto path = "test/localization/logs/hough_ransac_update_debug.csv";
+  const auto needHeader = !std::filesystem::exists(path);
+  auto stream = std::ofstream(path, std::ios::app);
+  if (!stream.is_open()) {
+    return;
+  }
+
+  if (needHeader) {
+    stream << "scan_point_count,scan_line_count,candidate_pair_count,ransac_inlier_count,"
+              "obs_candidates,obs_gate_passed,final_observation_count,min_observations,"
+              "reason,ransac_config_valid,ransac_iterations_requested,"
+              "ransac_duplicate_sample_rejects,ransac_hypothesis_rejects,"
+              "ransac_min_inlier_rejects,ransac_ratio_rejects,ransac_accepted_hypotheses,"
+              "ransac_best_inlier_count\n";
+  }
+
+  stream << record.scanPointCount << ',' << record.scanLineCount << ',' << record.candidatePairCount
+         << ',' << record.ransacInlierCount << ',' << record.observationCandidates << ','
+         << record.observationGatePassed << ',' << record.finalObservationCount << ','
+         << record.minObservations << ',' << record.reason << ','
+         << (record.ransacDiagnostics.configurationValid ? 1 : 0) << ','
+         << record.ransacDiagnostics.iterationsRequested << ','
+         << record.ransacDiagnostics.duplicateSampleRejects << ','
+         << record.ransacDiagnostics.hypothesisRejects << ','
+         << record.ransacDiagnostics.minInlierRejects << ','
+         << record.ransacDiagnostics.ratioRejects << ','
+         << record.ransacDiagnostics.acceptedHypotheses << ','
+         << record.ransacDiagnostics.bestInlierCount << '\n';
+}
 
 auto buildRansacSeed(const ad::types::Pose &pose, std::size_t candidateCount) -> std::uint32_t {
   const auto poseSeed = static_cast<std::uint32_t>(
@@ -165,18 +221,30 @@ auto HoughRansacObservationModel::buildUpdateInput(
     return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan has no ranges."});
   }
 
+  auto debugRecord = UpdateDebugRecord{};
+  debugRecord.minObservations = config_.houghObservation.minObservations;
+
   const auto scanPoints = collectScanPoints(scan);
+  debugRecord.scanPointCount = scanPoints.size();
   if (scanPoints.empty()) {
+    debugRecord.reason = "scan_points_empty";
+    appendUpdateDebugCsv(debugRecord);
     return {std::nullopt};
   }
 
   const auto scanLines = hough::extractLinesFromPoints(scanPoints, config_.houghObservation.hough);
   if (!scanLines) {
+    debugRecord.reason = "scan_line_extract_failed";
+    appendUpdateDebugCsv(debugRecord);
     return {std::nullopt};
   }
 
+  debugRecord.scanLineCount = scanLines->size();
+
   const auto candidates = buildCandidatePairs(*scanLines, mapLines_, predictedPose, config_);
-  const auto inliers = ad::localization::ransac::runLinePairRansac(
+  debugRecord.candidatePairCount = candidates.size();
+
+  const auto ransacResult = ad::localization::ransac::runLinePairRansacWithDiagnostics(
       candidates,
       ad::localization::ransac::LinePairRansacConfig{
           .maxIterations = config_.ransac.maxIterations,
@@ -187,16 +255,37 @@ auto HoughRansacObservationModel::buildUpdateInput(
           .inlierRhoThreshold = std::max(config_.houghObservation.maxAssociationDistance, 1e-6),
           .lineCountForRatio = scanLines->size()},
       buildRansacSeed(predictedPose, candidates.size()));
-  const auto summary = buildObservations(inliers, *scanLines, mapLines_, predictedPose, config_,
-                                         predictedCovariance);
+
+  debugRecord.ransacDiagnostics = ransacResult.diagnostics;
+  debugRecord.ransacInlierCount = ransacResult.inliers.size();
+
+  const auto summary = buildObservations(ransacResult.inliers, *scanLines, mapLines_, predictedPose,
+                                         config_, predictedCovariance);
+  debugRecord.observationCandidates = summary.candidates;
+  debugRecord.observationGatePassed = summary.gatePassed;
+  debugRecord.finalObservationCount = summary.observations.size();
 
   if (summary.observations.size() < config_.houghObservation.minObservations) {
+    if (!scanLines->empty() && candidates.empty()) {
+      debugRecord.reason = "no_candidate_pairs";
+    } else if (!ransacResult.diagnostics.configurationValid) {
+      debugRecord.reason = "ransac_invalid_config";
+    } else if (!ransacResult.inliers.empty() && summary.gatePassed == 0) {
+      debugRecord.reason = "all_gate_rejected";
+    } else if (ransacResult.inliers.empty()) {
+      debugRecord.reason = "ransac_no_inliers";
+    } else {
+      debugRecord.reason = "below_min_observations";
+    }
+    appendUpdateDebugCsv(debugRecord);
     return {std::nullopt};
   }
 
   const auto score = summary.candidates > 0 ? static_cast<double>(summary.gatePassed) /
                                                   static_cast<double>(summary.candidates)
                                             : 0.0;
+  debugRecord.reason = "success";
+  appendUpdateDebugCsv(debugRecord);
   return {ad::localization::observation_model_common::buildMeasurementData(summary.observations,
                                                                            score)};
 }

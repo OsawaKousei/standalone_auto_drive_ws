@@ -75,6 +75,27 @@ struct LinePairRansacConfig {
   std::size_t lineCountForRatio;
 };
 
+struct LinePairRansacDiagnostics {
+  bool configurationValid = true;
+  int iterationsRequested = 0;
+  int duplicateSampleRejects = 0;
+  int hypothesisRejects = 0;
+  int minInlierRejects = 0;
+  int ratioRejects = 0;
+  int acceptedHypotheses = 0;
+  std::size_t bestInlierCount = 0U;
+};
+
+struct LinePairRansacResult {
+  std::vector<LinePairMatch> inliers;
+  LinePairRansacDiagnostics diagnostics;
+};
+
+[[nodiscard]] auto
+runLinePairRansacWithDiagnostics(const std::vector<LinePairCandidate> &candidates,
+                                 const LinePairRansacConfig &config, std::uint32_t randomSeed = 0U)
+    -> LinePairRansacResult;
+
 [[nodiscard]] auto runLinePairRansac(const std::vector<LinePairCandidate> &candidates,
                                      const LinePairRansacConfig &config,
                                      std::uint32_t randomSeed = 0U) -> std::vector<LinePairMatch>;
