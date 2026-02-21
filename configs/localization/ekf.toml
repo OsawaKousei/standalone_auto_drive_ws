@@ -22,6 +22,12 @@ segment_margin = 0.3
 gate_threshold = 6.0
 min_observations = 3
 
+[ransac]
+max_iterations = 80
+inlier_distance = 0.1
+min_inliers = 8
+min_inlier_ratio = 0.35
+
 [initial_covariance]
 xx = 0.5
 yy = 0.5

@@ -2,6 +2,7 @@
 
 #include "ekf_localizer.hpp"
 #include "hough_observation_model.hpp"
+#include "hough_ransac_observation_model.hpp"
 #include "localization_config.hpp"
 
 #include <cstddef>
@@ -35,6 +36,24 @@ namespace {
   const auto raw = requiredRaw(cfg, section, key);
   if (!raw) {
     return tl::make_unexpected(raw.error());
+  }
+  return ::ad::config::parseIntValue(*raw);
+}
+
+[[nodiscard]] auto optionalDouble(const ::ad::config::TextConfig &cfg, std::string_view section,
+                                  std::string_view key, double defaultValue) -> Result<double> {
+  const auto raw = cfg.findRaw(section, key);
+  if (!raw) {
+    return defaultValue;
+  }
+  return ::ad::config::parseDoubleValue(*raw);
+}
+
+[[nodiscard]] auto optionalInt(const ::ad::config::TextConfig &cfg, std::string_view section,
+                               std::string_view key, int defaultValue) -> Result<int> {
+  const auto raw = cfg.findRaw(section, key);
+  if (!raw) {
+    return defaultValue;
   }
   return ::ad::config::parseIntValue(*raw);
 }
@@ -162,6 +181,47 @@ parseHoughObservationModelConfig(const std::optional<::ad::config::TextConfig> &
                                      .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
+[[nodiscard]] auto
+parseHoughRansacObservationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<HoughRansacObservationModelConfig> {
+  const auto houghObservation = parseHoughObservationModelConfig(configDoc);
+  if (!houghObservation) {
+    return tl::make_unexpected(houghObservation.error());
+  }
+
+  const auto &cfg = *configDoc;
+  const auto maxIterations = optionalInt(cfg, "ransac", "max_iterations", 80);
+  if (!maxIterations) {
+    return tl::make_unexpected(maxIterations.error());
+  }
+  const auto inlierDistance = optionalDouble(cfg, "ransac", "inlier_distance", 0.1);
+  if (!inlierDistance) {
+    return tl::make_unexpected(inlierDistance.error());
+  }
+  const auto minInliers = optionalInt(cfg, "ransac", "min_inliers", 8);
+  if (!minInliers) {
+    return tl::make_unexpected(minInliers.error());
+  }
+  const auto minInlierRatio = optionalDouble(cfg, "ransac", "min_inlier_ratio", 0.35);
+  if (!minInlierRatio) {
+    return tl::make_unexpected(minInlierRatio.error());
+  }
+
+  if (*maxIterations <= 0 || *inlierDistance <= 0.0 || *minInliers < 2 || *minInlierRatio <= 0.0 ||
+      *minInlierRatio > 1.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "RANSAC configuration is invalid in [ransac] section."});
+  }
+
+  return HoughRansacObservationModelConfig{
+      .houghObservation = *houghObservation,
+      .ransac = RansacConfig{.maxIterations = *maxIterations,
+                             .inlierDistance = *inlierDistance,
+                             .minInliers = static_cast<std::size_t>(*minInliers),
+                             .minInlierRatio = *minInlierRatio}};
+}
+
 } // namespace
 
 auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -231,6 +291,16 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
       return tl::make_unexpected(modelConfig.error());
     }
     auto model = HoughObservationModel::create(map, *modelConfig);
+    if (!model) {
+      return tl::make_unexpected(model.error());
+    }
+    observationModel = std::move(*model);
+  } else if (*observationModelType == "hough_ransac_line") {
+    const auto modelConfig = parseHoughRansacObservationModelConfig(configDoc);
+    if (!modelConfig) {
+      return tl::make_unexpected(modelConfig.error());
+    }
+    auto model = HoughRansacObservationModel::create(map, *modelConfig);
     if (!model) {
       return tl::make_unexpected(model.error());
     }
