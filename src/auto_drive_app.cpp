@@ -1,5 +1,8 @@
 #include "features/simulation/collision_checker.hpp"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 #include "features/visualization/visualizer.hpp"
+#pragma clang diagnostic pop
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
 #include "shared/scenario_runtime.hpp"
@@ -21,10 +24,16 @@
 
 namespace ad::demo {
 
+constexpr auto kAnglePeriod =
+    2.0 *
+    std::numbers::pi; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+constexpr auto kLogPrecision =
+    8; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
-  angle = std::fmod(angle + std::numbers::pi, 2.0 * std::numbers::pi);
+  angle = std::fmod(angle + std::numbers::pi, kAnglePeriod);
   if (angle < 0.0) {
-    angle += 2.0 * std::numbers::pi;
+    angle += kAnglePeriod;
   }
   return angle - std::numbers::pi;
 }
@@ -56,8 +65,11 @@ namespace ad::demo {
 
 } // namespace ad::demo
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto main(int argc, char **argv) -> int {
-  const auto scenarioPath = std::string{argc > 1 ? argv[1] : "configs/scenario.toml"};
+  const auto arguments = std::span<char *>{argv, static_cast<std::size_t>(argc)};
+  const auto scenarioPath =
+      std::string{arguments.size() > std::size_t{1} ? arguments[1] : "configs/scenario.toml"};
   const auto scenarioResult = ad::scenario::loadScenario(scenarioPath);
   if (!scenarioResult) {
     fmt::print(stderr, "Scenario load error: {}\n", scenarioResult.error().message);
@@ -153,7 +165,7 @@ auto main(int argc, char **argv) -> int {
     fmt::print(stderr, "Log file error: failed to open log file.\n");
     return 1;
   }
-  logFile << std::fixed << std::setprecision(8);
+  logFile << std::fixed << std::setprecision(ad::demo::kLogPrecision);
   logFile << "# localization_control_lidar_demo log\n";
   logFile << "# dt=" << deltaT << ", goal_tolerance=" << kGoalTolerance
           << ", max_steps=" << kMaxSteps << "\n";
