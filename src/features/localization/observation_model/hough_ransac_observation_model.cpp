@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <optional>
 #include <random>
 #include <vector>
@@ -16,22 +15,9 @@ constexpr double kReferencePoints = 40.0;
 constexpr double kMinRangeVarianceFactor = 0.25;
 constexpr double kMinAngleVarianceFactor = 0.25;
 constexpr double kAngleMseScale = 0.1;
-constexpr double kDefaultCandidateAngleGate = 0.20;
-constexpr double kDefaultCandidateRhoGate = 0.50;
-constexpr double kDefaultInlierAngleThreshold = 0.22;
-constexpr double kMinSampleAngleSeparation = 0.10;
-constexpr double kMinOrientationDiversity = 0.01;
-constexpr std::size_t kMaxCandidatesPerScanLine = 4U;
-constexpr std::size_t kMaxTotalCandidates = 160U;
-constexpr double kSolveEpsilon = 1e-8;
+constexpr double kMinSolveDeterminant = 1e-8;
 
 using Mat3 = ad::localization::CovarianceMatrix;
-
-struct ObservationSummary {
-  std::vector<ad::localization::util::LineObservation> observations;
-  int gatePassed = 0;
-  int candidates = 0;
-};
 
 struct CandidatePair {
   std::size_t scanLineIndex;
@@ -47,26 +33,16 @@ struct MatchedPair {
   double score;
 };
 
-auto fnv1aMix(std::uint64_t hash, std::uint64_t value) -> std::uint64_t {
-  constexpr std::uint64_t kPrime = 1099511628211ULL;
-  hash ^= value;
-  hash *= kPrime;
-  return hash;
-}
+struct ObservationSummary {
+  std::vector<ad::localization::util::LineObservation> observations;
+  int gatePassed = 0;
+  int candidates = 0;
+};
 
-auto quantizeToMilli(double value) -> std::int64_t {
-  return static_cast<std::int64_t>(std::llround(value * 1000.0));
-}
-
-auto buildRansacSeed(const ad::types::Pose &pose, std::size_t scanLineCount,
-                     std::size_t candidateCount) -> std::uint32_t {
-  std::uint64_t hash = 1469598103934665603ULL;
-  hash = fnv1aMix(hash, static_cast<std::uint64_t>(scanLineCount));
-  hash = fnv1aMix(hash, static_cast<std::uint64_t>(candidateCount));
-  hash = fnv1aMix(hash, static_cast<std::uint64_t>(quantizeToMilli(pose.x)));
-  hash = fnv1aMix(hash, static_cast<std::uint64_t>(quantizeToMilli(pose.y)));
-  hash = fnv1aMix(hash, static_cast<std::uint64_t>(quantizeToMilli(pose.theta)));
-  return static_cast<std::uint32_t>((hash >> 32U) ^ (hash & 0xffffffffULL));
+auto buildRansacSeed(const ad::types::Pose &pose, std::size_t candidateCount) -> std::uint32_t {
+  const auto poseSeed = static_cast<std::uint32_t>(
+      std::llround((std::abs(pose.x) + std::abs(pose.y) + std::abs(pose.theta)) * 1000.0));
+  return static_cast<std::uint32_t>(candidateCount * 2654435761U) ^ poseSeed;
 }
 
 auto collectScanPoints(const ad::types::LidarScan &scan) -> std::vector<ad::types::Point> {
@@ -86,12 +62,6 @@ auto collectScanPoints(const ad::types::LidarScan &scan) -> std::vector<ad::type
   return points;
 }
 
-auto segmentLength(const ad::localization::util::MapLine &line) -> double {
-  const auto deltaX = line.segment.end.x - line.segment.start.x;
-  const auto deltaY = line.segment.end.y - line.segment.start.y;
-  return std::hypot(deltaX, deltaY);
-}
-
 auto transformLocalLineToMap(const ad::localization::util::LineModel &localLine,
                              const ad::types::Pose &pose) -> ad::localization::util::LineModel {
   const auto alphaMap = ad::localization::util::normalizeAngle(localLine.alpha + pose.theta);
@@ -100,214 +70,159 @@ auto transformLocalLineToMap(const ad::localization::util::LineModel &localLine,
       ad::localization::util::LineModel{.rho = rhoMap, .alpha = alphaMap});
 }
 
-auto candidateGates(const ad::localization::HoughObservationModelConfig &config)
-    -> std::pair<double, double> {
-  const auto angleGate = std::max(kDefaultCandidateAngleGate, config.hough.mergeTheta * 2.5);
-  const auto rhoGate = std::max(kDefaultCandidateRhoGate, config.maxAssociationDistance * 2.0);
-  return {angleGate, rhoGate};
-}
-
 auto buildCandidatePairs(const std::vector<ad::localization::util::MapLine> &scanLines,
                          const std::vector<ad::localization::util::MapLine> &mapLines,
                          const ad::types::Pose &predictedPose,
                          const ad::localization::HoughRansacObservationModelConfig &config)
     -> std::vector<CandidatePair> {
   auto candidates = std::vector<CandidatePair>{};
-  const auto [angleGate, rhoGate] = candidateGates(config.houghObservation);
+  const auto angleGate = std::max(0.2, config.houghObservation.hough.mergeTheta * 2.0);
+  const auto rhoGate = std::max(0.4, config.houghObservation.maxAssociationDistance * 2.0);
 
   for (std::size_t scanIndex = 0; scanIndex < scanLines.size(); ++scanIndex) {
-    const auto &scanLine = scanLines[scanIndex];
-    if (segmentLength(scanLine) < config.ransac.minInlierSpan) {
-      continue;
-    }
-
-    const auto predictedMapLine = transformLocalLineToMap(scanLine.model, predictedPose);
-
-    auto perScan = std::vector<CandidatePair>{};
-    perScan.reserve(mapLines.size());
+    const auto predictedMapLine =
+        transformLocalLineToMap(scanLines[scanIndex].model, predictedPose);
 
     for (std::size_t mapIndex = 0; mapIndex < mapLines.size(); ++mapIndex) {
-      const auto &mapLine = mapLines[mapIndex];
-      const auto angleResidual = std::abs(
-          ad::localization::util::normalizeAngle(predictedMapLine.alpha - mapLine.model.alpha));
+      const auto angleResidual = std::abs(ad::localization::util::normalizeAngle(
+          predictedMapLine.alpha - mapLines[mapIndex].model.alpha));
       if (angleResidual > angleGate) {
         continue;
       }
 
-      const auto rhoResidual = std::abs(predictedMapLine.rho - mapLine.model.rho);
+      const auto rhoResidual = std::abs(predictedMapLine.rho - mapLines[mapIndex].model.rho);
       if (rhoResidual > rhoGate) {
         continue;
       }
 
       const auto coarseScore = angleResidual + (rhoResidual / rhoGate);
-      perScan.push_back(CandidatePair{
+      candidates.push_back(CandidatePair{
           .scanLineIndex = scanIndex, .mapLineIndex = mapIndex, .coarseScore = coarseScore});
-    }
-
-    std::sort(perScan.begin(), perScan.end(), [](const auto &left, const auto &right) -> bool {
-      return left.coarseScore < right.coarseScore;
-    });
-
-    const auto limit = std::min(kMaxCandidatesPerScanLine, perScan.size());
-    for (std::size_t index = 0; index < limit; ++index) {
-      candidates.push_back(perScan[index]);
-      if (candidates.size() >= kMaxTotalCandidates) {
-        return candidates;
-      }
     }
   }
 
+  std::sort(candidates.begin(), candidates.end(), [](const auto &left, const auto &right) {
+    return left.coarseScore < right.coarseScore;
+  });
   return candidates;
 }
 
-auto drawSamplePair(std::mt19937 &generator, std::size_t candidateCount)
+auto sampleTwoDistinct(std::mt19937 &generator, std::size_t count)
     -> std::optional<std::pair<std::size_t, std::size_t>> {
-  if (candidateCount < 2U) {
+  if (count < 2U) {
     return std::nullopt;
   }
 
-  std::uniform_int_distribution<std::size_t> distribution(0U, candidateCount - 1U);
-  auto first = distribution(generator);
-  auto second = distribution(generator);
-  for (int retry = 0; retry < 8 && second == first; ++retry) {
-    second = distribution(generator);
-  }
-  if (first == second) {
+  std::uniform_int_distribution<std::size_t> distribution(0U, count - 1U);
+  const auto index0 = distribution(generator);
+  auto index1 = distribution(generator);
+  if (index0 == index1) {
     return std::nullopt;
   }
-  return std::pair<std::size_t, std::size_t>{first, second};
+  return std::pair<std::size_t, std::size_t>{index0, index1};
 }
 
-auto estimatePoseFromTwoPairs(const CandidatePair &leftPair, const CandidatePair &rightPair,
+auto estimatePoseFromTwoPairs(const CandidatePair &pair0, const CandidatePair &pair1,
                               const std::vector<ad::localization::util::MapLine> &scanLines,
                               const std::vector<ad::localization::util::MapLine> &mapLines)
     -> std::optional<ad::types::Pose> {
-  if (leftPair.scanLineIndex == rightPair.scanLineIndex ||
-      leftPair.mapLineIndex == rightPair.mapLineIndex) {
+  if (pair0.scanLineIndex == pair1.scanLineIndex || pair0.mapLineIndex == pair1.mapLineIndex) {
     return std::nullopt;
   }
 
-  const auto &scanLeft = scanLines[leftPair.scanLineIndex].model;
-  const auto &scanRight = scanLines[rightPair.scanLineIndex].model;
-  const auto &mapLeft = mapLines[leftPair.mapLineIndex].model;
-  const auto &mapRight = mapLines[rightPair.mapLineIndex].model;
+  const auto &scan0 = scanLines[pair0.scanLineIndex].model;
+  const auto &scan1 = scanLines[pair1.scanLineIndex].model;
+  const auto &map0 = mapLines[pair0.mapLineIndex].model;
+  const auto &map1 = mapLines[pair1.mapLineIndex].model;
 
-  const auto thetaLeft = ad::localization::util::normalizeAngle(mapLeft.alpha - scanLeft.alpha);
-  const auto thetaRight = ad::localization::util::normalizeAngle(mapRight.alpha - scanRight.alpha);
-  const auto thetaGap = std::abs(ad::localization::util::normalizeAngle(thetaLeft - thetaRight));
-  if (thetaGap > 0.35) {
-    return std::nullopt;
-  }
+  const auto theta0 = ad::localization::util::normalizeAngle(map0.alpha - scan0.alpha);
+  const auto theta1 = ad::localization::util::normalizeAngle(map1.alpha - scan1.alpha);
+  const auto theta =
+      std::atan2(std::sin(theta0) + std::sin(theta1), std::cos(theta0) + std::cos(theta1));
 
-  const auto sampleMapAngleGap =
-      std::abs(ad::localization::util::normalizeAngle(mapLeft.alpha - mapRight.alpha));
-  if (sampleMapAngleGap < kMinSampleAngleSeparation) {
-    return std::nullopt;
-  }
+  auto matrix00 = 0.0;
+  auto matrix01 = 0.0;
+  auto matrix11 = 0.0;
+  auto rhs0 = 0.0;
+  auto rhs1 = 0.0;
 
-  const auto sinSum = std::sin(thetaLeft) + std::sin(thetaRight);
-  const auto cosSum = std::cos(thetaLeft) + std::cos(thetaRight);
-  const auto theta = std::atan2(sinSum, cosSum);
-
-  auto a00 = 0.0;
-  auto a01 = 0.0;
-  auto a11 = 0.0;
-  auto b0 = 0.0;
-  auto b1 = 0.0;
-
-  const auto fillEquation = [&](const ad::localization::util::LineModel &scanLine,
-                                const ad::localization::util::LineModel &mapLine) {
-    const auto alphaMap = ad::localization::util::normalizeAngle(scanLine.alpha + theta);
-    const auto normalX = std::cos(alphaMap);
-    const auto normalY = std::sin(alphaMap);
+  const auto addEquation = [&](const ad::localization::util::LineModel &scanLine,
+                               const ad::localization::util::LineModel &mapLine) {
+    const auto alpha = ad::localization::util::normalizeAngle(scanLine.alpha + theta);
+    const auto normalX = std::cos(alpha);
+    const auto normalY = std::sin(alpha);
     const auto rhs = mapLine.rho - scanLine.rho;
 
-    a00 += normalX * normalX;
-    a01 += normalX * normalY;
-    a11 += normalY * normalY;
-    b0 += normalX * rhs;
-    b1 += normalY * rhs;
+    matrix00 += normalX * normalX;
+    matrix01 += normalX * normalY;
+    matrix11 += normalY * normalY;
+    rhs0 += normalX * rhs;
+    rhs1 += normalY * rhs;
   };
 
-  fillEquation(scanLeft, mapLeft);
-  fillEquation(scanRight, mapRight);
+  addEquation(scan0, map0);
+  addEquation(scan1, map1);
 
-  const auto det = (a00 * a11) - (a01 * a01);
-  if (std::abs(det) < kSolveEpsilon) {
+  const auto determinant = (matrix00 * matrix11) - (matrix01 * matrix01);
+  if (std::abs(determinant) < kMinSolveDeterminant) {
     return std::nullopt;
   }
 
-  const auto x = ((a11 * b0) - (a01 * b1)) / det;
-  const auto y = ((a00 * b1) - (a01 * b0)) / det;
-  if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(theta)) {
+  const auto poseX = ((matrix11 * rhs0) - (matrix01 * rhs1)) / determinant;
+  const auto poseY = ((matrix00 * rhs1) - (matrix01 * rhs0)) / determinant;
+  if (!std::isfinite(poseX) || !std::isfinite(poseY) || !std::isfinite(theta)) {
     return std::nullopt;
   }
 
-  return ad::types::Pose{.x = x, .y = y, .theta = theta};
+  return ad::types::Pose{.x = poseX, .y = poseY, .theta = theta};
 }
 
-auto selectInliers(const ad::types::Pose &hypothesisPose,
-                   const std::vector<CandidatePair> &candidates,
-                   const std::vector<ad::localization::util::MapLine> &scanLines,
-                   const std::vector<ad::localization::util::MapLine> &mapLines,
-                   const ad::localization::HoughRansacObservationModelConfig &config)
+auto collectInliers(const ad::types::Pose &hypothesisPose,
+                    const std::vector<CandidatePair> &candidates,
+                    const std::vector<ad::localization::util::MapLine> &scanLines,
+                    const std::vector<ad::localization::util::MapLine> &mapLines,
+                    const ad::localization::HoughRansacObservationModelConfig &config)
     -> std::vector<MatchedPair> {
-  const auto rhoThreshold = config.houghObservation.maxAssociationDistance;
-  const auto angleThreshold =
-      std::max(kDefaultInlierAngleThreshold, config.houghObservation.hough.mergeTheta * 2.0);
+  const auto angleThreshold = std::max(0.16, config.houghObservation.hough.mergeTheta * 2.0);
+  const auto rhoThreshold = std::max(config.houghObservation.maxAssociationDistance, 1e-6);
 
-  struct PerScanBest {
-    MatchedPair pair;
-  };
-
-  auto perScanBest = std::vector<std::optional<PerScanBest>>(scanLines.size());
+  auto matched = std::vector<MatchedPair>{};
+  matched.reserve(candidates.size());
 
   for (const auto &candidate : candidates) {
-    const auto &scanLine = scanLines[candidate.scanLineIndex];
-    const auto &mapLine = mapLines[candidate.mapLineIndex];
+    const auto transformed =
+        transformLocalLineToMap(scanLines[candidate.scanLineIndex].model, hypothesisPose);
 
-    auto transformed = transformLocalLineToMap(scanLine.model, hypothesisPose);
-    const auto angleResidual =
-        std::abs(ad::localization::util::normalizeAngle(transformed.alpha - mapLine.model.alpha));
+    const auto angleResidual = std::abs(ad::localization::util::normalizeAngle(
+        transformed.alpha - mapLines[candidate.mapLineIndex].model.alpha));
     if (angleResidual > angleThreshold) {
       continue;
     }
 
-    const auto rhoResidual = std::abs(transformed.rho - mapLine.model.rho);
+    const auto rhoResidual = std::abs(transformed.rho - mapLines[candidate.mapLineIndex].model.rho);
     if (rhoResidual > rhoThreshold) {
       continue;
     }
 
-    const auto score = angleResidual + (rhoResidual / std::max(rhoThreshold, 1e-6));
-    const auto matched = MatchedPair{.scanLineIndex = candidate.scanLineIndex,
-                                     .mapLineIndex = candidate.mapLineIndex,
-                                     .angleResidual = angleResidual,
-                                     .rhoResidual = rhoResidual,
-                                     .score = score};
-
-    auto &slot = perScanBest[candidate.scanLineIndex];
-    if (!slot || matched.score < slot->pair.score) {
-      slot = PerScanBest{.pair = matched};
-    }
+    const auto score = angleResidual + (rhoResidual / rhoThreshold);
+    matched.push_back(MatchedPair{.scanLineIndex = candidate.scanLineIndex,
+                                  .mapLineIndex = candidate.mapLineIndex,
+                                  .angleResidual = angleResidual,
+                                  .rhoResidual = rhoResidual,
+                                  .score = score});
   }
 
-  auto uniqueByScan = std::vector<MatchedPair>{};
-  uniqueByScan.reserve(scanLines.size());
-  for (const auto &slot : perScanBest) {
-    if (slot) {
-      uniqueByScan.push_back(slot->pair);
-    }
-  }
-
-  std::sort(uniqueByScan.begin(), uniqueByScan.end(),
-            [](const auto &left, const auto &right) -> bool { return left.score < right.score; });
+  std::sort(matched.begin(), matched.end(),
+            [](const auto &left, const auto &right) { return left.score < right.score; });
 
   auto selected = std::vector<MatchedPair>{};
+  auto scanUsed = std::vector<bool>(scanLines.size(), false);
   auto mapUsed = std::vector<bool>(mapLines.size(), false);
-  for (const auto &pair : uniqueByScan) {
-    if (mapUsed[pair.mapLineIndex]) {
+  for (const auto &pair : matched) {
+    if (scanUsed[pair.scanLineIndex] || mapUsed[pair.mapLineIndex]) {
       continue;
     }
+    scanUsed[pair.scanLineIndex] = true;
     mapUsed[pair.mapLineIndex] = true;
     selected.push_back(pair);
   }
@@ -315,95 +230,32 @@ auto selectInliers(const ad::types::Pose &hypothesisPose,
   return selected;
 }
 
-auto hasOrientationDiversity(const std::vector<MatchedPair> &pairs,
-                             const std::vector<ad::localization::util::MapLine> &mapLines) -> bool {
-  if (pairs.size() < 2U) {
-    return false;
-  }
-
-  auto sumCos = 0.0;
-  auto sumSin = 0.0;
-  for (const auto &pair : pairs) {
-    const auto alpha = mapLines[pair.mapLineIndex].model.alpha;
-    sumCos += std::cos(2.0 * alpha);
-    sumSin += std::sin(2.0 * alpha);
-  }
-
-  const auto count = static_cast<double>(pairs.size());
-  const auto concentration = std::hypot(sumCos, sumSin) / count;
-  const auto diversity = 1.0 - concentration;
-  return diversity >= kMinOrientationDiversity;
-}
-
-auto selectFallbackInliers(const ad::types::Pose &predictedPose,
-                           const std::vector<CandidatePair> &candidates,
-                           const std::vector<ad::localization::util::MapLine> &scanLines,
-                           const std::vector<ad::localization::util::MapLine> &mapLines,
-                           const ad::localization::HoughRansacObservationModelConfig &config)
+auto runPairRansac(const std::vector<CandidatePair> &candidates,
+                   const std::vector<ad::localization::util::MapLine> &scanLines,
+                   const std::vector<ad::localization::util::MapLine> &mapLines,
+                   const ad::types::Pose &predictedPose,
+                   const ad::localization::HoughRansacObservationModelConfig &config)
     -> std::vector<MatchedPair> {
-  auto fallback = selectInliers(predictedPose, candidates, scanLines, mapLines, config);
-  if (fallback.empty()) {
-    return fallback;
+  if (candidates.size() < 2U || config.ransac.maxIterations <= 0) {
+    return {};
   }
 
-  std::sort(fallback.begin(), fallback.end(),
-            [](const auto &left, const auto &right) -> bool { return left.score < right.score; });
-
-  const auto upperBound =
-      std::max(config.houghObservation.minObservations, config.ransac.minInliers);
-  if (fallback.size() > upperBound) {
-    fallback.resize(upperBound);
-  }
-
-  return fallback;
-}
-
-auto fillObservationNoise(ad::localization::util::LineObservation &observation,
-                          const ad::localization::HoughObservationModelConfig &config,
-                          double residualRho, double residualAlpha) -> void {
-  const auto baseRangeVar = config.measurementNoiseRange * config.measurementNoiseRange;
-  const auto baseAngleVar = config.measurementNoiseAngle * config.measurementNoiseAngle;
-  const auto pointScale = std::max(1.0, kReferencePoints / kReferencePoints);
-  const auto minRangeVar = baseRangeVar * kMinRangeVarianceFactor;
-  const auto minAngleVar = baseAngleVar * kMinAngleVarianceFactor;
-  const auto mseLike =
-      (residualRho * residualRho) + (residualAlpha * residualAlpha * kAngleMseScale);
-
-  observation.rangeVariance = std::max(minRangeVar, (baseRangeVar * pointScale) + mseLike);
-  observation.angleVariance =
-      std::max(minAngleVar, (baseAngleVar * pointScale) + (mseLike * kAngleMseScale));
-}
-
-auto buildObservations(const std::vector<ad::localization::util::MapLine> &scanLines,
-                       const std::vector<ad::localization::util::MapLine> &mapLines,
-                       const std::vector<CandidatePair> &candidates,
-                       const ad::types::Pose &predictedPose,
-                       const ad::localization::HoughRansacObservationModelConfig &config,
-                       const Mat3 &covariance) -> ObservationSummary {
-  ObservationSummary summary{};
-
-  if (candidates.size() < 2U) {
-    return summary;
-  }
-
-  auto generator =
-      std::mt19937(buildRansacSeed(predictedPose, scanLines.size(), candidates.size()));
+  auto generator = std::mt19937(buildRansacSeed(predictedPose, candidates.size()));
   auto bestInliers = std::vector<MatchedPair>{};
 
   for (int iteration = 0; iteration < config.ransac.maxIterations; ++iteration) {
-    const auto sample = drawSamplePair(generator, candidates.size());
+    const auto sample = sampleTwoDistinct(generator, candidates.size());
     if (!sample) {
       continue;
     }
 
-    const auto &left = candidates[sample->first];
-    const auto &right = candidates[sample->second];
-    const auto hypothesisPose = estimatePoseFromTwoPairs(left, right, scanLines, mapLines);
-    if (!hypothesisPose) {
+    const auto poseHypothesis = estimatePoseFromTwoPairs(
+        candidates[sample->first], candidates[sample->second], scanLines, mapLines);
+    if (!poseHypothesis) {
       continue;
     }
 
-    auto inliers = selectInliers(*hypothesisPose, candidates, scanLines, mapLines, config);
+    auto inliers = collectInliers(*poseHypothesis, candidates, scanLines, mapLines, config);
     if (inliers.size() < config.ransac.minInliers) {
       continue;
     }
@@ -414,31 +266,47 @@ auto buildObservations(const std::vector<ad::localization::util::MapLine> &scanL
       continue;
     }
 
-    if (!hasOrientationDiversity(inliers, mapLines)) {
-      continue;
-    }
-
     if (inliers.size() > bestInliers.size()) {
       bestInliers = std::move(inliers);
     }
   }
 
-  if (bestInliers.empty()) {
-    bestInliers = selectFallbackInliers(predictedPose, candidates, scanLines, mapLines, config);
-    if (bestInliers.size() < config.houghObservation.minObservations) {
-      return summary;
-    }
-  }
+  return bestInliers;
+}
 
-  summary.observations.reserve(bestInliers.size());
-  for (const auto &pair : bestInliers) {
+auto fillObservationNoise(ad::localization::util::LineObservation &observation,
+                          const ad::localization::HoughObservationModelConfig &config,
+                          double angleResidual, double rhoResidual) -> void {
+  const auto baseRangeVar = config.measurementNoiseRange * config.measurementNoiseRange;
+  const auto baseAngleVar = config.measurementNoiseAngle * config.measurementNoiseAngle;
+  const auto minRangeVar = baseRangeVar * kMinRangeVarianceFactor;
+  const auto minAngleVar = baseAngleVar * kMinAngleVarianceFactor;
+  const auto scoreMse =
+      (rhoResidual * rhoResidual) + (angleResidual * angleResidual * kAngleMseScale);
+  const auto scale = std::max(1.0, kReferencePoints / kReferencePoints);
+
+  observation.rangeVariance = std::max(minRangeVar, (baseRangeVar * scale) + scoreMse);
+  observation.angleVariance =
+      std::max(minAngleVar, (baseAngleVar * scale) + (scoreMse * kAngleMseScale));
+}
+
+auto buildObservations(const std::vector<MatchedPair> &inliers,
+                       const std::vector<ad::localization::util::MapLine> &scanLines,
+                       const std::vector<ad::localization::util::MapLine> &mapLines,
+                       const ad::types::Pose &predictedPose,
+                       const ad::localization::HoughRansacObservationModelConfig &config,
+                       const Mat3 &covariance) -> ObservationSummary {
+  auto summary = ObservationSummary{};
+  summary.observations.reserve(inliers.size());
+
+  for (const auto &pair : inliers) {
     const auto &mapLine = mapLines[pair.mapLineIndex];
     const auto &scanLine = scanLines[pair.scanLineIndex];
 
     auto observation = ad::localization::util::makeExpectedLine(mapLine.model, predictedPose);
     observation.observed = scanLine.model;
-    fillObservationNoise(observation, config.houghObservation, pair.rhoResidual,
-                         pair.angleResidual);
+    fillObservationNoise(observation, config.houghObservation, pair.angleResidual,
+                         pair.rhoResidual);
 
     ++summary.candidates;
     if (!ad::localization::util::gateLineObservation(
@@ -546,7 +414,8 @@ auto HoughRansacObservationModel::buildUpdateInput(
   }
 
   const auto candidates = buildCandidatePairs(*scanLines, mapLines_, predictedPose, config_);
-  const auto summary = buildObservations(*scanLines, mapLines_, candidates, predictedPose, config_,
+  const auto inliers = runPairRansac(candidates, *scanLines, mapLines_, predictedPose, config_);
+  const auto summary = buildObservations(inliers, *scanLines, mapLines_, predictedPose, config_,
                                          predictedCovariance);
 
   if (summary.observations.size() < config_.houghObservation.minObservations) {
