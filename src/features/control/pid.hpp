@@ -14,9 +14,6 @@ struct PidConfig {
   const double positionKp;
   const double positionKi;
   const double positionKd;
-  const double velocityKp;
-  const double velocityKi;
-  const double velocityKd;
   const double headingKp;
   const double headingKi;
   const double headingKd;

@@ -16,6 +16,7 @@ import optuna
 
 KEY_VALUE_PATTERN = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z0-9_]+)(?P<sep>\s*=\s*)(?P<value>[-+0-9.eE]+)(?P<trail>\s*)$")
 MAX_SPEED_KEY_PATTERN = re.compile(r"^max_.*_speed$")
+VELOCITY_GAIN_KEY_PATTERN = re.compile(r"^velocity_.*$")
 
 
 @dataclass(frozen=True)
@@ -141,7 +142,7 @@ def update_numeric_toml(
 def build_search_space(params: Dict[str, float]) -> Dict[str, SearchRange]:
     space: Dict[str, SearchRange] = {}
     for key, value in params.items():
-        if MAX_SPEED_KEY_PATTERN.match(key):
+        if MAX_SPEED_KEY_PATTERN.match(key) or VELOCITY_GAIN_KEY_PATTERN.match(key):
             continue
 
         if "lookahead" in key:

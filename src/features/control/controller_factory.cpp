@@ -111,33 +111,6 @@ namespace {
     return tl::make_unexpected(positionKdValue.error());
   }
 
-  const auto velocityKpRaw = requiredRaw(cfg, "velocity_kp");
-  if (!velocityKpRaw) {
-    return tl::make_unexpected(velocityKpRaw.error());
-  }
-  const auto velocityKpValue = ::ad::config::parseDoubleValue(*velocityKpRaw);
-  if (!velocityKpValue) {
-    return tl::make_unexpected(velocityKpValue.error());
-  }
-
-  const auto velocityKiRaw = requiredRaw(cfg, "velocity_ki");
-  if (!velocityKiRaw) {
-    return tl::make_unexpected(velocityKiRaw.error());
-  }
-  const auto velocityKiValue = ::ad::config::parseDoubleValue(*velocityKiRaw);
-  if (!velocityKiValue) {
-    return tl::make_unexpected(velocityKiValue.error());
-  }
-
-  const auto velocityKdRaw = requiredRaw(cfg, "velocity_kd");
-  if (!velocityKdRaw) {
-    return tl::make_unexpected(velocityKdRaw.error());
-  }
-  const auto velocityKdValue = ::ad::config::parseDoubleValue(*velocityKdRaw);
-  if (!velocityKdValue) {
-    return tl::make_unexpected(velocityKdValue.error());
-  }
-
   const auto headingKpRaw = requiredRaw(cfg, "heading_kp");
   if (!headingKpRaw) {
     return tl::make_unexpected(headingKpRaw.error());
@@ -171,9 +144,6 @@ namespace {
                    .positionKp = *positionKpValue,
                    .positionKi = *positionKiValue,
                    .positionKd = *positionKdValue,
-                   .velocityKp = *velocityKpValue,
-                   .velocityKi = *velocityKiValue,
-                   .velocityKd = *velocityKdValue,
                    .headingKp = *headingKpValue,
                    .headingKi = *headingKiValue,
                    .headingKd = *headingKdValue};
