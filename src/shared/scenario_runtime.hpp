@@ -2,8 +2,8 @@
 
 #include "../features/control/i_controller.hpp"
 #include "../features/localization/i_localizer.hpp"
-#include "../features/planning/i_collision_checker.hpp"
 #include "../features/planning/i_planner.hpp"
+#include "../features/planning/planner_factory.hpp"
 #include "../features/simulation/collision_checker.hpp"
 #include "../features/simulation/i_physics.hpp"
 #include "../features/simulation/i_sensor.hpp"
@@ -53,9 +53,9 @@ struct ScenarioConfig {
 [[nodiscard]] auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig>;
 [[nodiscard]] auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)
     -> Result<std::unique_ptr<localization::ILocalizer>>;
-[[nodiscard]] auto createPlanner(const ScenarioConfig &scenario,
-                                 const planning::ICollisionChecker &collisionChecker)
-    -> Result<std::unique_ptr<planning::IPlanner>>;
+[[nodiscard]] auto createPlanner(const ScenarioConfig &scenario, const types::MapData &map,
+                                 const types::Footprint &footprint)
+    -> Result<planning::PlannerComponents>;
 [[nodiscard]] auto createController(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<control::IController>>;
 [[nodiscard]] auto createSensor(const ScenarioConfig &scenario)

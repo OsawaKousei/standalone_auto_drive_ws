@@ -1,4 +1,3 @@
-#include "features/planning/grid_collision_checker.hpp"
 #include "features/simulation/collision_checker.hpp"
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
@@ -77,18 +76,13 @@ auto main(int argc, char **argv) -> int {
   const auto goal = scenario.goal;
   const auto &footprint = scenario.footprint;
 
-  const auto checkerResult = ad::planning::GridCollisionChecker::create(map, footprint);
-  if (!checkerResult) {
-    fmt::print(stderr, "Collision checker error: {}\n", checkerResult.error().message);
-    return 1;
-  }
-
-  auto plannerResult = ad::scenario::createPlanner(scenario, *checkerResult);
+  auto plannerResult = ad::scenario::createPlanner(scenario, map, footprint);
   if (!plannerResult) {
     fmt::print(stderr, "Planner create error: {}\n", plannerResult.error().message);
     return 1;
   }
-  auto planner = std::move(*plannerResult);
+  auto plannerComponents = std::move(*plannerResult);
+  auto &planner = plannerComponents.planner;
   const auto pathResult = planner->plan(map, start, goal, footprint);
   if (!pathResult) {
     fmt::print(stderr, "Planning error: {}\n", pathResult.error().message);

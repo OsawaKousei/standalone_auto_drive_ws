@@ -85,7 +85,7 @@ GridCollisionChecker::GridCollisionChecker(types::MapData inflatedMap, double fo
     : inflatedMap_{std::move(inflatedMap)}, footprintRadius_{footprintRadius} {}
 
 auto GridCollisionChecker::create(const types::MapData &map, const types::Footprint &footprint)
-    -> Result<GridCollisionChecker> {
+    -> Result<std::unique_ptr<ICollisionChecker>> {
   const auto mapStatus = utils::isValidMap(map);
   if (!mapStatus) {
     return tl::make_unexpected(mapStatus.error());
@@ -103,7 +103,8 @@ auto GridCollisionChecker::create(const types::MapData &map, const types::Footpr
                                     .height = map.height,
                                     .resolution = map.resolution,
                                     .grid = std::move(inflatedGrid)};
-  return Result<GridCollisionChecker>{tl::in_place, std::move(inflatedMap), *radius};
+  return Result<std::unique_ptr<ICollisionChecker>>{
+      tl::in_place, std::make_unique<GridCollisionChecker>(std::move(inflatedMap), *radius)};
 }
 
 auto GridCollisionChecker::isFree(const types::Pose &pose, const types::Footprint &footprint) const

@@ -424,10 +424,13 @@ auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)
   return localization::createLocalizerFromConfig(scenario.localization.algorithm, map, *loaded);
 }
 
-auto createPlanner(const ScenarioConfig &scenario,
-                   const planning::ICollisionChecker &collisionChecker)
-    -> Result<std::unique_ptr<planning::IPlanner>> {
-  return planning::createPlannerFromConfig(scenario.planning.algorithm, collisionChecker);
+auto createPlanner(const ScenarioConfig &scenario, const types::MapData &map,
+                   const types::Footprint &footprint) -> Result<planning::PlannerComponents> {
+  const auto loaded = loadIfExists(scenario, scenario.planning.configPath);
+  if (!loaded) {
+    return tl::make_unexpected(loaded.error());
+  }
+  return planning::createPlannerFromConfig(scenario.planning.algorithm, map, footprint, *loaded);
 }
 
 auto createController(const ScenarioConfig &scenario)

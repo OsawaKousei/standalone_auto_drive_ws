@@ -2,12 +2,14 @@
 
 #include "i_collision_checker.hpp"
 
+#include <memory>
+
 namespace ad::planning {
 
 class GridCollisionChecker final : public ICollisionChecker {
 public:
   [[nodiscard]] static auto create(const types::MapData &map, const types::Footprint &footprint)
-      -> Result<GridCollisionChecker>;
+      -> Result<std::unique_ptr<ICollisionChecker>>;
 
   GridCollisionChecker(types::MapData inflatedMap, double footprintRadius);
 
