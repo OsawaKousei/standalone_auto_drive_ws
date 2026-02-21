@@ -41,6 +41,8 @@ namespace {
 
 namespace ad::simulation {
 
+LidarSim::LidarSim(LidarSimConfig config) : config_(config) {}
+
 auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) const
     -> Result<LidarScan> {
   if (!mapHasConsistentGrid(map)) {
@@ -53,15 +55,25 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
         Error{.code = ErrorCode::InvalidInput, .message = "Map dimensions must be positive."});
   }
 
-  const auto rayCount = static_cast<std::size_t>(std::max(map.width, 1));
-  const auto maxRange = map.resolution * static_cast<double>(std::max(map.width, map.height));
-  const auto stepLimit = static_cast<std::size_t>(std::ceil(maxRange / map.resolution));
-  const auto angleStep = (2.0 * std::numbers::pi) / static_cast<double>(rayCount);
+  const auto rayCountRaw = config_.rayCount > 0 ? config_.rayCount : std::max(map.width, 1);
+  const auto rayCount = static_cast<std::size_t>(rayCountRaw);
+  const auto maxRange = config_.maxRange > 0.0
+                            ? config_.maxRange
+                            : map.resolution * static_cast<double>(std::max(map.width, map.height));
+  const auto rangeStep = config_.rangeStep > 0.0 ? config_.rangeStep : map.resolution;
+  if (config_.maxAngle <= config_.minAngle) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Lidar angle range is invalid."});
+  }
+  const auto angleStep =
+      rayCount > 1U ? (config_.maxAngle - config_.minAngle) / static_cast<double>(rayCount - 1U)
+                    : 0.0;
+  const auto stepLimit = static_cast<std::size_t>(std::ceil(maxRange / rangeStep));
 
   const auto traceRay = [&](double angle) -> double {
     const auto steps = std::views::iota(std::size_t{1}, stepLimit + 1);
     for (const auto stepIndex : steps) {
-      const auto distance = map.resolution * static_cast<double>(stepIndex);
+      const auto distance = rangeStep * static_cast<double>(stepIndex);
       const auto xValue = pose.x + (std::cos(angle) * distance);
       const auto yValue = pose.y + (std::sin(angle) * distance);
       const auto index = cellIndex(map, types::Point{.x = xValue, .y = yValue});
@@ -81,12 +93,12 @@ auto LidarSim::simulate(const types::MapData &map, const types::Pose &pose) cons
 
   const auto rayIndices = std::views::iota(std::size_t{0}, rayCount);
   std::ranges::transform(rayIndices, std::back_inserter(ranges), [&](std::size_t index) -> double {
-    const auto angle = pose.theta - std::numbers::pi + (angleStep * static_cast<double>(index));
+    const auto angle = pose.theta + config_.minAngle + (angleStep * static_cast<double>(index));
     return traceRay(angle);
   });
 
   return LidarScan{.ranges = std::move(ranges),
-                   .minAngle = -std::numbers::pi,
+                   .minAngle = config_.minAngle,
                    .angleIncrement = angleStep,
                    .maxRange = maxRange};
 }

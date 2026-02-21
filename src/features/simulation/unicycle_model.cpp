@@ -5,6 +5,8 @@
 
 namespace ad::simulation {
 
+UnicycleModel::UnicycleModel(UnicycleModelConfig config) : config_(config) {}
+
 auto UnicycleModel::propagate(const MotionState &state, const types::Twist &command,
                               double deltaSeconds) const -> Result<MotionResult> {
   if (deltaSeconds <= 0.0 || !std::isfinite(deltaSeconds)) {
@@ -17,12 +19,14 @@ auto UnicycleModel::propagate(const MotionState &state, const types::Twist &comm
         Error{.code = ErrorCode::InvalidInput, .message = "Command velocities must be finite."});
   }
 
-  constexpr double kMaxLinearSpeed = 5.0;
-  constexpr double kMaxAngularSpeed = 3.0;
+  if (config_.maxLinearSpeed <= 0.0 || config_.maxAngularSpeed <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Model speed limits must be positive."});
+  }
 
   const auto saturatedCommand =
-      types::Twist{.v = std::clamp(command.v, -kMaxLinearSpeed, kMaxLinearSpeed),
-                   .w = std::clamp(command.w, -kMaxAngularSpeed, kMaxAngularSpeed)};
+      types::Twist{.v = std::clamp(command.v, -config_.maxLinearSpeed, config_.maxLinearSpeed),
+                   .w = std::clamp(command.w, -config_.maxAngularSpeed, config_.maxAngularSpeed)};
 
   const auto deltaX = saturatedCommand.v * std::cos(state.pose.theta) * deltaSeconds;
   const auto deltaY = saturatedCommand.v * std::sin(state.pose.theta) * deltaSeconds;

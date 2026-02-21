@@ -1,0 +1,56 @@
+[scenario]
+name = "localization_control_demo"
+
+[map]
+yaml_path = "../tools/map.yaml"
+
+[robot.start]
+x = 1.0
+y = 1.0
+theta = 0.0
+
+[robot.goal]
+x = 9.0
+y = 1.0
+theta = 0.0
+
+[robot.footprint]
+vertices = [-0.2, -0.1, 0.3, -0.1, 0.3, 0.1, -0.2, 0.1]
+
+[simulation.runtime]
+delta_t = 0.2
+max_steps = 250
+goal_tolerance = 0.3
+frame_delay_ms = 80
+score_threshold = 0.7
+min_speed_scale = 0.4
+max_abs_angular = 2.5
+
+[simulation.collision]
+max_translation_step = 0.05
+max_rotation_step = 0.05
+
+[localization.initial_covariance]
+xx = 0.5
+yy = 0.5
+tt = 0.2
+
+[localization]
+algorithm = "ekf"
+config_path = "localization/ekf.toml"
+
+[planning]
+algorithm = "astar"
+config_path = "planning/astar.toml"
+
+[control]
+algorithm = "pure_pursuit"
+config_path = "control/pure_pursuit.toml"
+
+[sensor]
+algorithm = "lidar"
+config_path = "sensor/lidar.toml"
+
+[physics]
+algorithm = "unicycle"
+config_path = "physics/unicycle.toml"

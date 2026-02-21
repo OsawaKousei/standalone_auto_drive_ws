@@ -1,16 +1,12 @@
-#include "features/control/pure_pursuit.hpp"
-#include "features/localization/ekf_localizer.hpp"
-#include "features/localization/localization_config.hpp"
-#include "features/planning/astar_planner.hpp"
 #include "features/planning/grid_collision_checker.hpp"
 #include "features/simulation/collision_checker.hpp"
-#include "features/simulation/lidar_sim.hpp"
-#include "features/simulation/unicycle_model.hpp"
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
+#include "shared/scenario_runtime.hpp"
 #include "shared/types.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -77,16 +73,25 @@ namespace ad::demo {
 
 } // namespace ad::demo
 
-auto main() -> int {
-  const auto mapResult = ad::loadMapFromYaml("tools/map.yaml");
+auto main(int argc, char **argv) -> int {
+  const auto scenarioPath = std::string{argc > 1 ? argv[1] : "configs/scenario.toml"};
+  const auto scenarioResult = ad::scenario::loadScenario(scenarioPath);
+  if (!scenarioResult) {
+    fmt::print(stderr, "Scenario load error: {}\n", scenarioResult.error().message);
+    return 1;
+  }
+  const auto &scenario = *scenarioResult;
+
+  const auto mapPath = ad::scenario::resolvePath(scenario, scenario.mapYamlPath);
+  const auto mapResult = ad::loadMapFromYaml(mapPath);
   if (!mapResult) {
     fmt::print(stderr, "Map load error: {}\n", mapResult.error().message);
     return 1;
   }
   const auto map = *mapResult;
-  const ad::types::Pose start{.x = 1.0, .y = 1.0, .theta = 0.0};
-  const ad::types::Pose goal{.x = 9.0, .y = 1.0, .theta = 0.0};
-  const auto footprint = ad::demo::makeFootprint();
+  const auto start = scenario.start;
+  const auto goal = scenario.goal;
+  const auto &footprint = scenario.footprint;
 
   const auto checkerResult = ad::planning::GridCollisionChecker::create(map, footprint);
   if (!checkerResult) {
@@ -94,25 +99,25 @@ auto main() -> int {
     return 1;
   }
 
-  const ad::planning::AStarPlanner planner{*checkerResult};
-  const auto pathResult = planner.plan(map, start, goal, footprint);
+  auto plannerResult = ad::scenario::createPlanner(scenario, *checkerResult);
+  if (!plannerResult) {
+    fmt::print(stderr, "Planner create error: {}\n", plannerResult.error().message);
+    return 1;
+  }
+  auto planner = std::move(*plannerResult);
+  const auto pathResult = planner->plan(map, start, goal, footprint);
   if (!pathResult) {
     fmt::print(stderr, "Planning error: {}\n", pathResult.error().message);
     return 1;
   }
 
-  auto localizerResult = ad::localization::EkfLocalizer::create(
-      map, ad::localization::config::ekfLocalizerDefaultConfig());
+  auto localizerResult = ad::scenario::createLocalizer(scenario, map);
   if (!localizerResult) {
     fmt::print(stderr, "Localizer error: {}\n", localizerResult.error().message);
     return 1;
   }
   auto localizer = std::move(*localizerResult);
-  ad::localization::CovarianceMatrix initialCovariance = ad::localization::CovarianceMatrix::Zero();
-  initialCovariance(0, 0) = 0.5;
-  initialCovariance(1, 1) = 0.5;
-  initialCovariance(2, 2) = 0.2;
-  const auto initStatus = localizer->reset(start, initialCovariance);
+  const auto initStatus = localizer->reset(start, scenario.initialCovariance);
   if (!initStatus) {
     fmt::print(stderr, "Localizer error: {}\n", initStatus.error().message);
     return 1;
@@ -127,24 +132,38 @@ auto main() -> int {
   const auto &preparedMap = *preparedMapResult;
   const auto &mapGeometry = preparedMap.geometry;
 
-  const ad::control::PurePursuitConfig controllerConfig{.lookaheadDistance = 0.6,
-                                                        .desiredLinearVelocity = 1.2};
-  const ad::control::PurePursuitController controller{controllerConfig};
-  const ad::simulation::UnicycleModel model;
-  const ad::simulation::LidarSim lidar;
-  const ad::simulation::CollisionCheckConfig collisionConfig{.maxTranslationStep = 0.05,
-                                                             .maxRotationStep = 0.05};
-  const ad::simulation::CollisionChecker collisionChecker{map, footprint, collisionConfig};
+  auto controllerResult = ad::scenario::createController(scenario);
+  if (!controllerResult) {
+    fmt::print(stderr, "Controller create error: {}\n", controllerResult.error().message);
+    return 1;
+  }
+  auto controller = std::move(*controllerResult);
+
+  auto sensorResult = ad::scenario::createSensor(scenario);
+  if (!sensorResult) {
+    fmt::print(stderr, "Sensor create error: {}\n", sensorResult.error().message);
+    return 1;
+  }
+  auto sensor = std::move(*sensorResult);
+
+  auto physicsResult = ad::scenario::createPhysics(scenario);
+  if (!physicsResult) {
+    fmt::print(stderr, "Physics create error: {}\n", physicsResult.error().message);
+    return 1;
+  }
+  auto physics = std::move(*physicsResult);
+
+  const ad::simulation::CollisionChecker collisionChecker{map, footprint, scenario.collision};
 
   auto trueState = std::optional<ad::simulation::MotionState>{
       ad::simulation::MotionState{.pose = start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
-  constexpr auto deltaT = 0.2;
-  constexpr auto kGoalTolerance = 0.3;
-  constexpr auto kFrameDelay = std::chrono::milliseconds{80};
-  constexpr int kMaxSteps = 250;
-  constexpr double kScoreThreshold = 0.7;
-  constexpr double kMinSpeedScale = 0.4;
-  constexpr double kMaxAbsAngular = 2.5;
+  const auto deltaT = scenario.runtime.deltaT;
+  const auto kGoalTolerance = scenario.runtime.goalTolerance;
+  const auto kFrameDelay = std::chrono::milliseconds{scenario.runtime.frameDelayMs};
+  const auto kMaxSteps = scenario.runtime.maxSteps;
+  const auto kScoreThreshold = scenario.runtime.scoreThreshold;
+  const auto kMinSpeedScale = scenario.runtime.minSpeedScale;
+  const auto kMaxAbsAngular = scenario.runtime.maxAbsAngular;
 
   std::error_code fsError;
   std::filesystem::create_directories("logs", fsError);
@@ -211,7 +230,7 @@ auto main() -> int {
 
         const auto input = ad::control::ControlInput{.path = std::span{*pathResult},
                                                      .currentPose = estimateResult->pose};
-        const auto commandResult = controller.computeCommand(input);
+        const auto commandResult = controller->computeCommand(input);
         if (!commandResult) {
           failure.emplace(commandResult.error());
           return true;
@@ -232,7 +251,7 @@ auto main() -> int {
           return true;
         }
 
-        const auto scanResult = lidar.simulate(map, trueState->pose);
+        const auto scanResult = sensor->simulate(map, trueState->pose);
         if (!scanResult) {
           failure.emplace(scanResult.error());
           return true;
@@ -289,7 +308,7 @@ auto main() -> int {
           return true;
         }
 
-        const auto nextState = model.propagate(*trueState, appliedCommand, deltaT);
+        const auto nextState = physics->propagate(*trueState, appliedCommand, deltaT);
         if (!nextState) {
           failure.emplace(nextState.error());
           return true;

@@ -82,6 +82,8 @@ add_library(ad_core
   src/features/simulation/lidar_sim.cpp
   src/features/visualization/visualizer.cpp
   src/shared/map_loader.cpp
+  src/shared/text_config.cpp
+  src/shared/scenario_runtime.cpp
 )
 
 target_link_libraries(ad_core 
