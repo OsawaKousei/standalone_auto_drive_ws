@@ -13,7 +13,6 @@
 #include "shared/types.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fmt/core.h>
@@ -23,7 +22,6 @@
 #include <ranges>
 #include <span>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace ad::demo {
@@ -161,12 +159,9 @@ auto main(int argc, char **argv) -> int {
       ad::simulation::MotionState{.pose = start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
   const auto odometryDeltaT = scenario.runtime.odometryDeltaT;
   const auto lidarDeltaT = scenario.runtime.lidarDeltaT;
+  const auto renderDeltaT = scenario.runtime.renderDeltaT;
   const auto kGoalTolerance = scenario.runtime.goalTolerance;
-  const auto kFrameDelay = std::chrono::milliseconds{scenario.runtime.frameDelayMs};
   const auto kMaxSteps = scenario.runtime.maxSteps;
-  const auto kScoreThreshold = scenario.runtime.scoreThreshold;
-  const auto kMinSpeedScale = scenario.runtime.minSpeedScale;
-  const auto kMaxAbsAngular = scenario.runtime.maxAbsAngular;
 
   std::error_code fsError;
   std::filesystem::create_directories("logs", fsError);
@@ -182,7 +177,8 @@ auto main(int argc, char **argv) -> int {
   logFile << std::fixed << std::setprecision(ad::demo::kLogPrecision);
   logFile << "# localization_control_lidar_demo log\n";
   logFile << "# odometry_dt=" << odometryDeltaT << ", lidar_dt=" << lidarDeltaT
-          << ", goal_tolerance=" << kGoalTolerance << ", max_steps=" << kMaxSteps << "\n";
+          << ", render_dt=" << renderDeltaT << ", goal_tolerance=" << kGoalTolerance
+          << ", max_steps=" << kMaxSteps << "\n";
   logFile << "# footprint=" << ad::demo::serializePoints(footprint.vertices) << "\n";
   logFile << "# path=" << ad::demo::serializePoints(std::span{*pathResult}) << "\n";
   logFile << "# columns: "
@@ -193,7 +189,8 @@ auto main(int argc, char **argv) -> int {
 
   auto failure = std::optional<ad::Error>{};
   auto lidarElapsed = 0.0;
-  auto lastScan = std::optional<ad::types::LidarScan>{};
+  auto renderElapsed = 0.0;
+  auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
 
   {
     const auto frameStatus = viz.renderFrame(preparedMap);
@@ -241,14 +238,7 @@ auto main(int argc, char **argv) -> int {
           return true;
         }
 
-        const auto scoreScale =
-            estimateResult->score < kScoreThreshold
-                ? std::max(kMinSpeedScale, estimateResult->score / kScoreThreshold)
-                : 1.0;
-        const auto scaledV = commandResult->v * scoreScale;
-        const auto scaledW = commandResult->w;
-        const auto appliedCommand = ad::types::Twist{
-            .v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
+        const auto appliedCommand = *commandResult;
 
         const auto distanceBefore =
             std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
@@ -302,8 +292,8 @@ auto main(int argc, char **argv) -> int {
             return true;
           }
 
-          lastScan.emplace(*scanResult);
           scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
+          lastScanWorldPoints.emplace(scanPoints);
           lidarUpdated = true;
           lidarElapsed = std::fmod(lidarElapsed, lidarDeltaT);
         }
@@ -320,36 +310,44 @@ auto main(int argc, char **argv) -> int {
         const auto headingError =
             std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
 
-        const auto frameStatus = viz.renderFrame(preparedMap);
-        if (!frameStatus) {
-          failure.emplace(frameStatus.error());
-          return true;
-        }
-
-        const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
-        if (!pathStatus) {
-          failure.emplace(pathStatus.error());
-          return true;
-        }
-
-        if (lastScan.has_value()) {
-          const auto scanStatus = viz.renderScan(trueState->pose, *lastScan, mapGeometry);
-          if (!scanStatus) {
-            failure.emplace(scanStatus.error());
+        renderElapsed += odometryDeltaT;
+        const auto shouldRender =
+            lidarUpdated || (renderElapsed + ad::demo::kLidarScheduleEpsilon >= renderDeltaT);
+        if (shouldRender) {
+          const auto frameStatus = viz.renderFrame(preparedMap);
+          if (!frameStatus) {
+            failure.emplace(frameStatus.error());
             return true;
           }
-        }
 
-        const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
-        if (!robotStatus) {
-          failure.emplace(robotStatus.error());
-          return true;
-        }
+          const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
+          if (!pathStatus) {
+            failure.emplace(pathStatus.error());
+            return true;
+          }
 
-        const auto presentStatus = viz.presentFrame();
-        if (!presentStatus) {
-          failure.emplace(presentStatus.error());
-          return true;
+          if (lastScanWorldPoints.has_value() && !lastScanWorldPoints->empty()) {
+            const auto scanStatus =
+                viz.renderPoints(*lastScanWorldPoints, mapGeometry, 10.0, "green");
+            if (!scanStatus) {
+              failure.emplace(scanStatus.error());
+              return true;
+            }
+          }
+
+          const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
+          if (!robotStatus) {
+            failure.emplace(robotStatus.error());
+            return true;
+          }
+
+          const auto presentStatus = viz.presentFrame();
+          if (!presentStatus) {
+            failure.emplace(presentStatus.error());
+            return true;
+          }
+
+          renderElapsed = std::fmod(renderElapsed, renderDeltaT);
         }
 
         const auto distanceAfter =
@@ -364,7 +362,6 @@ auto main(int argc, char **argv) -> int {
                 << odometryDelta->deltaLateral << ',' << odometryDelta->deltaTheta << ','
                 << ad::demo::serializePoints(scanPoints) << '\n';
 
-        std::this_thread::sleep_for(kFrameDelay);
         return distanceAfter <= kGoalTolerance;
       });
 

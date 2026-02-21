@@ -20,12 +20,9 @@ vertices = [-0.2, -0.1, 0.3, -0.1, 0.3, 0.1, -0.2, 0.1]
 [simulation.runtime]
 odometry_delta_t = 0.02
 lidar_delta_t = 0.2
-max_steps = 250
+render_delta_t = 0.2
+max_steps = 10000
 goal_tolerance = 0.3
-frame_delay_ms = 80
-score_threshold = 0.7
-min_speed_scale = 0.4
-max_abs_angular = 2.5
 
 [simulation.collision]
 max_translation_step = 0.05

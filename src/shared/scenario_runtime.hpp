@@ -28,12 +28,9 @@ struct AlgorithmSpec {
 struct RuntimeConfig {
   const double odometryDeltaT;
   const double lidarDeltaT;
+  const double renderDeltaT;
   const int maxSteps;
   const double goalTolerance;
-  const int frameDelayMs;
-  const double scoreThreshold;
-  const double minSpeedScale;
-  const double maxAbsAngular;
 };
 
 struct AlgorithmConfigDocs {

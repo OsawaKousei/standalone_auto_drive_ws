@@ -19,12 +19,9 @@ namespace {
 
 constexpr auto kDefaultOdometryDeltaT = 0.02;
 constexpr auto kDefaultLidarDeltaT = 0.2;
+constexpr auto kDefaultRenderDeltaT = 0.1;
 constexpr auto kDefaultGoalTolerance = 0.3;
-constexpr auto kDefaultFrameDelayMs = 80;
 constexpr auto kDefaultMaxSteps = 250;
-constexpr auto kDefaultScoreThreshold = 0.7;
-constexpr auto kDefaultMinSpeedScale = 0.4;
-constexpr auto kDefaultMaxAbsAngular = 2.5;
 constexpr auto kDefaultGoalX = 9.0;
 constexpr auto kDefaultFootprintRearX = -0.2;
 constexpr auto kDefaultFootprintFrontX = 0.3;
@@ -183,12 +180,9 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
 [[nodiscard]] auto parseRuntimeConfig(const config::TextConfig &cfg) -> Result<RuntimeConfig> {
   auto odometryDeltaTValue = kDefaultOdometryDeltaT;
   auto lidarDeltaTValue = kDefaultLidarDeltaT;
+  auto renderDeltaTValue = kDefaultRenderDeltaT;
   auto maxStepsValue = kDefaultMaxSteps;
   auto goalToleranceValue = kDefaultGoalTolerance;
-  auto frameDelayMsValue = kDefaultFrameDelayMs;
-  auto scoreThresholdValue = kDefaultScoreThreshold;
-  auto minSpeedScaleValue = kDefaultMinSpeedScale;
-  auto maxAbsAngularValue = kDefaultMaxAbsAngular;
 
   const auto odometryDeltaT = optionalDouble(cfg, "simulation.runtime", "odometry_delta_t");
   if (!odometryDeltaT) {
@@ -202,6 +196,12 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   }
   lidarDeltaTValue = lidarDeltaT->value_or(lidarDeltaTValue);
 
+  const auto renderDeltaT = optionalDouble(cfg, "simulation.runtime", "render_delta_t");
+  if (!renderDeltaT) {
+    return tl::make_unexpected(renderDeltaT.error());
+  }
+  renderDeltaTValue = renderDeltaT->value_or(renderDeltaTValue);
+
   const auto maxSteps = optionalInt(cfg, "simulation.runtime", "max_steps");
   if (!maxSteps) {
     return tl::make_unexpected(maxSteps.error());
@@ -214,46 +214,17 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   }
   goalToleranceValue = goalTolerance->value_or(goalToleranceValue);
 
-  const auto frameDelay = optionalInt(cfg, "simulation.runtime", "frame_delay_ms");
-  if (!frameDelay) {
-    return tl::make_unexpected(frameDelay.error());
-  }
-  frameDelayMsValue = frameDelay->value_or(frameDelayMsValue);
-
-  const auto scoreThreshold = optionalDouble(cfg, "simulation.runtime", "score_threshold");
-  if (!scoreThreshold) {
-    return tl::make_unexpected(scoreThreshold.error());
-  }
-  scoreThresholdValue = scoreThreshold->value_or(scoreThresholdValue);
-
-  const auto minSpeedScale = optionalDouble(cfg, "simulation.runtime", "min_speed_scale");
-  if (!minSpeedScale) {
-    return tl::make_unexpected(minSpeedScale.error());
-  }
-  minSpeedScaleValue = minSpeedScale->value_or(minSpeedScaleValue);
-
-  const auto maxAbsAngular = optionalDouble(cfg, "simulation.runtime", "max_abs_angular");
-  if (!maxAbsAngular) {
-    return tl::make_unexpected(maxAbsAngular.error());
-  }
-  maxAbsAngularValue = maxAbsAngular->value_or(maxAbsAngularValue);
-
-  if (odometryDeltaTValue <= 0.0 || lidarDeltaTValue <= 0.0 ||
-      lidarDeltaTValue < odometryDeltaTValue || maxStepsValue <= 0 || goalToleranceValue <= 0.0 ||
-      frameDelayMsValue < 0 || scoreThresholdValue <= 0.0 || minSpeedScaleValue <= 0.0 ||
-      maxAbsAngularValue <= 0.0) {
+  if (odometryDeltaTValue <= 0.0 || lidarDeltaTValue <= 0.0 || renderDeltaTValue <= 0.0 ||
+      lidarDeltaTValue < odometryDeltaTValue || maxStepsValue <= 0 || goalToleranceValue <= 0.0) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message = "simulation.runtime has invalid values."});
   }
 
   return RuntimeConfig{.odometryDeltaT = odometryDeltaTValue,
                        .lidarDeltaT = lidarDeltaTValue,
+                       .renderDeltaT = renderDeltaTValue,
                        .maxSteps = maxStepsValue,
-                       .goalTolerance = goalToleranceValue,
-                       .frameDelayMs = frameDelayMsValue,
-                       .scoreThreshold = scoreThresholdValue,
-                       .minSpeedScale = minSpeedScaleValue,
-                       .maxAbsAngular = maxAbsAngularValue};
+                       .goalTolerance = goalToleranceValue};
 }
 
 [[nodiscard]] auto parseCollisionConfig(const config::TextConfig &cfg)
