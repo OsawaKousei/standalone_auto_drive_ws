@@ -47,8 +47,7 @@ private:
   };
 
   [[nodiscard]] static auto selectLookaheadTarget(std::span<const types::Point> path,
-                                                  const types::Pose &pose,
-                                                  double lookaheadDistance,
+                                                  const types::Pose &pose, double lookaheadDistance,
                                                   std::size_t minClosestIndex)
       -> LookaheadSelection;
 
