@@ -34,6 +34,8 @@ runGenericPointRansac(const std::vector<types::Point> &points, const GenericRans
 struct RansacLineFitResult {
   util::LineFit fit;
   std::size_t inlierCount;
+  double inlierSpan;
+  std::vector<std::size_t> inlierIndices;
 };
 
 [[nodiscard]] auto fitLineToPoints(const std::vector<types::Point> &points,

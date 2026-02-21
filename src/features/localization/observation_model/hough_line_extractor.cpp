@@ -169,27 +169,26 @@ auto buildLineFromCandidate(const HoughCandidate &candidate,
 
 namespace ad::localization::hough {
 
-auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config)
+auto extractLinesFromPoints(const std::vector<types::Point> &points, const HoughConfig &config)
     -> Result<std::vector<util::MapLine>> {
-  if (!util::mapHasConsistentGrid(map)) {
-    return tl::make_unexpected(
-        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
-  }
-
   if (config.thetaBins < 2 || config.rhoBins < 2 || config.minVotes <= 0 || config.maxLines <= 0) {
     return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Hough configuration is invalid."});
   }
 
-  const auto points = util::collectOccupiedPoints(map);
   if (points.empty()) {
-    return tl::make_unexpected(
-        Error{ErrorCode::EmptyCollection, "Map contains no occupied cells."});
+    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Point set is empty."});
   }
 
-  const auto maxRho = std::hypot(map.width * map.resolution, map.height * map.resolution);
+  auto maxAbsX = 0.0;
+  auto maxAbsY = 0.0;
+  for (const auto &point : points) {
+    maxAbsX = std::max(maxAbsX, std::abs(point.x));
+    maxAbsY = std::max(maxAbsY, std::abs(point.y));
+  }
+  const auto maxRho = std::hypot(maxAbsX, maxAbsY);
   if (maxRho <= kEpsilon) {
     return tl::make_unexpected(
-        Error{ErrorCode::InvalidInput, "Map resolution too small for Hough transform."});
+        Error{ErrorCode::InvalidInput, "Point set spread too small for Hough transform."});
   }
 
   const auto params = buildHoughParams(config, maxRho);
@@ -230,6 +229,22 @@ auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config
   }
 
   return lines;
+}
+
+auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config)
+    -> Result<std::vector<util::MapLine>> {
+  if (!util::mapHasConsistentGrid(map)) {
+    return tl::make_unexpected(
+        Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
+  }
+
+  const auto points = util::collectOccupiedPoints(map);
+  if (points.empty()) {
+    return tl::make_unexpected(
+        Error{ErrorCode::EmptyCollection, "Map contains no occupied cells."});
+  }
+
+  return extractLinesFromPoints(points, config);
 }
 
 } // namespace ad::localization::hough

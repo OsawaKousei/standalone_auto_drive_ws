@@ -13,8 +13,8 @@ merge_theta = 0.08
 [ekf]
 process_noise_translation = 0.05
 process_noise_rotation = 0.03
-measurement_noise_range = 0.12
-measurement_noise_angle = 0.12
+measurement_noise_range = 0.20
+measurement_noise_angle = 0.20
 
 [association]
 max_association_distance = 0.3

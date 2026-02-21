@@ -1,0 +1,45 @@
+{
+  "samples": 352,
+  "duration_seconds": 3.52,
+  "final_position_error": 0.29899134,
+  "final_heading_error": 0.03347381,
+  "ate": 0.18629314485795456,
+  "rpe": 0.02173779764243944,
+  "rmse": 0.2203137880701423,
+  "rpe_rot_rmse": 0.011674021276978544,
+  "max_position_error": 0.47022907,
+  "max_heading_error": 0.18554893,
+  "observation_update": {
+    "count": 17,
+    "mean_delta_pos_err": 0.0,
+    "mean_delta_heading_err": 0.0,
+    "position_improvement_rate": 0.0,
+    "heading_improvement_rate": 0.0,
+    "position_degradation_rate": 0.0,
+    "heading_degradation_rate": 0.0,
+    "position_effective_rate": 1.0,
+    "heading_effective_rate": 1.0,
+    "distance_bucket_threshold": 7.91092379,
+    "near": {
+      "count": 9,
+      "mean_delta_pos_err": 0.0,
+      "mean_delta_heading_err": 0.0,
+      "position_improvement_rate": 0.0,
+      "heading_improvement_rate": 0.0,
+      "position_degradation_rate": 0.0,
+      "heading_degradation_rate": 0.0,
+      "mean_dist_goal": 7.7962939844444445
+    },
+    "far": {
+      "count": 8,
+      "mean_delta_pos_err": 0.0,
+      "mean_delta_heading_err": 0.0,
+      "position_improvement_rate": 0.0,
+      "heading_improvement_rate": 0.0,
+      "position_degradation_rate": 0.0,
+      "heading_degradation_rate": 0.0,
+      "mean_dist_goal": 7.95423263
+    }
+  },
+  "result": "failure"
+}

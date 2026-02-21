@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 
 namespace {
@@ -42,6 +43,31 @@ auto collectInlierIndices(const std::vector<ad::types::Point> &points,
   }
 
   return inlierIndices;
+}
+
+auto computeProjectionSpan(const std::vector<ad::types::Point> &points,
+                           const std::vector<std::size_t> &indices,
+                           const ad::localization::util::LineModel &model) -> double {
+  if (indices.empty()) {
+    return 0.0;
+  }
+
+  const auto tangentX = -std::sin(model.alpha);
+  const auto tangentY = std::cos(model.alpha);
+
+  auto minProjection = std::numeric_limits<double>::infinity();
+  auto maxProjection = -std::numeric_limits<double>::infinity();
+  for (const auto index : indices) {
+    const auto &point = points[index];
+    const auto projection = (tangentX * point.x) + (tangentY * point.y);
+    minProjection = std::min(minProjection, projection);
+    maxProjection = std::max(maxProjection, projection);
+  }
+
+  if (!std::isfinite(minProjection) || !std::isfinite(maxProjection)) {
+    return 0.0;
+  }
+  return std::max(0.0, maxProjection - minProjection);
 }
 
 auto drawUniqueSample(std::mt19937 &generator, std::size_t pointCount, std::size_t sampleSize)
@@ -107,7 +133,8 @@ auto runGenericPointRansac(const std::vector<types::Point> &points,
 auto fitLineToPoints(const std::vector<types::Point> &points, const RansacConfig &config,
                      std::uint32_t randomSeed) -> std::optional<RansacLineFitResult> {
   if (points.size() < 2U || config.maxIterations <= 0 || !(config.inlierDistance > 0.0) ||
-      config.minInliers < 2U || config.minInlierRatio <= 0.0 || config.minInlierRatio > 1.0) {
+      config.minInliers < 2U || config.minInlierRatio <= 0.0 || config.minInlierRatio > 1.0 ||
+      config.minInlierSpan <= 0.0) {
     return std::nullopt;
   }
 
@@ -127,7 +154,12 @@ auto fitLineToPoints(const std::vector<types::Point> &points, const RansacConfig
         if (!model) {
           return std::nullopt;
         }
-        return collectInlierIndices(allPoints, *model, config.inlierDistance);
+        auto inlierIndices = collectInlierIndices(allPoints, *model, config.inlierDistance);
+        const auto inlierSpan = computeProjectionSpan(allPoints, inlierIndices, *model);
+        if (inlierSpan < config.minInlierSpan) {
+          return std::nullopt;
+        }
+        return inlierIndices;
       },
       randomSeed);
 
@@ -152,7 +184,11 @@ auto fitLineToPoints(const std::vector<types::Point> &points, const RansacConfig
     return std::nullopt;
   }
 
-  bestFit = RansacLineFitResult{.fit = *fit, .inlierCount = inliers.size()};
+  const auto inlierSpan = computeProjectionSpan(points, indices, fit->model);
+  bestFit = RansacLineFitResult{.fit = *fit,
+                                .inlierCount = inliers.size(),
+                                .inlierSpan = inlierSpan,
+                                .inlierIndices = indices};
   return bestFit;
 }
 

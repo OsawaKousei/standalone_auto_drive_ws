@@ -1,4 +1,4 @@
-observation_model = "hough_ransac_line"
+observation_model = "hough_line"
 
 [hough]
 theta_bins = 180
@@ -13,8 +13,8 @@ merge_theta = 0.08
 [ekf]
 process_noise_translation = 0.05
 process_noise_rotation = 0.03
-measurement_noise_range = 0.12
-measurement_noise_angle = 0.12
+measurement_noise_range = 0.20
+measurement_noise_angle = 0.20
 
 [association]
 max_association_distance = 0.3
@@ -23,11 +23,10 @@ gate_threshold = 6.0
 min_observations = 3
 
 [ransac]
-max_iterations = 120
-inlier_distance = 0.14
-min_inliers = 6
-min_inlier_ratio = 0.25
-min_inlier_span = 0.5
+max_iterations = 80
+inlier_distance = 0.1
+min_inliers = 8
+min_inlier_ratio = 0.35
 
 [initial_covariance]
 xx = 0.5
