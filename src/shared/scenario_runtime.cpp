@@ -24,17 +24,28 @@ constexpr auto kDefaultMaxSteps = 250;
 constexpr auto kDefaultScoreThreshold = 0.7;
 constexpr auto kDefaultMinSpeedScale = 0.4;
 constexpr auto kDefaultMaxAbsAngular = 2.5;
+constexpr auto kDefaultGoalX = 9.0;
+constexpr auto kDefaultFootprintRearX = -0.2;
+constexpr auto kDefaultFootprintFrontX = 0.3;
+constexpr auto kDefaultFootprintHalfWidth = 0.1;
+constexpr auto kPointCoordinateStride = std::size_t{2};
+constexpr auto kMinFootprintValueCount = std::size_t{6};
+constexpr auto kDefaultCollisionMaxTranslationStep = 0.05;
+constexpr auto kDefaultCollisionMaxRotationStep = 0.05;
 
 [[nodiscard]] auto makeDefaultStartPose() -> types::Pose {
   return types::Pose{.x = 1.0, .y = 1.0, .theta = 0.0};
 }
 
 [[nodiscard]] auto makeDefaultGoalPose() -> types::Pose {
-  return types::Pose{.x = 9.0, .y = 1.0, .theta = 0.0};
+  return types::Pose{.x = kDefaultGoalX, .y = 1.0, .theta = 0.0};
 }
 
 [[nodiscard]] auto makeDefaultFootprint() -> types::Footprint {
-  return types::Footprint{{{-0.2, -0.1}, {0.3, -0.1}, {0.3, 0.1}, {-0.2, 0.1}}};
+  return types::Footprint{{{kDefaultFootprintRearX, -kDefaultFootprintHalfWidth},
+                           {kDefaultFootprintFrontX, -kDefaultFootprintHalfWidth},
+                           {kDefaultFootprintFrontX, kDefaultFootprintHalfWidth},
+                           {kDefaultFootprintRearX, kDefaultFootprintHalfWidth}}};
 }
 
 [[nodiscard]] auto requiredRaw(const config::TextConfig &cfg, std::string_view section,
@@ -106,29 +117,24 @@ auto parsePose(const config::TextConfig &cfg, std::string_view section, const ty
   if (!xOverride) {
     return tl::make_unexpected(xOverride.error());
   }
-  if (xOverride->has_value()) {
-    xValue = **xOverride;
-  }
+  xValue = xOverride->value_or(xValue);
 
   const auto yOverride = optionalDouble(cfg, section, "y");
   if (!yOverride) {
     return tl::make_unexpected(yOverride.error());
   }
-  if (yOverride->has_value()) {
-    yValue = **yOverride;
-  }
+  yValue = yOverride->value_or(yValue);
 
   const auto thetaOverride = optionalDouble(cfg, section, "theta");
   if (!thetaOverride) {
     return tl::make_unexpected(thetaOverride.error());
   }
-  if (thetaOverride->has_value()) {
-    thetaValue = **thetaOverride;
-  }
+  thetaValue = thetaOverride->value_or(thetaValue);
 
   return types::Pose{.x = xValue, .y = yValue, .theta = thetaValue};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto parseAlgorithmSpec(const config::TextConfig &cfg, std::string_view section,
                         std::string_view defaultAlgorithm) -> Result<AlgorithmSpec> {
   auto algorithm = std::string{defaultAlgorithm};
@@ -136,9 +142,7 @@ auto parseAlgorithmSpec(const config::TextConfig &cfg, std::string_view section,
   if (!algorithmOverride) {
     return tl::make_unexpected(algorithmOverride.error());
   }
-  if (algorithmOverride->has_value()) {
-    algorithm = **algorithmOverride;
-  }
+  algorithm = algorithmOverride->value_or(algorithm);
 
   const auto configPath = optionalString(cfg, section, "config_path");
   if (!configPath) {
@@ -157,18 +161,19 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   if (!values) {
     return tl::make_unexpected(values.error());
   }
-  if (values->size() < 6U || values->size() % 2U != 0U) {
+  if (values->size() < kMinFootprintValueCount || values->size() % kPointCoordinateStride != 0U) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "robot.footprint.vertices must contain N x 2 numeric values."});
   }
 
   auto vertices = std::vector<types::Point>{};
-  vertices.reserve(values->size() / 2U);
-  const auto pairIndices = std::views::iota(std::size_t{0}, values->size() / 2U);
+  vertices.reserve(values->size() / kPointCoordinateStride);
+  const auto pairIndices =
+      std::views::iota(std::size_t{0}, values->size() / kPointCoordinateStride);
   std::ranges::transform(
       pairIndices, std::back_inserter(vertices), [&](const std::size_t pairIndex) -> types::Point {
-        const auto baseIndex = pairIndex * 2U;
+        const auto baseIndex = pairIndex * kPointCoordinateStride;
         return types::Point{.x = (*values)[baseIndex], .y = (*values)[baseIndex + 1U]};
       });
   return types::Footprint{std::move(vertices)};
@@ -187,57 +192,43 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   if (!deltaT) {
     return tl::make_unexpected(deltaT.error());
   }
-  if (deltaT->has_value()) {
-    deltaTValue = **deltaT;
-  }
+  deltaTValue = deltaT->value_or(deltaTValue);
 
   const auto maxSteps = optionalInt(cfg, "simulation.runtime", "max_steps");
   if (!maxSteps) {
     return tl::make_unexpected(maxSteps.error());
   }
-  if (maxSteps->has_value()) {
-    maxStepsValue = **maxSteps;
-  }
+  maxStepsValue = maxSteps->value_or(maxStepsValue);
 
   const auto goalTolerance = optionalDouble(cfg, "simulation.runtime", "goal_tolerance");
   if (!goalTolerance) {
     return tl::make_unexpected(goalTolerance.error());
   }
-  if (goalTolerance->has_value()) {
-    goalToleranceValue = **goalTolerance;
-  }
+  goalToleranceValue = goalTolerance->value_or(goalToleranceValue);
 
   const auto frameDelay = optionalInt(cfg, "simulation.runtime", "frame_delay_ms");
   if (!frameDelay) {
     return tl::make_unexpected(frameDelay.error());
   }
-  if (frameDelay->has_value()) {
-    frameDelayMsValue = **frameDelay;
-  }
+  frameDelayMsValue = frameDelay->value_or(frameDelayMsValue);
 
   const auto scoreThreshold = optionalDouble(cfg, "simulation.runtime", "score_threshold");
   if (!scoreThreshold) {
     return tl::make_unexpected(scoreThreshold.error());
   }
-  if (scoreThreshold->has_value()) {
-    scoreThresholdValue = **scoreThreshold;
-  }
+  scoreThresholdValue = scoreThreshold->value_or(scoreThresholdValue);
 
   const auto minSpeedScale = optionalDouble(cfg, "simulation.runtime", "min_speed_scale");
   if (!minSpeedScale) {
     return tl::make_unexpected(minSpeedScale.error());
   }
-  if (minSpeedScale->has_value()) {
-    minSpeedScaleValue = **minSpeedScale;
-  }
+  minSpeedScaleValue = minSpeedScale->value_or(minSpeedScaleValue);
 
   const auto maxAbsAngular = optionalDouble(cfg, "simulation.runtime", "max_abs_angular");
   if (!maxAbsAngular) {
     return tl::make_unexpected(maxAbsAngular.error());
   }
-  if (maxAbsAngular->has_value()) {
-    maxAbsAngularValue = **maxAbsAngular;
-  }
+  maxAbsAngularValue = maxAbsAngular->value_or(maxAbsAngularValue);
 
   if (deltaTValue <= 0.0 || maxStepsValue <= 0 || goalToleranceValue <= 0.0 ||
       frameDelayMsValue < 0 || scoreThresholdValue <= 0.0 || minSpeedScaleValue <= 0.0 ||
@@ -257,24 +248,20 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
 
 [[nodiscard]] auto parseCollisionConfig(const config::TextConfig &cfg)
     -> Result<simulation::CollisionCheckConfig> {
-  auto maxTranslationStepValue = 0.05;
-  auto maxRotationStepValue = 0.05;
+  auto maxTranslationStepValue = kDefaultCollisionMaxTranslationStep;
+  auto maxRotationStepValue = kDefaultCollisionMaxRotationStep;
 
   const auto translation = optionalDouble(cfg, "simulation.collision", "max_translation_step");
   if (!translation) {
     return tl::make_unexpected(translation.error());
   }
-  if (translation->has_value()) {
-    maxTranslationStepValue = **translation;
-  }
+  maxTranslationStepValue = translation->value_or(maxTranslationStepValue);
 
   const auto rotation = optionalDouble(cfg, "simulation.collision", "max_rotation_step");
   if (!rotation) {
     return tl::make_unexpected(rotation.error());
   }
-  if (rotation->has_value()) {
-    maxRotationStepValue = **rotation;
-  }
+  maxRotationStepValue = rotation->value_or(maxRotationStepValue);
 
   if (maxTranslationStepValue <= 0.0 || maxRotationStepValue <= 0.0) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
@@ -285,6 +272,7 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
                                           .maxRotationStep = maxRotationStepValue};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 [[nodiscard]] auto resolvePath(std::string_view baseDir, std::string_view path) -> std::string {
   const auto candidate = std::filesystem::path{std::string{path}};
   if (candidate.is_absolute()) {
