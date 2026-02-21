@@ -7,10 +7,12 @@
 #include <cstddef>
 #include <fstream>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <fmt/core.h>
@@ -37,6 +39,17 @@ struct LogData {
   types::Footprint footprint;
   std::vector<types::Point> path;
   std::optional<ScanMeta> scanMeta;
+};
+
+struct LogColumns {
+  std::size_t step = 0;
+  std::size_t trueX = 0;
+  std::size_t trueY = 0;
+  std::size_t trueTheta = 0;
+  std::size_t estX = 0;
+  std::size_t estY = 0;
+  std::size_t estTheta = 0;
+  std::optional<std::size_t> scanPoints{};
 };
 
 [[nodiscard]] auto makeFootprint() -> types::Footprint {
@@ -105,6 +118,67 @@ struct LogData {
   }
 }
 
+[[nodiscard]] auto parseLogColumns(std::string_view header) -> Result<LogColumns> {
+  const auto names = splitCsvLine(header);
+  auto indexByName = std::unordered_map<std::string, std::size_t>{};
+  indexByName.reserve(names.size());
+  for (const auto index : std::views::iota(std::size_t{0}, names.size())) {
+    indexByName.emplace(names[index], index);
+  }
+
+  const auto getRequiredIndex = [&](const std::string &name) -> Result<std::size_t> {
+    const auto iterator = indexByName.find(name);
+    if (iterator == indexByName.end()) {
+      return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                       .message = "Missing required log column: " + name});
+    }
+    return iterator->second;
+  };
+
+  const auto stepIndex = getRequiredIndex("step");
+  if (!stepIndex) {
+    return tl::make_unexpected(stepIndex.error());
+  }
+  const auto trueXIndex = getRequiredIndex("true_x");
+  if (!trueXIndex) {
+    return tl::make_unexpected(trueXIndex.error());
+  }
+  const auto trueYIndex = getRequiredIndex("true_y");
+  if (!trueYIndex) {
+    return tl::make_unexpected(trueYIndex.error());
+  }
+  const auto trueThetaIndex = getRequiredIndex("true_theta");
+  if (!trueThetaIndex) {
+    return tl::make_unexpected(trueThetaIndex.error());
+  }
+  const auto estXIndex = getRequiredIndex("est_x");
+  if (!estXIndex) {
+    return tl::make_unexpected(estXIndex.error());
+  }
+  const auto estYIndex = getRequiredIndex("est_y");
+  if (!estYIndex) {
+    return tl::make_unexpected(estYIndex.error());
+  }
+  const auto estThetaIndex = getRequiredIndex("est_theta");
+  if (!estThetaIndex) {
+    return tl::make_unexpected(estThetaIndex.error());
+  }
+
+  auto scanPointsIndex = std::optional<std::size_t>{};
+  if (const auto iterator = indexByName.find("scan_points"); iterator != indexByName.end()) {
+    scanPointsIndex.emplace(iterator->second);
+  }
+
+  return LogColumns{.step = *stepIndex,
+                    .trueX = *trueXIndex,
+                    .trueY = *trueYIndex,
+                    .trueTheta = *trueThetaIndex,
+                    .estX = *estXIndex,
+                    .estY = *estYIndex,
+                    .estTheta = *estThetaIndex,
+                    .scanPoints = scanPointsIndex};
+}
+
 [[nodiscard]] auto parseLogFile(const std::string &path) -> Result<LogData> {
   auto file = std::ifstream{path};
   if (!file.is_open()) {
@@ -116,6 +190,7 @@ struct LogData {
   auto footprint = std::optional<types::Footprint>{};
   auto pathPoints = std::optional<std::vector<types::Point>>{};
   auto scanMeta = std::optional<ScanMeta>{};
+  auto columns = std::optional<LogColumns>{};
   std::string line;
   while (std::getline(file, line)) {
     if (line.empty() || line.starts_with('#') || line.starts_with("step,")) {
@@ -143,32 +218,50 @@ struct LogData {
         }
         scanMeta = *parsed;
       }
+      if (line.starts_with("step,")) {
+        const auto parsed = parseLogColumns(line);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        columns = *parsed;
+      }
       continue;
     }
 
     const auto cells = splitCsvLine(line);
-    if (cells.size() < 14U) {
+    if (!columns) {
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput, .message = "Missing log header row."});
+    }
+
+    const auto maxRequiredIndex =
+        std::max({columns->step, columns->trueX, columns->trueY, columns->trueTheta, columns->estX,
+                  columns->estY, columns->estTheta});
+    if (cells.size() <= maxRequiredIndex) {
       return tl::make_unexpected(
           Error{.code = ErrorCode::SizeMismatch, .message = "Unexpected column count."});
     }
 
     try {
-      const auto step = std::stoi(cells[0]);
-      const auto truePose = types::Pose{
-          .x = std::stod(cells[1]), .y = std::stod(cells[2]), .theta = std::stod(cells[3])};
-      const auto estPose = types::Pose{
-          .x = std::stod(cells[9]), .y = std::stod(cells[10]), .theta = std::stod(cells[11])};
+      const auto step = std::stoi(cells[columns->step]);
+      const auto truePose = types::Pose{.x = std::stod(cells[columns->trueX]),
+                                        .y = std::stod(cells[columns->trueY]),
+                                        .theta = std::stod(cells[columns->trueTheta])};
+      const auto estPose = types::Pose{.x = std::stod(cells[columns->estX]),
+                                       .y = std::stod(cells[columns->estY]),
+                                       .theta = std::stod(cells[columns->estTheta])};
       auto scanPoints = std::vector<types::Point>{};
       auto ranges = std::vector<double>{};
-      if (cells.size() >= 15U) {
-        if (cells[14].find(':') != std::string::npos) {
-          auto parsed = parsePoints(cells[14]);
+      if (columns->scanPoints.has_value() && cells.size() > *columns->scanPoints) {
+        const auto &scanCell = cells[*columns->scanPoints];
+        if (scanCell.find(':') != std::string::npos) {
+          auto parsed = parsePoints(scanCell);
           if (!parsed) {
             return tl::make_unexpected(parsed.error());
           }
           scanPoints = std::move(*parsed);
         } else {
-          for (const auto &value : splitDelimited(cells[14], ';')) {
+          for (const auto &value : splitDelimited(scanCell, ';')) {
             if (value.empty()) {
               continue;
             }
