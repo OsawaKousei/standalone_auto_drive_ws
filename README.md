@@ -28,7 +28,7 @@
 - 依存関係同期（クローン直後・更新時）: `uv sync`
 - ビルド（ホストで実行）: `./scripts/build.sh`
 - ビルド（コンテナ内で実行）: `./scripts/build_internal.sh`
-- 実行（コンテナ）:
+- 実行（ホスト・コンテナ共通）:
   - `./build/auto_drive_app`
   - `./build/auto_drive_log_replay`
 
