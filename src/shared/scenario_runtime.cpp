@@ -266,9 +266,10 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
   const auto baseDir = scenarioPathFs.parent_path().empty() ? std::filesystem::path{"."}
                                                             : scenarioPathFs.parent_path();
   const auto baseDirNormalized = baseDir.lexically_normal().string();
+  const auto scenarioFileName = scenarioPathFs.filename().string();
 
   const auto cfg = loadMergedConfig(baseDirNormalized, kDefaultScenarioConfigPath,
-                                    std::optional<std::string>{std::string{scenarioPath}});
+                                    std::optional<std::string>{scenarioFileName});
   if (!cfg) {
     return tl::make_unexpected(cfg.error());
   }
