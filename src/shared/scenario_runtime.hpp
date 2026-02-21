@@ -8,6 +8,7 @@
 #include "../features/simulation/i_physics.hpp"
 #include "../features/simulation/i_sensor.hpp"
 #include "result.hpp"
+#include "text_config.hpp"
 #include "types.hpp"
 
 #include <Eigen/Dense>
@@ -33,6 +34,14 @@ struct RuntimeConfig {
   const double maxAbsAngular;
 };
 
+struct AlgorithmConfigDocs {
+  const std::optional<config::TextConfig> localization;
+  const std::optional<config::TextConfig> planning;
+  const std::optional<config::TextConfig> control;
+  const std::optional<config::TextConfig> sensor;
+  const std::optional<config::TextConfig> physics;
+};
+
 struct ScenarioConfig {
   const std::string name;
   const std::string baseDir;
@@ -48,6 +57,7 @@ struct ScenarioConfig {
   const AlgorithmSpec control;
   const AlgorithmSpec sensor;
   const AlgorithmSpec physics;
+  const AlgorithmConfigDocs algorithmConfigDocs;
 };
 
 [[nodiscard]] auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig>;

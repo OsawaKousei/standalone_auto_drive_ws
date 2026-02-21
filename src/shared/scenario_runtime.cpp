@@ -290,13 +290,12 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   return resolved.lexically_normal().string();
 }
 
-[[nodiscard]] auto loadIfExists(const ScenarioConfig &scenario,
-                                const std::optional<std::string> &path)
+[[nodiscard]] auto loadIfExists(std::string_view baseDir, const std::optional<std::string> &path)
     -> Result<std::optional<config::TextConfig>> {
   if (!path.has_value()) {
     return std::optional<config::TextConfig>{};
   }
-  const auto filePath = resolvePath(scenario, *path);
+  const auto filePath = resolvePath(baseDir, *path);
   const auto loaded = config::loadTextConfig(filePath);
   if (!loaded) {
     return tl::make_unexpected(loaded.error());
@@ -355,33 +354,6 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
   if (!localizationSpec) {
     return tl::make_unexpected(localizationSpec.error());
   }
-  const auto scenarioPathFs = std::filesystem::path{std::string{scenarioPath}};
-  const auto baseDir = scenarioPathFs.parent_path().empty() ? std::filesystem::path{"."}
-                                                            : scenarioPathFs.parent_path();
-  const auto provisionalScenario = ScenarioConfig{
-      .name = scenarioName->value_or("scenario"),
-      .baseDir = baseDir.lexically_normal().string(),
-      .mapYamlPath = *mapYamlPath,
-      .footprint = *footprint,
-      .start = *start,
-      .goal = *goal,
-      .runtime = *runtime,
-      .collision = *collision,
-      .initialCovariance = localization::CovarianceMatrix::Identity(),
-      .localization = *localizationSpec,
-      .planning = AlgorithmSpec{.algorithm = "astar", .configPath = std::nullopt},
-      .control = AlgorithmSpec{.algorithm = "pure_pursuit", .configPath = std::nullopt},
-      .sensor = AlgorithmSpec{.algorithm = "lidar", .configPath = std::nullopt},
-      .physics = AlgorithmSpec{.algorithm = "unicycle", .configPath = std::nullopt}};
-  const auto localizationDoc = loadIfExists(provisionalScenario, localizationSpec->configPath);
-  if (!localizationDoc) {
-    return tl::make_unexpected(localizationDoc.error());
-  }
-  const auto initialCovariance = localization::parseInitialCovarianceFromConfig(*localizationDoc);
-  if (!initialCovariance) {
-    return tl::make_unexpected(initialCovariance.error());
-  }
-
   const auto planningSpec = parseAlgorithmSpec(cfg, "planning", "astar");
   if (!planningSpec) {
     return tl::make_unexpected(planningSpec.error());
@@ -399,8 +371,38 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
     return tl::make_unexpected(physicsSpec.error());
   }
 
+  const auto scenarioPathFs = std::filesystem::path{std::string{scenarioPath}};
+  const auto baseDir = scenarioPathFs.parent_path().empty() ? std::filesystem::path{"."}
+                                                            : scenarioPathFs.parent_path();
+  const auto baseDirNormalized = baseDir.lexically_normal().string();
+  const auto localizationDoc = loadIfExists(baseDirNormalized, localizationSpec->configPath);
+  if (!localizationDoc) {
+    return tl::make_unexpected(localizationDoc.error());
+  }
+  const auto planningDoc = loadIfExists(baseDirNormalized, planningSpec->configPath);
+  if (!planningDoc) {
+    return tl::make_unexpected(planningDoc.error());
+  }
+  const auto controlDoc = loadIfExists(baseDirNormalized, controlSpec->configPath);
+  if (!controlDoc) {
+    return tl::make_unexpected(controlDoc.error());
+  }
+  const auto sensorDoc = loadIfExists(baseDirNormalized, sensorSpec->configPath);
+  if (!sensorDoc) {
+    return tl::make_unexpected(sensorDoc.error());
+  }
+  const auto physicsDoc = loadIfExists(baseDirNormalized, physicsSpec->configPath);
+  if (!physicsDoc) {
+    return tl::make_unexpected(physicsDoc.error());
+  }
+
+  const auto initialCovariance = localization::parseInitialCovarianceFromConfig(*localizationDoc);
+  if (!initialCovariance) {
+    return tl::make_unexpected(initialCovariance.error());
+  }
+
   return ScenarioConfig{.name = scenarioName->value_or("scenario"),
-                        .baseDir = baseDir.lexically_normal().string(),
+                        .baseDir = baseDirNormalized,
                         .mapYamlPath = *mapYamlPath,
                         .footprint = *footprint,
                         .start = *start,
@@ -412,53 +414,43 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
                         .planning = *planningSpec,
                         .control = *controlSpec,
                         .sensor = *sensorSpec,
-                        .physics = *physicsSpec};
+                        .physics = *physicsSpec,
+                        .algorithmConfigDocs = AlgorithmConfigDocs{.localization = *localizationDoc,
+                                                                   .planning = *planningDoc,
+                                                                   .control = *controlDoc,
+                                                                   .sensor = *sensorDoc,
+                                                                   .physics = *physicsDoc}};
 }
 
 auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)
     -> Result<std::unique_ptr<localization::ILocalizer>> {
-  const auto loaded = loadIfExists(scenario, scenario.localization.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  return localization::createLocalizerFromConfig(scenario.localization.algorithm, map, *loaded);
+  return localization::createLocalizerFromConfig(scenario.localization.algorithm, map,
+                                                 scenario.algorithmConfigDocs.localization);
 }
 
 auto createPlanner(const ScenarioConfig &scenario, const types::MapData &map,
                    const types::Footprint &footprint)
     -> Result<std::unique_ptr<planning::IPlanner>> {
-  const auto loaded = loadIfExists(scenario, scenario.planning.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  return planning::createPlannerFromConfig(scenario.planning.algorithm, map, footprint, *loaded);
+  return planning::createPlannerFromConfig(scenario.planning.algorithm, map, footprint,
+                                           scenario.algorithmConfigDocs.planning);
 }
 
 auto createController(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<control::IController>> {
-  const auto loaded = loadIfExists(scenario, scenario.control.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  return control::createControllerFromConfig(scenario.control.algorithm, *loaded);
+  return control::createControllerFromConfig(scenario.control.algorithm,
+                                             scenario.algorithmConfigDocs.control);
 }
 
 auto createSensor(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<simulation::ISensorModel>> {
-  const auto loaded = loadIfExists(scenario, scenario.sensor.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  return simulation::createSensorFromConfig(scenario.sensor.algorithm, *loaded);
+  return simulation::createSensorFromConfig(scenario.sensor.algorithm,
+                                            scenario.algorithmConfigDocs.sensor);
 }
 
 auto createPhysics(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<simulation::IPhysicsModel>> {
-  const auto loaded = loadIfExists(scenario, scenario.physics.configPath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
-  }
-  return simulation::createPhysicsFromConfig(scenario.physics.algorithm, *loaded);
+  return simulation::createPhysicsFromConfig(scenario.physics.algorithm,
+                                             scenario.algorithmConfigDocs.physics);
 }
 
 } // namespace ad::scenario
