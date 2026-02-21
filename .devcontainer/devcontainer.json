@@ -1,6 +1,11 @@
 {
   "name": "Modern C++ Dev Env",
-  "build": { "dockerfile": "../docker/Dockerfile" },
+  "build": { "dockerfile": "../docker/Dockerfile.dev" },
+  "remoteEnv": {
+    "UV_PROJECT_ENVIRONMENT": "/workspace/.venv_docker",
+    "VIRTUAL_ENV": "/workspace/.venv_docker",
+    "PATH": "/workspace/.venv_docker/bin:${containerEnv:PATH}"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -10,29 +15,9 @@
         "esbenp.prettier-vscode",
         "redhat.vscode-yaml",
         "ms-vscode.cpptools-extension-pack"
-      ],
-      "settings": {
-        "python.defaultInterpreterPath": "/workspace/.venv_docker/bin/python"
-      }
+      ]
     }
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-  "workspaceFolder": "/workspace",
-
-  "mounts": [
-    // ホストのPython実体マウントを削除し、純粋なキャッシュのみを共有
-    // これにより、コンテナは独自に uv 経由でクリーンな Python を取得します
-    "source=${localEnv:HOME}/.cache/uv,target=/root/.cache/uv,type=bind"
-  ],
-
-  "postCreateCommand": "uv sync --active",
-
-  "remoteEnv": {
-    "UV_PROJECT_ENVIRONMENT": "/workspace/.venv_docker",
-    "UV_PYTHON_PREFERENCE": "only-managed",
-    "VIRTUAL_ENV": "/workspace/.venv_docker",
-    "PATH": "/workspace/.venv_docker/bin:${containerEnv:PATH}",
-    // 【最重要】C++ (matplotlib-cpp) に、基準となるPythonのパスを強制認識させる
-    "PYTHONEXECUTABLE": "/workspace/.venv_docker/bin/python"
-  }
+  "workspaceFolder": "/workspace"
 }

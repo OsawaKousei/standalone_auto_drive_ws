@@ -62,9 +62,9 @@ FetchContent_MakeAvailable(matplotlibcpp)
 # --- Python / 依存パッケージ の検出 ---
 if(DEFINED ENV{VIRTUAL_ENV})
   set(Python3_ROOT_DIR "$ENV{VIRTUAL_ENV}")
-  # システムのPythonを混ぜないよう、仮想環境内のみを探す設定
-  set(Python3_FIND_VIRTUALENV ONLY)
+  set(Python3_FIND_VIRTUALENV FIRST)
 endif()
+
 
 find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
 
