@@ -1,5 +1,5 @@
 #include "grid_collision_checker.hpp"
-#include "planner_utils.hpp"
+#include "../planner_utils.hpp"
 
 #include <algorithm>
 #include <cmath>

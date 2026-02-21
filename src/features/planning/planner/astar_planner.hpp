@@ -1,7 +1,7 @@
 #pragma once
 
-#include "i_collision_checker.hpp"
-#include "i_planner.hpp"
+#include "../i_collision_checker.hpp"
+#include "../i_planner.hpp"
 
 #include <memory>
 

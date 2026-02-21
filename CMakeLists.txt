@@ -70,13 +70,13 @@ find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
 
 # --- ライブラリ定義 ---
 add_library(ad_core
-  src/features/planning/astar_planner.cpp
-  src/features/planning/dijkstra_planner.cpp
+  src/features/planning/planner/astar_planner.cpp
+  src/features/planning/planner/dijkstra_planner.cpp
   src/features/planning/planner_factory.cpp
-  src/features/planning/grid_collision_checker.cpp
+  src/features/planning/collision_checker/grid_collision_checker.cpp
   src/features/planning/planner_utils.cpp
-  src/features/control/pure_pursuit.cpp
-  src/features/control/pid.cpp
+  src/features/control/controller/pure_pursuit.cpp
+  src/features/control/controller/pid.cpp
   src/features/control/controller_factory.cpp
   src/features/localization/localizer/ekf_localizer.cpp
   src/features/localization/observation_model/hough_line_extractor.cpp
@@ -85,11 +85,11 @@ add_library(ad_core
   src/features/localization/observation_model/hough_ransac_observation_model.cpp
   src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp
-  src/features/simulation/collision_checker.cpp
-  src/features/simulation/unicycle_model.cpp
-  src/features/simulation/holonomic_model.cpp
-  src/features/simulation/lidar_sensor.cpp
-  src/features/simulation/odometry_sensor.cpp
+  src/features/simulation/collision_checker/collision_checker.cpp
+  src/features/simulation/physics/unicycle_model.cpp
+  src/features/simulation/physics/holonomic_model.cpp
+  src/features/simulation/sensor/lidar_sensor.cpp
+  src/features/simulation/sensor/odometry_sensor.cpp
   src/features/simulation/simulation_factory.cpp
   src/features/visualization/visualizer.cpp
   src/shared/map_loader.cpp

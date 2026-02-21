@@ -1,7 +1,7 @@
 #include "controller_factory.hpp"
 
-#include "pid.hpp"
-#include "pure_pursuit.hpp"
+#include "controller/pid.hpp"
+#include "controller/pure_pursuit.hpp"
 
 namespace ad::control {
 

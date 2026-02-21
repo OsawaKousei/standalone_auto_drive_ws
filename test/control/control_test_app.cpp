@@ -1,6 +1,6 @@
 #include "features/control/controller_factory.hpp"
 #include "features/planning/planner_factory.hpp"
-#include "features/simulation/collision_checker.hpp"
+#include "features/simulation/collision_checker/collision_checker.hpp"
 #include "features/simulation/simulation_factory.hpp"
 #ifdef __clang__
 #pragma clang diagnostic push

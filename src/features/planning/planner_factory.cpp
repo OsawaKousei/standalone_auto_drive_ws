@@ -1,8 +1,8 @@
 #include "planner_factory.hpp"
 
-#include "astar_planner.hpp"
-#include "dijkstra_planner.hpp"
-#include "grid_collision_checker.hpp"
+#include "collision_checker/grid_collision_checker.hpp"
+#include "planner/astar_planner.hpp"
+#include "planner/dijkstra_planner.hpp"
 
 namespace ad::planning {
 

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "i_physics.hpp"
-#include "lidar_sensor.hpp"
-#include "odometry_sensor.hpp"
+#include "sensor/lidar_sensor.hpp"
+#include "sensor/odometry_sensor.hpp"
 
 #include "../../shared/result.hpp"
 #include "../../shared/text_config.hpp"

@@ -1,9 +1,9 @@
 #include "simulation_factory.hpp"
 
-#include "holonomic_model.hpp"
-#include "lidar_sensor.hpp"
-#include "odometry_sensor.hpp"
-#include "unicycle_model.hpp"
+#include "physics/holonomic_model.hpp"
+#include "physics/unicycle_model.hpp"
+#include "sensor/lidar_sensor.hpp"
+#include "sensor/odometry_sensor.hpp"
 
 namespace ad::simulation {
 

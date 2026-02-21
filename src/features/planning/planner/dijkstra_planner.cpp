@@ -1,5 +1,5 @@
 #include "dijkstra_planner.hpp"
-#include "planner_utils.hpp"
+#include "../planner_utils.hpp"
 
 #include <functional>
 #include <limits>

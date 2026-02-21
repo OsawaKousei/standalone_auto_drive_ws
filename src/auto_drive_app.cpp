@@ -1,4 +1,4 @@
-#include "features/simulation/collision_checker.hpp"
+#include "features/simulation/collision_checker/collision_checker.hpp"
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
