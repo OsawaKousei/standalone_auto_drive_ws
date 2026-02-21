@@ -1,0 +1,13 @@
+{
+  "line_count": 40,
+  "hough": {
+    "valid_count": 13,
+    "gate_pass_count": 12,
+    "gate_pass_rate": 0.3
+  },
+  "ransac": {
+    "valid_count": 7,
+    "gate_pass_count": 7,
+    "gate_pass_rate": 0.175
+  }
+}
