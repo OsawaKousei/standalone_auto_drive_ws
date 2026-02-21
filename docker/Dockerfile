@@ -26,12 +26,13 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
     ./llvm.sh 17 && \
     rm llvm.sh && \
-    apt-get install -y clang-tidy-17
+    apt-get install -y clang-tidy-17 clang-format-17
 
 # update-alternatives でシステム標準のコマンドとして登録
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100 && \
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100 && \
-    update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-17 100
+    update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-17 100 && \
+    update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-17 100
 
 # Install uv and Python packages
 ENV PATH="/root/.local/bin:${PATH}"
