@@ -1,0 +1,5 @@
+ray_count = 0
+min_angle = -3.14159265358979323846
+max_angle = 3.14159265358979323846
+max_range = 0.0
+range_step = 0.0

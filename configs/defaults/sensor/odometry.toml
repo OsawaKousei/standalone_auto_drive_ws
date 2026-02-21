@@ -1,0 +1,4 @@
+forward_noise_stddev = 0.0
+lateral_noise_stddev = 0.0
+theta_noise_stddev = 0.0
+seed = 0

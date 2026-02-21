@@ -14,25 +14,9 @@ struct OdometrySensorConfig {
   const int seed;
 };
 
-namespace config {
-
-constexpr double kDefaultForwardNoiseStddev = 0.0;
-constexpr double kDefaultLateralNoiseStddev = 0.0;
-constexpr double kDefaultThetaNoiseStddev = 0.0;
-constexpr int kDefaultSeed = 0;
-
-[[nodiscard]] inline auto odometryDefaultConfig() -> OdometrySensorConfig {
-  return OdometrySensorConfig{.forwardNoiseStddev = kDefaultForwardNoiseStddev,
-                              .lateralNoiseStddev = kDefaultLateralNoiseStddev,
-                              .thetaNoiseStddev = kDefaultThetaNoiseStddev,
-                              .seed = kDefaultSeed};
-}
-
-} // namespace config
-
 class OdometrySensor {
 public:
-  explicit OdometrySensor(OdometrySensorConfig config = config::odometryDefaultConfig());
+  explicit OdometrySensor(OdometrySensorConfig config);
 
   [[nodiscard]] auto measure(const types::Pose &previousPose, const types::Pose &currentPose) const
       -> Result<types::OdometryDelta>;

@@ -9,18 +9,6 @@ struct PurePursuitConfig {
   const double desiredLinearVelocity;
 };
 
-namespace config {
-
-constexpr double kDefaultLookaheadDistance = 0.6;
-constexpr double kDefaultDesiredLinearVelocity = 1.2;
-
-[[nodiscard]] inline auto purePursuitDefaultConfig() -> PurePursuitConfig {
-  return PurePursuitConfig{.lookaheadDistance = kDefaultLookaheadDistance,
-                           .desiredLinearVelocity = kDefaultDesiredLinearVelocity};
-}
-
-} // namespace config
-
 class PurePursuitController final : public IController {
 public:
   explicit PurePursuitController(PurePursuitConfig config);

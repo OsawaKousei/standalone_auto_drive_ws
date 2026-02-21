@@ -18,6 +18,7 @@ public:
   [[nodiscard]] auto findRaw(std::string_view section, std::string_view key) const
       -> std::optional<std::string_view>;
   auto setValue(std::string_view section, std::string_view key, std::string value) -> void;
+  auto mergeFrom(const TextConfig &overrides) -> void;
 
 private:
   std::unordered_map<std::string, Section> sections_;

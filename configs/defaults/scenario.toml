@@ -1,0 +1,47 @@
+[scenario]
+name = "scenario"
+
+[map]
+yaml_path = "../tools/map.yaml"
+
+[robot.start]
+x = 1.0
+y = 1.0
+theta = 0.0
+
+[robot.goal]
+x = 9.0
+y = 1.0
+theta = 0.0
+
+[robot.footprint]
+vertices = [-0.2, -0.1, 0.3, -0.1, 0.3, 0.1, -0.2, 0.1]
+
+[simulation.runtime]
+odometry_delta_t = 0.02
+lidar_delta_t = 0.2
+render_delta_t = 0.1
+max_steps = 250
+goal_tolerance = 0.3
+
+[simulation.collision]
+max_translation_step = 0.05
+max_rotation_step = 0.05
+
+[localization]
+algorithm = "ekf"
+
+[planning]
+algorithm = "astar"
+
+[control]
+algorithm = "pure_pursuit"
+
+[lidar_sensor]
+algorithm = "lidar"
+
+[odometry_sensor]
+algorithm = "odometry"
+
+[physics]
+algorithm = "unicycle"

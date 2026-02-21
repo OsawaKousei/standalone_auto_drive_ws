@@ -7,6 +7,7 @@
 #include "text_config.hpp"
 
 #include <filesystem>
+#include <fmt/core.h>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -17,34 +18,14 @@ namespace ad::scenario {
 
 namespace {
 
-constexpr auto kDefaultOdometryDeltaT = 0.02;
-constexpr auto kDefaultLidarDeltaT = 0.2;
-constexpr auto kDefaultRenderDeltaT = 0.1;
-constexpr auto kDefaultGoalTolerance = 0.3;
-constexpr auto kDefaultMaxSteps = 250;
-constexpr auto kDefaultGoalX = 9.0;
-constexpr auto kDefaultFootprintRearX = -0.2;
-constexpr auto kDefaultFootprintFrontX = 0.3;
-constexpr auto kDefaultFootprintHalfWidth = 0.1;
+constexpr auto kDefaultScenarioConfigPath = "defaults/scenario.toml";
+constexpr auto kDefaultLocalizationConfigPathPattern = "defaults/localization/{}.toml";
+constexpr auto kDefaultPlanningConfigPathPattern = "defaults/planning/{}.toml";
+constexpr auto kDefaultControlConfigPathPattern = "defaults/control/{}.toml";
+constexpr auto kDefaultSensorConfigPathPattern = "defaults/sensor/{}.toml";
+constexpr auto kDefaultPhysicsConfigPathPattern = "defaults/physics/{}.toml";
 constexpr auto kPointCoordinateStride = std::size_t{2};
 constexpr auto kMinFootprintValueCount = std::size_t{6};
-constexpr auto kDefaultCollisionMaxTranslationStep = 0.05;
-constexpr auto kDefaultCollisionMaxRotationStep = 0.05;
-
-[[nodiscard]] auto makeDefaultStartPose() -> types::Pose {
-  return types::Pose{.x = 1.0, .y = 1.0, .theta = 0.0};
-}
-
-[[nodiscard]] auto makeDefaultGoalPose() -> types::Pose {
-  return types::Pose{.x = kDefaultGoalX, .y = 1.0, .theta = 0.0};
-}
-
-[[nodiscard]] auto makeDefaultFootprint() -> types::Footprint {
-  return types::Footprint{{{kDefaultFootprintRearX, -kDefaultFootprintHalfWidth},
-                           {kDefaultFootprintFrontX, -kDefaultFootprintHalfWidth},
-                           {kDefaultFootprintFrontX, kDefaultFootprintHalfWidth},
-                           {kDefaultFootprintRearX, kDefaultFootprintHalfWidth}}};
-}
 
 [[nodiscard]] auto requiredRaw(const config::TextConfig &cfg, std::string_view section,
                                std::string_view key) -> Result<std::string_view> {
@@ -79,80 +60,61 @@ auto requiredString(const config::TextConfig &cfg, std::string_view section, std
   return config::parseQuotedString(*raw);
 }
 
-auto optionalDouble(const config::TextConfig &cfg, std::string_view section, std::string_view key)
-    -> Result<std::optional<double>> {
-  const auto raw = cfg.findRaw(section, key);
+auto requiredDouble(const config::TextConfig &cfg, std::string_view section, std::string_view key)
+    -> Result<double> {
+  const auto raw = requiredRaw(cfg, section, key);
   if (!raw) {
-    return std::optional<double>{};
+    return tl::make_unexpected(raw.error());
   }
-  const auto parsed = config::parseDoubleValue(*raw);
-  if (!parsed) {
-    return tl::make_unexpected(parsed.error());
-  }
-  return std::optional<double>{*parsed};
+  return config::parseDoubleValue(*raw);
 }
 
-auto optionalInt(const config::TextConfig &cfg, std::string_view section, std::string_view key)
-    -> Result<std::optional<int>> {
-  const auto raw = cfg.findRaw(section, key);
+auto requiredInt(const config::TextConfig &cfg, std::string_view section, std::string_view key)
+    -> Result<int> {
+  const auto raw = requiredRaw(cfg, section, key);
   if (!raw) {
-    return std::optional<int>{};
+    return tl::make_unexpected(raw.error());
   }
-  const auto parsed = config::parseIntValue(*raw);
-  if (!parsed) {
-    return tl::make_unexpected(parsed.error());
-  }
-  return std::optional<int>{*parsed};
+  return config::parseIntValue(*raw);
 }
 
-auto parsePose(const config::TextConfig &cfg, std::string_view section, const types::Pose &fallback)
-    -> Result<types::Pose> {
-  auto xValue = fallback.x;
-  auto yValue = fallback.y;
-  auto thetaValue = fallback.theta;
-
-  const auto xOverride = optionalDouble(cfg, section, "x");
-  if (!xOverride) {
-    return tl::make_unexpected(xOverride.error());
+auto parsePose(const config::TextConfig &cfg, std::string_view section) -> Result<types::Pose> {
+  const auto xValue = requiredDouble(cfg, section, "x");
+  if (!xValue) {
+    return tl::make_unexpected(xValue.error());
   }
-  xValue = xOverride->value_or(xValue);
 
-  const auto yOverride = optionalDouble(cfg, section, "y");
-  if (!yOverride) {
-    return tl::make_unexpected(yOverride.error());
+  const auto yValue = requiredDouble(cfg, section, "y");
+  if (!yValue) {
+    return tl::make_unexpected(yValue.error());
   }
-  yValue = yOverride->value_or(yValue);
 
-  const auto thetaOverride = optionalDouble(cfg, section, "theta");
-  if (!thetaOverride) {
-    return tl::make_unexpected(thetaOverride.error());
+  const auto thetaValue = requiredDouble(cfg, section, "theta");
+  if (!thetaValue) {
+    return tl::make_unexpected(thetaValue.error());
   }
-  thetaValue = thetaOverride->value_or(thetaValue);
 
-  return types::Pose{.x = xValue, .y = yValue, .theta = thetaValue};
+  return types::Pose{.x = *xValue, .y = *yValue, .theta = *thetaValue};
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-auto parseAlgorithmSpec(const config::TextConfig &cfg, std::string_view section,
-                        std::string_view defaultAlgorithm) -> Result<AlgorithmSpec> {
-  auto algorithm = std::string{defaultAlgorithm};
-  const auto algorithmOverride = optionalString(cfg, section, "algorithm");
-  if (!algorithmOverride) {
-    return tl::make_unexpected(algorithmOverride.error());
+auto parseAlgorithmSpec(const config::TextConfig &cfg, std::string_view section)
+    -> Result<AlgorithmSpec> {
+  const auto algorithm = requiredString(cfg, section, "algorithm");
+  if (!algorithm) {
+    return tl::make_unexpected(algorithm.error());
   }
-  algorithm = algorithmOverride->value_or(algorithm);
 
   const auto configPath = optionalString(cfg, section, "config_path");
   if (!configPath) {
     return tl::make_unexpected(configPath.error());
   }
-  return AlgorithmSpec{.algorithm = algorithm, .configPath = *configPath};
+  return AlgorithmSpec{.algorithm = *algorithm, .configPath = *configPath};
 }
 
 auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Footprint> {
-  const auto raw = cfg.findRaw("robot.footprint", "vertices");
+  const auto raw = requiredRaw(cfg, "robot.footprint", "vertices");
   if (!raw) {
-    return makeDefaultFootprint();
+    return tl::make_unexpected(raw.error());
   }
 
   const auto values = config::parseArrayFlat(*raw);
@@ -178,79 +140,63 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
 }
 
 [[nodiscard]] auto parseRuntimeConfig(const config::TextConfig &cfg) -> Result<RuntimeConfig> {
-  auto odometryDeltaTValue = kDefaultOdometryDeltaT;
-  auto lidarDeltaTValue = kDefaultLidarDeltaT;
-  auto renderDeltaTValue = kDefaultRenderDeltaT;
-  auto maxStepsValue = kDefaultMaxSteps;
-  auto goalToleranceValue = kDefaultGoalTolerance;
-
-  const auto odometryDeltaT = optionalDouble(cfg, "simulation.runtime", "odometry_delta_t");
+  const auto odometryDeltaT = requiredDouble(cfg, "simulation.runtime", "odometry_delta_t");
   if (!odometryDeltaT) {
     return tl::make_unexpected(odometryDeltaT.error());
   }
-  odometryDeltaTValue = odometryDeltaT->value_or(odometryDeltaTValue);
 
-  const auto lidarDeltaT = optionalDouble(cfg, "simulation.runtime", "lidar_delta_t");
+  const auto lidarDeltaT = requiredDouble(cfg, "simulation.runtime", "lidar_delta_t");
   if (!lidarDeltaT) {
     return tl::make_unexpected(lidarDeltaT.error());
   }
-  lidarDeltaTValue = lidarDeltaT->value_or(lidarDeltaTValue);
 
-  const auto renderDeltaT = optionalDouble(cfg, "simulation.runtime", "render_delta_t");
+  const auto renderDeltaT = requiredDouble(cfg, "simulation.runtime", "render_delta_t");
   if (!renderDeltaT) {
     return tl::make_unexpected(renderDeltaT.error());
   }
-  renderDeltaTValue = renderDeltaT->value_or(renderDeltaTValue);
 
-  const auto maxSteps = optionalInt(cfg, "simulation.runtime", "max_steps");
+  const auto maxSteps = requiredInt(cfg, "simulation.runtime", "max_steps");
   if (!maxSteps) {
     return tl::make_unexpected(maxSteps.error());
   }
-  maxStepsValue = maxSteps->value_or(maxStepsValue);
 
-  const auto goalTolerance = optionalDouble(cfg, "simulation.runtime", "goal_tolerance");
+  const auto goalTolerance = requiredDouble(cfg, "simulation.runtime", "goal_tolerance");
   if (!goalTolerance) {
     return tl::make_unexpected(goalTolerance.error());
   }
-  goalToleranceValue = goalTolerance->value_or(goalToleranceValue);
 
-  if (odometryDeltaTValue <= 0.0 || lidarDeltaTValue <= 0.0 || renderDeltaTValue <= 0.0 ||
-      lidarDeltaTValue < odometryDeltaTValue || maxStepsValue <= 0 || goalToleranceValue <= 0.0) {
+  if (*odometryDeltaT <= 0.0 || *lidarDeltaT <= 0.0 || *renderDeltaT <= 0.0 ||
+      *lidarDeltaT < *odometryDeltaT || *maxSteps <= 0 || *goalTolerance <= 0.0) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message = "simulation.runtime has invalid values."});
   }
 
-  return RuntimeConfig{.odometryDeltaT = odometryDeltaTValue,
-                       .lidarDeltaT = lidarDeltaTValue,
-                       .renderDeltaT = renderDeltaTValue,
-                       .maxSteps = maxStepsValue,
-                       .goalTolerance = goalToleranceValue};
+  return RuntimeConfig{.odometryDeltaT = *odometryDeltaT,
+                       .lidarDeltaT = *lidarDeltaT,
+                       .renderDeltaT = *renderDeltaT,
+                       .maxSteps = *maxSteps,
+                       .goalTolerance = *goalTolerance};
 }
 
 [[nodiscard]] auto parseCollisionConfig(const config::TextConfig &cfg)
     -> Result<simulation::CollisionCheckConfig> {
-  auto maxTranslationStepValue = kDefaultCollisionMaxTranslationStep;
-  auto maxRotationStepValue = kDefaultCollisionMaxRotationStep;
-
-  const auto translation = optionalDouble(cfg, "simulation.collision", "max_translation_step");
+  const auto translation = requiredDouble(cfg, "simulation.collision", "max_translation_step");
   if (!translation) {
     return tl::make_unexpected(translation.error());
   }
-  maxTranslationStepValue = translation->value_or(maxTranslationStepValue);
 
-  const auto rotation = optionalDouble(cfg, "simulation.collision", "max_rotation_step");
+  const auto rotation = requiredDouble(cfg, "simulation.collision", "max_rotation_step");
   if (!rotation) {
     return tl::make_unexpected(rotation.error());
   }
-  maxRotationStepValue = rotation->value_or(maxRotationStepValue);
 
-  if (maxTranslationStepValue <= 0.0 || maxRotationStepValue <= 0.0) {
+  if (*translation <= 0.0 || *rotation <= 0.0) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message = "simulation.collision values must be positive."});
   }
 
-  return simulation::CollisionCheckConfig{.maxTranslationStep = maxTranslationStepValue,
-                                          .maxRotationStep = maxRotationStepValue};
+  return simulation::CollisionCheckConfig{.maxTranslationStep = *translation,
+                                          .maxRotationStep = *rotation};
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -263,17 +209,50 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   return resolved.lexically_normal().string();
 }
 
-[[nodiscard]] auto loadIfExists(std::string_view baseDir, const std::optional<std::string> &path)
-    -> Result<std::optional<config::TextConfig>> {
-  if (!path.has_value()) {
-    return std::optional<config::TextConfig>{};
+[[nodiscard]] auto loadMergedConfig(std::string_view baseDir, std::string_view defaultPath,
+                                    const std::optional<std::string> &overridePath)
+    -> Result<config::TextConfig> {
+  const auto defaultFilePath = resolvePath(baseDir, defaultPath);
+  const auto defaultLoaded = config::loadTextConfig(defaultFilePath);
+  if (!defaultLoaded) {
+    return tl::make_unexpected(defaultLoaded.error());
   }
-  const auto filePath = resolvePath(baseDir, *path);
-  const auto loaded = config::loadTextConfig(filePath);
-  if (!loaded) {
-    return tl::make_unexpected(loaded.error());
+
+  auto merged = *defaultLoaded;
+  if (!overridePath.has_value()) {
+    return merged;
   }
-  return std::optional<config::TextConfig>{*loaded};
+
+  const auto overrideFilePath = resolvePath(baseDir, *overridePath);
+  const auto overrideLoaded = config::loadTextConfig(overrideFilePath);
+  if (!overrideLoaded) {
+    return tl::make_unexpected(overrideLoaded.error());
+  }
+
+  merged.mergeFrom(*overrideLoaded);
+  return merged;
+}
+
+[[nodiscard]] auto defaultAlgorithmConfigPath(std::string_view section, std::string_view algorithm)
+    -> Result<std::string> {
+  if (section == "localization") {
+    return fmt::format(kDefaultLocalizationConfigPathPattern, algorithm);
+  }
+  if (section == "planning") {
+    return fmt::format(kDefaultPlanningConfigPathPattern, algorithm);
+  }
+  if (section == "control") {
+    return fmt::format(kDefaultControlConfigPathPattern, algorithm);
+  }
+  if (section == "lidar_sensor" || section == "odometry_sensor") {
+    return fmt::format(kDefaultSensorConfigPathPattern, algorithm);
+  }
+  if (section == "physics") {
+    return fmt::format(kDefaultPhysicsConfigPathPattern, algorithm);
+  }
+  return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                   .message = "Unsupported algorithm section for default config: " +
+                                              std::string{section}});
 }
 
 } // namespace
@@ -283,106 +262,146 @@ auto resolvePath(const ScenarioConfig &scenario, std::string_view path) -> std::
 }
 
 auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
-  const auto configResult = config::loadTextConfig(scenarioPath);
-  if (!configResult) {
-    return tl::make_unexpected(configResult.error());
-  }
-  const auto &cfg = *configResult;
-
-  const auto scenarioName = optionalString(cfg, "scenario", "name");
-  if (!scenarioName) {
-    return tl::make_unexpected(scenarioName.error());
-  }
-
-  const auto mapYamlPath = requiredString(cfg, "map", "yaml_path");
-  if (!mapYamlPath) {
-    return tl::make_unexpected(mapYamlPath.error());
-  }
-
-  const auto footprint = parseFootprintVertices(cfg);
-  if (!footprint) {
-    return tl::make_unexpected(footprint.error());
-  }
-
-  const auto start = parsePose(cfg, "robot.start", makeDefaultStartPose());
-  if (!start) {
-    return tl::make_unexpected(start.error());
-  }
-  const auto goal = parsePose(cfg, "robot.goal", makeDefaultGoalPose());
-  if (!goal) {
-    return tl::make_unexpected(goal.error());
-  }
-
-  const auto runtime = parseRuntimeConfig(cfg);
-  if (!runtime) {
-    return tl::make_unexpected(runtime.error());
-  }
-
-  const auto collision = parseCollisionConfig(cfg);
-  if (!collision) {
-    return tl::make_unexpected(collision.error());
-  }
-
-  const auto localizationSpec = parseAlgorithmSpec(cfg, "localization", "ekf");
-  if (!localizationSpec) {
-    return tl::make_unexpected(localizationSpec.error());
-  }
-  const auto planningSpec = parseAlgorithmSpec(cfg, "planning", "astar");
-  if (!planningSpec) {
-    return tl::make_unexpected(planningSpec.error());
-  }
-  const auto controlSpec = parseAlgorithmSpec(cfg, "control", "pure_pursuit");
-  if (!controlSpec) {
-    return tl::make_unexpected(controlSpec.error());
-  }
-  const auto lidarSensorSpec = parseAlgorithmSpec(cfg, "lidar_sensor", "lidar");
-  if (!lidarSensorSpec) {
-    return tl::make_unexpected(lidarSensorSpec.error());
-  }
-  const auto odometrySensorSpec = parseAlgorithmSpec(cfg, "odometry_sensor", "odometry");
-  if (!odometrySensorSpec) {
-    return tl::make_unexpected(odometrySensorSpec.error());
-  }
-  const auto physicsSpec = parseAlgorithmSpec(cfg, "physics", "unicycle");
-  if (!physicsSpec) {
-    return tl::make_unexpected(physicsSpec.error());
-  }
-
   const auto scenarioPathFs = std::filesystem::path{std::string{scenarioPath}};
   const auto baseDir = scenarioPathFs.parent_path().empty() ? std::filesystem::path{"."}
                                                             : scenarioPathFs.parent_path();
   const auto baseDirNormalized = baseDir.lexically_normal().string();
-  const auto localizationDoc = loadIfExists(baseDirNormalized, localizationSpec->configPath);
+
+  const auto cfg = loadMergedConfig(baseDirNormalized, kDefaultScenarioConfigPath,
+                                    std::optional<std::string>{std::string{scenarioPath}});
+  if (!cfg) {
+    return tl::make_unexpected(cfg.error());
+  }
+
+  const auto scenarioName = requiredString(*cfg, "scenario", "name");
+  if (!scenarioName) {
+    return tl::make_unexpected(scenarioName.error());
+  }
+
+  const auto mapYamlPath = requiredString(*cfg, "map", "yaml_path");
+  if (!mapYamlPath) {
+    return tl::make_unexpected(mapYamlPath.error());
+  }
+
+  const auto footprint = parseFootprintVertices(*cfg);
+  if (!footprint) {
+    return tl::make_unexpected(footprint.error());
+  }
+
+  const auto start = parsePose(*cfg, "robot.start");
+  if (!start) {
+    return tl::make_unexpected(start.error());
+  }
+  const auto goal = parsePose(*cfg, "robot.goal");
+  if (!goal) {
+    return tl::make_unexpected(goal.error());
+  }
+
+  const auto runtime = parseRuntimeConfig(*cfg);
+  if (!runtime) {
+    return tl::make_unexpected(runtime.error());
+  }
+
+  const auto collision = parseCollisionConfig(*cfg);
+  if (!collision) {
+    return tl::make_unexpected(collision.error());
+  }
+
+  const auto localizationSpec = parseAlgorithmSpec(*cfg, "localization");
+  if (!localizationSpec) {
+    return tl::make_unexpected(localizationSpec.error());
+  }
+  const auto planningSpec = parseAlgorithmSpec(*cfg, "planning");
+  if (!planningSpec) {
+    return tl::make_unexpected(planningSpec.error());
+  }
+  const auto controlSpec = parseAlgorithmSpec(*cfg, "control");
+  if (!controlSpec) {
+    return tl::make_unexpected(controlSpec.error());
+  }
+  const auto lidarSensorSpec = parseAlgorithmSpec(*cfg, "lidar_sensor");
+  if (!lidarSensorSpec) {
+    return tl::make_unexpected(lidarSensorSpec.error());
+  }
+  const auto odometrySensorSpec = parseAlgorithmSpec(*cfg, "odometry_sensor");
+  if (!odometrySensorSpec) {
+    return tl::make_unexpected(odometrySensorSpec.error());
+  }
+  const auto physicsSpec = parseAlgorithmSpec(*cfg, "physics");
+  if (!physicsSpec) {
+    return tl::make_unexpected(physicsSpec.error());
+  }
+
+  const auto localizationDefaultPath =
+      defaultAlgorithmConfigPath("localization", localizationSpec->algorithm);
+  if (!localizationDefaultPath) {
+    return tl::make_unexpected(localizationDefaultPath.error());
+  }
+  const auto localizationDoc =
+      loadMergedConfig(baseDirNormalized, *localizationDefaultPath, localizationSpec->configPath);
   if (!localizationDoc) {
     return tl::make_unexpected(localizationDoc.error());
   }
-  const auto planningDoc = loadIfExists(baseDirNormalized, planningSpec->configPath);
+
+  const auto planningDefaultPath = defaultAlgorithmConfigPath("planning", planningSpec->algorithm);
+  if (!planningDefaultPath) {
+    return tl::make_unexpected(planningDefaultPath.error());
+  }
+  const auto planningDoc =
+      loadMergedConfig(baseDirNormalized, *planningDefaultPath, planningSpec->configPath);
   if (!planningDoc) {
     return tl::make_unexpected(planningDoc.error());
   }
-  const auto controlDoc = loadIfExists(baseDirNormalized, controlSpec->configPath);
+
+  const auto controlDefaultPath = defaultAlgorithmConfigPath("control", controlSpec->algorithm);
+  if (!controlDefaultPath) {
+    return tl::make_unexpected(controlDefaultPath.error());
+  }
+  const auto controlDoc =
+      loadMergedConfig(baseDirNormalized, *controlDefaultPath, controlSpec->configPath);
   if (!controlDoc) {
     return tl::make_unexpected(controlDoc.error());
   }
-  const auto lidarSensorDoc = loadIfExists(baseDirNormalized, lidarSensorSpec->configPath);
+
+  const auto lidarSensorDefaultPath =
+      defaultAlgorithmConfigPath("lidar_sensor", lidarSensorSpec->algorithm);
+  if (!lidarSensorDefaultPath) {
+    return tl::make_unexpected(lidarSensorDefaultPath.error());
+  }
+  const auto lidarSensorDoc =
+      loadMergedConfig(baseDirNormalized, *lidarSensorDefaultPath, lidarSensorSpec->configPath);
   if (!lidarSensorDoc) {
     return tl::make_unexpected(lidarSensorDoc.error());
   }
-  const auto odometrySensorDoc = loadIfExists(baseDirNormalized, odometrySensorSpec->configPath);
+
+  const auto odometrySensorDefaultPath =
+      defaultAlgorithmConfigPath("odometry_sensor", odometrySensorSpec->algorithm);
+  if (!odometrySensorDefaultPath) {
+    return tl::make_unexpected(odometrySensorDefaultPath.error());
+  }
+  const auto odometrySensorDoc = loadMergedConfig(baseDirNormalized, *odometrySensorDefaultPath,
+                                                  odometrySensorSpec->configPath);
   if (!odometrySensorDoc) {
     return tl::make_unexpected(odometrySensorDoc.error());
   }
-  const auto physicsDoc = loadIfExists(baseDirNormalized, physicsSpec->configPath);
+
+  const auto physicsDefaultPath = defaultAlgorithmConfigPath("physics", physicsSpec->algorithm);
+  if (!physicsDefaultPath) {
+    return tl::make_unexpected(physicsDefaultPath.error());
+  }
+  const auto physicsDoc =
+      loadMergedConfig(baseDirNormalized, *physicsDefaultPath, physicsSpec->configPath);
   if (!physicsDoc) {
     return tl::make_unexpected(physicsDoc.error());
   }
 
-  const auto initialCovariance = localization::parseInitialCovarianceFromConfig(*localizationDoc);
+  const auto initialCovariance = localization::parseInitialCovarianceFromConfig(
+      std::optional<config::TextConfig>{*localizationDoc});
   if (!initialCovariance) {
     return tl::make_unexpected(initialCovariance.error());
   }
 
-  return ScenarioConfig{.name = scenarioName->value_or("scenario"),
+  return ScenarioConfig{.name = *scenarioName,
                         .baseDir = baseDirNormalized,
                         .mapYamlPath = *mapYamlPath,
                         .footprint = *footprint,
@@ -397,13 +416,13 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
                         .lidarSensor = *lidarSensorSpec,
                         .odometrySensor = *odometrySensorSpec,
                         .physics = *physicsSpec,
-                        .algorithmConfigDocs =
-                            AlgorithmConfigDocs{.localization = *localizationDoc,
-                                                .planning = *planningDoc,
-                                                .control = *controlDoc,
-                                                .lidarSensor = *lidarSensorDoc,
-                                                .odometrySensor = *odometrySensorDoc,
-                                                .physics = *physicsDoc}};
+                        .algorithmConfigDocs = AlgorithmConfigDocs{
+                            .localization = std::optional<config::TextConfig>{*localizationDoc},
+                            .planning = std::optional<config::TextConfig>{*planningDoc},
+                            .control = std::optional<config::TextConfig>{*controlDoc},
+                            .lidarSensor = std::optional<config::TextConfig>{*lidarSensorDoc},
+                            .odometrySensor = std::optional<config::TextConfig>{*odometrySensorDoc},
+                            .physics = std::optional<config::TextConfig>{*physicsDoc}}};
 }
 
 auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)

@@ -8,152 +8,155 @@ namespace ad::simulation {
 
 namespace {
 
+[[nodiscard]] auto requiredRaw(const ::ad::config::TextConfig &cfg, std::string_view key,
+                               std::string_view domain) -> Result<std::string_view> {
+  const auto raw = cfg.findRaw("", key);
+  if (!raw) {
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Required " + std::string{domain} +
+                                                " config key is missing: " + std::string{key}});
+  }
+  return *raw;
+}
+
 [[nodiscard]] auto parseLidarConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<LidarSensorConfig> {
-  auto rayCountValue = config::kDefaultRayCount;
-  auto minAngleValue = config::kDefaultMinAngle;
-  auto maxAngleValue = config::kDefaultMaxAngle;
-  auto maxRangeValue = config::kDefaultMaxRange;
-  auto rangeStepValue = config::kDefaultRangeStep;
   if (!configDoc.has_value()) {
-    return config::lidarDefaultConfig();
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Lidar config is required."});
   }
 
   const auto &cfg = *configDoc;
-  const auto rayCount = cfg.findRaw("", "ray_count");
-  if (rayCount) {
-    const auto parsed = ::ad::config::parseIntValue(*rayCount);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    rayCountValue = *parsed;
+  const auto rayCount = requiredRaw(cfg, "ray_count", "lidar");
+  if (!rayCount) {
+    return tl::make_unexpected(rayCount.error());
+  }
+  const auto rayCountValue = ::ad::config::parseIntValue(*rayCount);
+  if (!rayCountValue) {
+    return tl::make_unexpected(rayCountValue.error());
   }
 
-  const auto minAngle = cfg.findRaw("", "min_angle");
-  if (minAngle) {
-    const auto parsed = ::ad::config::parseDoubleValue(*minAngle);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    minAngleValue = *parsed;
+  const auto minAngle = requiredRaw(cfg, "min_angle", "lidar");
+  if (!minAngle) {
+    return tl::make_unexpected(minAngle.error());
+  }
+  const auto minAngleValue = ::ad::config::parseDoubleValue(*minAngle);
+  if (!minAngleValue) {
+    return tl::make_unexpected(minAngleValue.error());
   }
 
-  const auto maxAngle = cfg.findRaw("", "max_angle");
-  if (maxAngle) {
-    const auto parsed = ::ad::config::parseDoubleValue(*maxAngle);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxAngleValue = *parsed;
+  const auto maxAngle = requiredRaw(cfg, "max_angle", "lidar");
+  if (!maxAngle) {
+    return tl::make_unexpected(maxAngle.error());
+  }
+  const auto maxAngleValue = ::ad::config::parseDoubleValue(*maxAngle);
+  if (!maxAngleValue) {
+    return tl::make_unexpected(maxAngleValue.error());
   }
 
-  const auto maxRange = cfg.findRaw("", "max_range");
-  if (maxRange) {
-    const auto parsed = ::ad::config::parseDoubleValue(*maxRange);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxRangeValue = *parsed;
+  const auto maxRange = requiredRaw(cfg, "max_range", "lidar");
+  if (!maxRange) {
+    return tl::make_unexpected(maxRange.error());
+  }
+  const auto maxRangeValue = ::ad::config::parseDoubleValue(*maxRange);
+  if (!maxRangeValue) {
+    return tl::make_unexpected(maxRangeValue.error());
   }
 
-  const auto rangeStep = cfg.findRaw("", "range_step");
-  if (rangeStep) {
-    const auto parsed = ::ad::config::parseDoubleValue(*rangeStep);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    rangeStepValue = *parsed;
+  const auto rangeStep = requiredRaw(cfg, "range_step", "lidar");
+  if (!rangeStep) {
+    return tl::make_unexpected(rangeStep.error());
+  }
+  const auto rangeStepValue = ::ad::config::parseDoubleValue(*rangeStep);
+  if (!rangeStepValue) {
+    return tl::make_unexpected(rangeStepValue.error());
   }
 
-  return LidarSensorConfig{.rayCount = rayCountValue,
-                           .minAngle = minAngleValue,
-                           .maxAngle = maxAngleValue,
-                           .maxRange = maxRangeValue,
-                           .rangeStep = rangeStepValue};
+  return LidarSensorConfig{.rayCount = *rayCountValue,
+                           .minAngle = *minAngleValue,
+                           .maxAngle = *maxAngleValue,
+                           .maxRange = *maxRangeValue,
+                           .rangeStep = *rangeStepValue};
 }
 
 [[nodiscard]] auto parseUnicycleConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<UnicycleModelConfig> {
-  auto maxLinearSpeedValue = config::kDefaultMaxLinearSpeed;
-  auto maxAngularSpeedValue = config::kDefaultMaxAngularSpeed;
   if (!configDoc.has_value()) {
-    return config::unicycleDefaultConfig();
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Physics config is required."});
   }
 
   const auto &cfg = *configDoc;
-  const auto linear = cfg.findRaw("", "max_linear_speed");
-  if (linear) {
-    const auto parsed = ::ad::config::parseDoubleValue(*linear);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxLinearSpeedValue = *parsed;
+  const auto linear = requiredRaw(cfg, "max_linear_speed", "physics");
+  if (!linear) {
+    return tl::make_unexpected(linear.error());
+  }
+  const auto maxLinearSpeedValue = ::ad::config::parseDoubleValue(*linear);
+  if (!maxLinearSpeedValue) {
+    return tl::make_unexpected(maxLinearSpeedValue.error());
   }
 
-  const auto angular = cfg.findRaw("", "max_angular_speed");
-  if (angular) {
-    const auto parsed = ::ad::config::parseDoubleValue(*angular);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    maxAngularSpeedValue = *parsed;
+  const auto angular = requiredRaw(cfg, "max_angular_speed", "physics");
+  if (!angular) {
+    return tl::make_unexpected(angular.error());
+  }
+  const auto maxAngularSpeedValue = ::ad::config::parseDoubleValue(*angular);
+  if (!maxAngularSpeedValue) {
+    return tl::make_unexpected(maxAngularSpeedValue.error());
   }
 
-  return UnicycleModelConfig{.maxLinearSpeed = maxLinearSpeedValue,
-                             .maxAngularSpeed = maxAngularSpeedValue};
+  return UnicycleModelConfig{.maxLinearSpeed = *maxLinearSpeedValue,
+                             .maxAngularSpeed = *maxAngularSpeedValue};
 }
 
 [[nodiscard]] auto parseOdometryConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<OdometrySensorConfig> {
-  auto forwardNoiseStddevValue = config::kDefaultForwardNoiseStddev;
-  auto lateralNoiseStddevValue = config::kDefaultLateralNoiseStddev;
-  auto thetaNoiseStddevValue = config::kDefaultThetaNoiseStddev;
-  auto seedValue = config::kDefaultSeed;
   if (!configDoc.has_value()) {
-    return config::odometryDefaultConfig();
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Odometry config is required."});
   }
 
   const auto &cfg = *configDoc;
-  const auto forwardNoiseStddev = cfg.findRaw("", "forward_noise_stddev");
-  if (forwardNoiseStddev) {
-    const auto parsed = ::ad::config::parseDoubleValue(*forwardNoiseStddev);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    forwardNoiseStddevValue = *parsed;
+  const auto forwardNoiseStddev = requiredRaw(cfg, "forward_noise_stddev", "odometry");
+  if (!forwardNoiseStddev) {
+    return tl::make_unexpected(forwardNoiseStddev.error());
+  }
+  const auto forwardNoiseStddevValue = ::ad::config::parseDoubleValue(*forwardNoiseStddev);
+  if (!forwardNoiseStddevValue) {
+    return tl::make_unexpected(forwardNoiseStddevValue.error());
   }
 
-  const auto lateralNoiseStddev = cfg.findRaw("", "lateral_noise_stddev");
-  if (lateralNoiseStddev) {
-    const auto parsed = ::ad::config::parseDoubleValue(*lateralNoiseStddev);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    lateralNoiseStddevValue = *parsed;
+  const auto lateralNoiseStddev = requiredRaw(cfg, "lateral_noise_stddev", "odometry");
+  if (!lateralNoiseStddev) {
+    return tl::make_unexpected(lateralNoiseStddev.error());
+  }
+  const auto lateralNoiseStddevValue = ::ad::config::parseDoubleValue(*lateralNoiseStddev);
+  if (!lateralNoiseStddevValue) {
+    return tl::make_unexpected(lateralNoiseStddevValue.error());
   }
 
-  const auto thetaNoiseStddev = cfg.findRaw("", "theta_noise_stddev");
-  if (thetaNoiseStddev) {
-    const auto parsed = ::ad::config::parseDoubleValue(*thetaNoiseStddev);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    thetaNoiseStddevValue = *parsed;
+  const auto thetaNoiseStddev = requiredRaw(cfg, "theta_noise_stddev", "odometry");
+  if (!thetaNoiseStddev) {
+    return tl::make_unexpected(thetaNoiseStddev.error());
+  }
+  const auto thetaNoiseStddevValue = ::ad::config::parseDoubleValue(*thetaNoiseStddev);
+  if (!thetaNoiseStddevValue) {
+    return tl::make_unexpected(thetaNoiseStddevValue.error());
   }
 
-  const auto seed = cfg.findRaw("", "seed");
-  if (seed) {
-    const auto parsed = ::ad::config::parseIntValue(*seed);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    seedValue = *parsed;
+  const auto seed = requiredRaw(cfg, "seed", "odometry");
+  if (!seed) {
+    return tl::make_unexpected(seed.error());
+  }
+  const auto seedValue = ::ad::config::parseIntValue(*seed);
+  if (!seedValue) {
+    return tl::make_unexpected(seedValue.error());
   }
 
-  return OdometrySensorConfig{.forwardNoiseStddev = forwardNoiseStddevValue,
-                              .lateralNoiseStddev = lateralNoiseStddevValue,
-                              .thetaNoiseStddev = thetaNoiseStddevValue,
-                              .seed = seedValue};
+  return OdometrySensorConfig{.forwardNoiseStddev = *forwardNoiseStddevValue,
+                              .lateralNoiseStddev = *lateralNoiseStddevValue,
+                              .thetaNoiseStddev = *thetaNoiseStddevValue,
+                              .seed = *seedValue};
 }
 
 } // namespace

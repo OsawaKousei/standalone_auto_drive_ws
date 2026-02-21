@@ -12,12 +12,15 @@ namespace {
 parseCollisionCheckerType(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<std::string> {
   if (!configDoc.has_value()) {
-    return std::string{"grid"};
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Planning config is required."});
   }
 
   const auto raw = configDoc->findRaw("", "collision_checker");
   if (!raw) {
-    return std::string{"grid"};
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Required planning config key is missing: collision_checker"});
   }
 
   const auto parsed = ::ad::config::parseQuotedString(*raw);

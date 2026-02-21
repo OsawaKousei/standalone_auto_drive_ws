@@ -42,6 +42,13 @@
 
 実行には **マップファイル（YAML/PGM）が必須** です。既定のマップは `tools/map.yaml` と `tools/map.pgm` で、`tools/map_editor.py` を使って作成・更新できます。
 
+## 設定ファイルのデフォルトマージ
+
+- 実行時はまず `configs/defaults/` 配下のデフォルト設定を読み込みます。
+- その後、指定したシナリオ設定（既定: `configs/scenario.toml`）を同じキーで上書きマージします。
+- アルゴリズム個別設定も同様に、`configs/defaults/{localization|planning|control|sensor|physics}/` を初期値として、`scenario.toml` の `config_path` で指定したファイル内容を上書きします。
+- これにより、指定ファイルで省略されたパラメータはデフォルト設定値が利用されます。
+
 ## 自律走行スタックの実装概要
 
 本ワークスペースでは、計画・制御・自己位置推定・センサ・物理・可視化を分離した構成で自律走行スタックを実装しています。主要モジュールは以下に配置されています。

@@ -173,6 +173,15 @@ auto TextConfig::setValue(std::string_view section, std::string_view key, std::s
   sections_[std::string{section}][std::string{key}] = std::move(value);
 }
 
+auto TextConfig::mergeFrom(const TextConfig &overrides) -> void {
+  for (const auto &[sectionName, sectionValues] : overrides.sections_) {
+    auto &destination = sections_[sectionName];
+    for (const auto &[key, value] : sectionValues) {
+      destination[key] = value;
+    }
+  }
+}
+
 auto loadTextConfig(std::string_view path) -> Result<TextConfig> {
   auto file = std::ifstream{std::string{path}};
   if (!file.is_open()) {

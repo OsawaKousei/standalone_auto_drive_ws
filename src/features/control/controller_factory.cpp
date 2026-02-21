@@ -6,35 +6,45 @@ namespace ad::control {
 
 namespace {
 
+[[nodiscard]] auto requiredRaw(const ::ad::config::TextConfig &cfg, std::string_view key)
+    -> Result<std::string_view> {
+  const auto raw = cfg.findRaw("", key);
+  if (!raw) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Required control config key is missing: " + std::string{key}});
+  }
+  return *raw;
+}
+
 [[nodiscard]] auto parsePurePursuitConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<PurePursuitConfig> {
-  auto lookaheadDistanceValue = config::kDefaultLookaheadDistance;
-  auto desiredLinearVelocityValue = config::kDefaultDesiredLinearVelocity;
   if (!configDoc.has_value()) {
-    return config::purePursuitDefaultConfig();
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Control config is required for pure_pursuit."});
   }
 
   const auto &cfg = *configDoc;
-  const auto lookaheadRaw = cfg.findRaw("", "lookahead_distance");
-  if (lookaheadRaw) {
-    const auto parsed = ::ad::config::parseDoubleValue(*lookaheadRaw);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    lookaheadDistanceValue = *parsed;
+  const auto lookaheadRaw = requiredRaw(cfg, "lookahead_distance");
+  if (!lookaheadRaw) {
+    return tl::make_unexpected(lookaheadRaw.error());
+  }
+  const auto lookaheadDistanceValue = ::ad::config::parseDoubleValue(*lookaheadRaw);
+  if (!lookaheadDistanceValue) {
+    return tl::make_unexpected(lookaheadDistanceValue.error());
   }
 
-  const auto velocityRaw = cfg.findRaw("", "desired_linear_velocity");
-  if (velocityRaw) {
-    const auto parsed = ::ad::config::parseDoubleValue(*velocityRaw);
-    if (!parsed) {
-      return tl::make_unexpected(parsed.error());
-    }
-    desiredLinearVelocityValue = *parsed;
+  const auto velocityRaw = requiredRaw(cfg, "desired_linear_velocity");
+  if (!velocityRaw) {
+    return tl::make_unexpected(velocityRaw.error());
+  }
+  const auto desiredLinearVelocityValue = ::ad::config::parseDoubleValue(*velocityRaw);
+  if (!desiredLinearVelocityValue) {
+    return tl::make_unexpected(desiredLinearVelocityValue.error());
   }
 
-  return PurePursuitConfig{.lookaheadDistance = lookaheadDistanceValue,
-                           .desiredLinearVelocity = desiredLinearVelocityValue};
+  return PurePursuitConfig{.lookaheadDistance = *lookaheadDistanceValue,
+                           .desiredLinearVelocity = *desiredLinearVelocityValue};
 }
 
 } // namespace
