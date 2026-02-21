@@ -37,8 +37,8 @@ algorithm = "astar"
 config_path = "planning/astar.toml"
 
 [control]
-algorithm = "pure_pursuit"
-config_path = "control/pure_pursuit.toml"
+algorithm = "cascade_pid"
+config_path = "control/cascade_pid.toml"
 
 [lidar_sensor]
 algorithm = "lidar"
@@ -49,5 +49,5 @@ algorithm = "odometry"
 config_path = "sensor/odometry.toml"
 
 [physics]
-algorithm = "unicycle"
-config_path = "physics/unicycle.toml"
+algorithm = "holonomic"
+config_path = "physics/holonomic.toml"
