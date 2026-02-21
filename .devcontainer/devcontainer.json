@@ -12,24 +12,27 @@
         "ms-vscode.cpptools-extension-pack"
       ],
       "settings": {
-        // コンテナ内のPythonを自動的に認識させる
         "python.defaultInterpreterPath": "/workspace/.venv_docker/bin/python"
       }
     }
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace",
-  // 1. ホストの uv キャッシュをマウント（パスは適宜調整してください）
+
   "mounts": [
+    // ホストのPython実体マウントを削除し、純粋なキャッシュのみを共有
+    // これにより、コンテナは独自に uv 経由でクリーンな Python を取得します
     "source=${localEnv:HOME}/.cache/uv,target=/root/.cache/uv,type=bind"
   ],
 
-  // 2. コンテナ起動後に自動で uv sync を実行
-  "postCreateCommand": "uv sync",
+  "postCreateCommand": "uv sync --active",
 
-  // 3. 環境変数の注入
   "remoteEnv": {
-    "UV_PROJECT_ENVIRONMENT": ".venv_docker",
-    "PATH": "/workspace/.venv_docker/bin:${containerEnv:PATH}"
+    "UV_PROJECT_ENVIRONMENT": "/workspace/.venv_docker",
+    "UV_PYTHON_PREFERENCE": "only-managed",
+    "VIRTUAL_ENV": "/workspace/.venv_docker",
+    "PATH": "/workspace/.venv_docker/bin:${containerEnv:PATH}",
+    // 【最重要】C++ (matplotlib-cpp) に、基準となるPythonのパスを強制認識させる
+    "PYTHONEXECUTABLE": "/workspace/.venv_docker/bin/python"
   }
 }
