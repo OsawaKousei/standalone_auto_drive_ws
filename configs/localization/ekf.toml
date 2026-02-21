@@ -24,7 +24,6 @@ min_observations = 3
 
 [ransac]
 max_iterations = 80
-inlier_distance = 0.1
 min_inliers = 8
 min_inlier_ratio = 0.35
 

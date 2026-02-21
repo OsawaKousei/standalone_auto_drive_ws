@@ -38,8 +38,17 @@ struct RansacLineFitResult {
   std::vector<std::size_t> inlierIndices;
 };
 
+struct PointLineRansacConfig {
+  int maxIterations;
+  double inlierDistance;
+  std::size_t minInliers;
+  double minInlierRatio;
+  double minInlierSpan;
+};
+
 [[nodiscard]] auto fitLineToPoints(const std::vector<types::Point> &points,
-                                   const RansacConfig &config, std::uint32_t randomSeed = 0U)
+                                   const PointLineRansacConfig &config,
+                                   std::uint32_t randomSeed = 0U)
     -> std::optional<RansacLineFitResult>;
 
 struct LinePairCandidate {

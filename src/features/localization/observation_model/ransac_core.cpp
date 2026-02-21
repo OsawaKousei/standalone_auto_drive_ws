@@ -265,7 +265,7 @@ auto runGenericPointRansac(const std::vector<types::Point> &points,
   return bestResult;
 }
 
-auto fitLineToPoints(const std::vector<types::Point> &points, const RansacConfig &config,
+auto fitLineToPoints(const std::vector<types::Point> &points, const PointLineRansacConfig &config,
                      std::uint32_t randomSeed) -> std::optional<RansacLineFitResult> {
   if (points.size() < 2U || config.maxIterations <= 0 || !(config.inlierDistance > 0.0) ||
       config.minInliers < 2U || config.minInlierRatio <= 0.0 || config.minInlierRatio > 1.0 ||

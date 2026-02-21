@@ -194,10 +194,6 @@ parseHoughRansacObservationModelConfig(const std::optional<::ad::config::TextCon
   if (!maxIterations) {
     return tl::make_unexpected(maxIterations.error());
   }
-  const auto inlierDistance = optionalDouble(cfg, "ransac", "inlier_distance", 0.1);
-  if (!inlierDistance) {
-    return tl::make_unexpected(inlierDistance.error());
-  }
   const auto minInliers = optionalInt(cfg, "ransac", "min_inliers", 8);
   if (!minInliers) {
     return tl::make_unexpected(minInliers.error());
@@ -206,13 +202,8 @@ parseHoughRansacObservationModelConfig(const std::optional<::ad::config::TextCon
   if (!minInlierRatio) {
     return tl::make_unexpected(minInlierRatio.error());
   }
-  const auto minInlierSpan = optionalDouble(cfg, "ransac", "min_inlier_span", 0.5);
-  if (!minInlierSpan) {
-    return tl::make_unexpected(minInlierSpan.error());
-  }
 
-  if (*maxIterations <= 0 || *inlierDistance <= 0.0 || *minInliers < 2 || *minInlierRatio <= 0.0 ||
-      *minInlierRatio > 1.0 || *minInlierSpan <= 0.0) {
+  if (*maxIterations <= 0 || *minInliers < 2 || *minInlierRatio <= 0.0 || *minInlierRatio > 1.0) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "RANSAC configuration is invalid in [ransac] section."});
@@ -221,10 +212,8 @@ parseHoughRansacObservationModelConfig(const std::optional<::ad::config::TextCon
   return HoughRansacObservationModelConfig{
       .houghObservation = *houghObservation,
       .ransac = RansacConfig{.maxIterations = *maxIterations,
-                             .inlierDistance = *inlierDistance,
                              .minInliers = static_cast<std::size_t>(*minInliers),
-                             .minInlierRatio = *minInlierRatio,
-                             .minInlierSpan = *minInlierSpan}};
+                             .minInlierRatio = *minInlierRatio}};
 }
 
 } // namespace
