@@ -32,7 +32,7 @@ parseCollisionCheckerType(const std::optional<::ad::config::TextConfig> &configD
 auto createPlannerFromConfig(std::string_view algorithm, const types::MapData &map,
                              const types::Footprint &footprint,
                              const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<PlannerComponents> {
+    -> Result<std::unique_ptr<IPlanner>> {
   const auto checkerType = parseCollisionCheckerType(configDoc);
   if (!checkerType) {
     return tl::make_unexpected(checkerType.error());
@@ -53,17 +53,16 @@ auto createPlannerFromConfig(std::string_view algorithm, const types::MapData &m
 
   std::unique_ptr<IPlanner> planner;
   if (algorithm == "astar") {
-    planner = std::unique_ptr<IPlanner>{new AStarPlanner{*collisionChecker}};
+    planner = std::unique_ptr<IPlanner>{new AStarPlanner{std::move(collisionChecker)}};
   } else if (algorithm == "dijkstra") {
-    planner = std::unique_ptr<IPlanner>{new DijkstraPlanner{*collisionChecker}};
+    planner = std::unique_ptr<IPlanner>{new DijkstraPlanner{std::move(collisionChecker)}};
   } else {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "Unsupported planning algorithm: " + std::string{algorithm}});
   }
 
-  return PlannerComponents{.collisionChecker = std::move(collisionChecker),
-                           .planner = std::move(planner)};
+  return planner;
 }
 
 } // namespace ad::planning

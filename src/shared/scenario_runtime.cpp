@@ -425,7 +425,8 @@ auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)
 }
 
 auto createPlanner(const ScenarioConfig &scenario, const types::MapData &map,
-                   const types::Footprint &footprint) -> Result<planning::PlannerComponents> {
+                   const types::Footprint &footprint)
+    -> Result<std::unique_ptr<planning::IPlanner>> {
   const auto loaded = loadIfExists(scenario, scenario.planning.configPath);
   if (!loaded) {
     return tl::make_unexpected(loaded.error());

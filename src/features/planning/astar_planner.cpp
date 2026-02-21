@@ -244,13 +244,13 @@ auto tryRelaxNeighbor(const types::MapData &map, const ICollisionChecker &checke
 
 } // namespace
 
-AStarPlanner::AStarPlanner(const ICollisionChecker &collisionChecker)
-    : collisionChecker_{collisionChecker} {}
+AStarPlanner::AStarPlanner(std::unique_ptr<ICollisionChecker> collisionChecker)
+    : collisionChecker_{std::move(collisionChecker)} {}
 
 auto AStarPlanner::plan(const types::MapData &map, const types::Pose &start,
                         const types::Pose &goal, const types::Footprint &footprint) const
     -> Result<types::Path> {
-  const auto startGoal = validateInputs(map, collisionChecker_.get(), footprint, start, goal);
+  const auto startGoal = validateInputs(map, *collisionChecker_, footprint, start, goal);
   if (!startGoal) {
     return tl::make_unexpected(startGoal.error());
   }
@@ -259,7 +259,7 @@ auto AStarPlanner::plan(const types::MapData &map, const types::Pose &start,
     return types::Path{startGoal->startCenter};
   }
 
-  const auto previous = computePrevious(map, collisionChecker_.get(), footprint, *startGoal);
+  const auto previous = computePrevious(map, *collisionChecker_, footprint, *startGoal);
   if (!previous) {
     return tl::make_unexpected(previous.error());
   }

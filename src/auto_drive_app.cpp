@@ -81,8 +81,7 @@ auto main(int argc, char **argv) -> int {
     fmt::print(stderr, "Planner create error: {}\n", plannerResult.error().message);
     return 1;
   }
-  auto plannerComponents = std::move(*plannerResult);
-  auto &planner = plannerComponents.planner;
+  auto planner = std::move(*plannerResult);
   const auto pathResult = planner->plan(map, start, goal, footprint);
   if (!pathResult) {
     fmt::print(stderr, "Planning error: {}\n", pathResult.error().message);

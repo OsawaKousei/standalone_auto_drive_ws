@@ -13,14 +13,9 @@
 
 namespace ad::planning {
 
-struct PlannerComponents {
-  std::unique_ptr<ICollisionChecker> collisionChecker;
-  std::unique_ptr<IPlanner> planner;
-};
-
 [[nodiscard]] auto createPlannerFromConfig(std::string_view algorithm, const types::MapData &map,
                                            const types::Footprint &footprint,
                                            const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<PlannerComponents>;
+    -> Result<std::unique_ptr<IPlanner>>;
 
 } // namespace ad::planning

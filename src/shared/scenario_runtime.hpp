@@ -55,7 +55,7 @@ struct ScenarioConfig {
     -> Result<std::unique_ptr<localization::ILocalizer>>;
 [[nodiscard]] auto createPlanner(const ScenarioConfig &scenario, const types::MapData &map,
                                  const types::Footprint &footprint)
-    -> Result<planning::PlannerComponents>;
+    -> Result<std::unique_ptr<planning::IPlanner>>;
 [[nodiscard]] auto createController(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<control::IController>>;
 [[nodiscard]] auto createSensor(const ScenarioConfig &scenario)
