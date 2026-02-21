@@ -53,9 +53,9 @@ auto createPlannerFromConfig(std::string_view algorithm, const types::MapData &m
 
   std::unique_ptr<IPlanner> planner;
   if (algorithm == "astar") {
-    planner = std::unique_ptr<IPlanner>{new AStarPlanner{std::move(collisionChecker)}};
+    planner = std::make_unique<AStarPlanner>(std::move(collisionChecker));
   } else if (algorithm == "dijkstra") {
-    planner = std::unique_ptr<IPlanner>{new DijkstraPlanner{std::move(collisionChecker)}};
+    planner = std::make_unique<DijkstraPlanner>(std::move(collisionChecker));
   } else {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,

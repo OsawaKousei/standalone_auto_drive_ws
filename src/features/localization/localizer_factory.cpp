@@ -199,8 +199,7 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
     return tl::make_unexpected(localizer.error());
   }
 
-  auto derived = std::move(*localizer);
-  std::unique_ptr<ILocalizer> base{derived.release()};
+  std::unique_ptr<ILocalizer> base = std::move(*localizer);
   return base;
 }
 

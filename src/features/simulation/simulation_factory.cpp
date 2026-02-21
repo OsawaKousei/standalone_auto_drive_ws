@@ -118,7 +118,7 @@ auto createSensorFromConfig(std::string_view algorithm,
     return tl::make_unexpected(configValue.error());
   }
 
-  return std::unique_ptr<ISensorModel>{new LidarSim{*configValue}};
+  return std::make_unique<LidarSim>(*configValue);
 }
 
 auto createPhysicsFromConfig(std::string_view algorithm,
@@ -135,7 +135,7 @@ auto createPhysicsFromConfig(std::string_view algorithm,
     return tl::make_unexpected(configValue.error());
   }
 
-  return std::unique_ptr<IPhysicsModel>{new UnicycleModel{*configValue}};
+  return std::make_unique<UnicycleModel>(*configValue);
 }
 
 } // namespace ad::simulation

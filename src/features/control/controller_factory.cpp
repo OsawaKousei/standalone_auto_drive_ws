@@ -53,7 +53,7 @@ auto createControllerFromConfig(std::string_view algorithm,
     return tl::make_unexpected(configValue.error());
   }
 
-  return std::unique_ptr<IController>{new PurePursuitController{*configValue}};
+  return std::make_unique<PurePursuitController>(*configValue);
 }
 
 } // namespace ad::control

@@ -111,7 +111,8 @@ auto loadTextConfig(std::string_view path) -> Result<TextConfig> {
   auto file = std::ifstream{std::string{path}};
   if (!file.is_open()) {
     return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "Failed to open config file."});
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Failed to open config file: " + std::string{path}});
   }
 
   auto config = TextConfig{};
