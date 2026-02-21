@@ -9,6 +9,14 @@ namespace ad::localization {
 
 namespace {
 
+[[nodiscard]] auto makeDefaultInitialCovariance() -> CovarianceMatrix {
+  CovarianceMatrix covariance = CovarianceMatrix::Zero();
+  covariance(0, 0) = 0.5;
+  covariance(1, 1) = 0.5;
+  covariance(2, 2) = 0.2;
+  return covariance;
+}
+
 [[nodiscard]] auto parseEkfConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<EkfLocalizerConfig> {
   const auto configValue = config::ekfLocalizerDefaultConfig();
@@ -128,6 +136,49 @@ namespace {
 }
 
 } // namespace
+
+auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<CovarianceMatrix> {
+  auto covariance = makeDefaultInitialCovariance();
+  if (!configDoc.has_value()) {
+    return covariance;
+  }
+
+  const auto &cfg = *configDoc;
+  const auto readDiagonal = [&](std::string_view key, int index) -> Result<void> {
+    const auto raw = cfg.findRaw("initial_covariance", key);
+    if (!raw) {
+      return {};
+    }
+    const auto parsed = ::ad::config::parseDoubleValue(*raw);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    covariance(index, index) = *parsed;
+    return {};
+  };
+
+  const auto xxStatus = readDiagonal("xx", 0);
+  if (!xxStatus) {
+    return tl::make_unexpected(xxStatus.error());
+  }
+  const auto yyStatus = readDiagonal("yy", 1);
+  if (!yyStatus) {
+    return tl::make_unexpected(yyStatus.error());
+  }
+  const auto ttStatus = readDiagonal("tt", 2);
+  if (!ttStatus) {
+    return tl::make_unexpected(ttStatus.error());
+  }
+
+  if (covariance(0, 0) <= 0.0 || covariance(1, 1) <= 0.0 || covariance(2, 2) <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "initial_covariance diagonal entries must be positive."});
+  }
+
+  return covariance;
+}
 
 auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData &map,
                                const std::optional<::ad::config::TextConfig> &configDoc)

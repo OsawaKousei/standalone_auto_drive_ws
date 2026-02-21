@@ -30,11 +30,6 @@ max_abs_angular = 2.5
 max_translation_step = 0.05
 max_rotation_step = 0.05
 
-[localization.initial_covariance]
-xx = 0.5
-yy = 0.5
-tt = 0.2
-
 [localization]
 algorithm = "ekf"
 config_path = "localization/ekf.toml"

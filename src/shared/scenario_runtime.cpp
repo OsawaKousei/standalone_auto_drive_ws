@@ -36,14 +36,6 @@ constexpr auto kDefaultMaxAbsAngular = 2.5;
   return types::Footprint{{{-0.2, -0.1}, {0.3, -0.1}, {0.3, 0.1}, {-0.2, 0.1}}};
 }
 
-[[nodiscard]] auto makeDefaultInitialCovariance() -> localization::CovarianceMatrix {
-  localization::CovarianceMatrix covariance = localization::CovarianceMatrix::Zero();
-  covariance(0, 0) = 0.5;
-  covariance(1, 1) = 0.5;
-  covariance(2, 2) = 0.2;
-  return covariance;
-}
-
 [[nodiscard]] auto requiredRaw(const config::TextConfig &cfg, std::string_view section,
                                std::string_view key) -> Result<std::string_view> {
   const auto value = cfg.findRaw(section, key);
@@ -289,43 +281,6 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
                                           .maxRotationStep = maxRotationStepValue};
 }
 
-[[nodiscard]] auto parseInitialCovariance(const config::TextConfig &cfg)
-    -> Result<localization::CovarianceMatrix> {
-  auto covariance = makeDefaultInitialCovariance();
-
-  const auto xx = optionalDouble(cfg, "localization.initial_covariance", "xx");
-  if (!xx) {
-    return tl::make_unexpected(xx.error());
-  }
-  if (xx->has_value()) {
-    covariance(0, 0) = **xx;
-  }
-
-  const auto yy = optionalDouble(cfg, "localization.initial_covariance", "yy");
-  if (!yy) {
-    return tl::make_unexpected(yy.error());
-  }
-  if (yy->has_value()) {
-    covariance(1, 1) = **yy;
-  }
-
-  const auto tt = optionalDouble(cfg, "localization.initial_covariance", "tt");
-  if (!tt) {
-    return tl::make_unexpected(tt.error());
-  }
-  if (tt->has_value()) {
-    covariance(2, 2) = **tt;
-  }
-
-  if (covariance(0, 0) <= 0.0 || covariance(1, 1) <= 0.0 || covariance(2, 2) <= 0.0) {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "localization.initial_covariance must be positive."});
-  }
-
-  return covariance;
-}
-
 [[nodiscard]] auto resolvePath(std::string_view baseDir, std::string_view path) -> std::string {
   const auto candidate = std::filesystem::path{std::string{path}};
   if (candidate.is_absolute()) {
@@ -396,15 +351,37 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
     return tl::make_unexpected(collision.error());
   }
 
-  const auto initialCovariance = parseInitialCovariance(cfg);
-  if (!initialCovariance) {
-    return tl::make_unexpected(initialCovariance.error());
-  }
-
   const auto localizationSpec = parseAlgorithmSpec(cfg, "localization", "ekf");
   if (!localizationSpec) {
     return tl::make_unexpected(localizationSpec.error());
   }
+  const auto scenarioPathFs = std::filesystem::path{std::string{scenarioPath}};
+  const auto baseDir = scenarioPathFs.parent_path().empty() ? std::filesystem::path{"."}
+                                                            : scenarioPathFs.parent_path();
+  const auto provisionalScenario = ScenarioConfig{
+      .name = scenarioName->value_or("scenario"),
+      .baseDir = baseDir.lexically_normal().string(),
+      .mapYamlPath = *mapYamlPath,
+      .footprint = *footprint,
+      .start = *start,
+      .goal = *goal,
+      .runtime = *runtime,
+      .collision = *collision,
+      .initialCovariance = localization::CovarianceMatrix::Identity(),
+      .localization = *localizationSpec,
+      .planning = AlgorithmSpec{.algorithm = "astar", .configPath = std::nullopt},
+      .control = AlgorithmSpec{.algorithm = "pure_pursuit", .configPath = std::nullopt},
+      .sensor = AlgorithmSpec{.algorithm = "lidar", .configPath = std::nullopt},
+      .physics = AlgorithmSpec{.algorithm = "unicycle", .configPath = std::nullopt}};
+  const auto localizationDoc = loadIfExists(provisionalScenario, localizationSpec->configPath);
+  if (!localizationDoc) {
+    return tl::make_unexpected(localizationDoc.error());
+  }
+  const auto initialCovariance = localization::parseInitialCovarianceFromConfig(*localizationDoc);
+  if (!initialCovariance) {
+    return tl::make_unexpected(initialCovariance.error());
+  }
+
   const auto planningSpec = parseAlgorithmSpec(cfg, "planning", "astar");
   if (!planningSpec) {
     return tl::make_unexpected(planningSpec.error());
@@ -421,10 +398,6 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
   if (!physicsSpec) {
     return tl::make_unexpected(physicsSpec.error());
   }
-
-  const auto scenarioPathFs = std::filesystem::path{std::string{scenarioPath}};
-  const auto baseDir = scenarioPathFs.parent_path().empty() ? std::filesystem::path{"."}
-                                                            : scenarioPathFs.parent_path();
 
   return ScenarioConfig{.name = scenarioName->value_or("scenario"),
                         .baseDir = baseDir.lexically_normal().string(),

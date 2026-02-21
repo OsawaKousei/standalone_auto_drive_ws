@@ -16,4 +16,8 @@ createLocalizerFromConfig(std::string_view algorithm, const types::MapData &map,
                           const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<std::unique_ptr<ILocalizer>>;
 
+[[nodiscard]] auto
+parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<CovarianceMatrix>;
+
 } // namespace ad::localization
