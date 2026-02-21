@@ -14,6 +14,7 @@ class TextConfig {
 public:
   using Section = std::unordered_map<std::string, std::string>;
 
+  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   [[nodiscard]] auto findRaw(std::string_view section, std::string_view key) const
       -> std::optional<std::string_view>;
   auto setValue(std::string_view section, std::string_view key, std::string value) -> void;

@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace ad::config {
@@ -26,21 +27,21 @@ namespace {
 [[nodiscard]] auto stripComment(std::string_view line) -> std::string {
   auto output = std::string{};
   auto quote = char{0};
-  for (const auto ch : line) {
-    if (quote == 0 && (ch == '"' || ch == '\'')) {
-      quote = ch;
-      output.push_back(ch);
+  for (const auto character : line) {
+    if (quote == 0 && (character == '"' || character == '\'')) {
+      quote = character;
+      output.push_back(character);
       continue;
     }
-    if (quote != 0 && ch == quote) {
+    if (quote != 0 && character == quote) {
       quote = 0;
-      output.push_back(ch);
+      output.push_back(character);
       continue;
     }
-    if (quote == 0 && ch == '#') {
+    if (quote == 0 && character == '#') {
       break;
     }
-    output.push_back(ch);
+    output.push_back(character);
   }
   return output;
 }
@@ -48,25 +49,89 @@ namespace {
 [[nodiscard]] auto bracketDepthDelta(std::string_view value) -> int {
   auto depth = 0;
   auto quote = char{0};
-  for (const auto ch : value) {
-    if (quote == 0 && (ch == '"' || ch == '\'')) {
-      quote = ch;
+  for (const auto character : value) {
+    if (quote == 0 && (character == '"' || character == '\'')) {
+      quote = character;
       continue;
     }
-    if (quote != 0 && ch == quote) {
+    if (quote != 0 && character == quote) {
       quote = 0;
       continue;
     }
     if (quote != 0) {
       continue;
     }
-    if (ch == '[') {
+    if (character == '[') {
       ++depth;
-    } else if (ch == ']') {
+    } else if (character == ']') {
       --depth;
     }
   }
   return depth;
+}
+
+[[nodiscard]] auto tryParseSectionLine(std::string_view content) -> std::optional<std::string> {
+  if (content.front() != '[' || content.back() != ']') {
+    return std::nullopt;
+  }
+  return std::string{trim(content.substr(1, content.size() - 2U))};
+}
+
+[[nodiscard]] auto parseAssignment(std::string_view content)
+    -> Result<std::pair<std::string, std::string>> {
+  const auto separator = content.find('=');
+  if (separator == std::string_view::npos) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Invalid config assignment line: " + std::string{content}});
+  }
+
+  const auto key = std::string{trim(content.substr(0, separator))};
+  if (key.empty()) {
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Config key is empty: " + std::string{content}});
+  }
+
+  auto rawValue = std::string{trim(content.substr(separator + 1))};
+  return std::make_pair(key, rawValue);
+}
+
+auto readLineOrError(std::ifstream &file, std::string &line) -> Result<void> {
+  if (std::getline(file, line)) {
+    return {};
+  }
+  return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                   .message = "Unterminated array value in config file."});
+}
+
+auto extendMultilineArrayValue(std::ifstream &file, std::string &rawValue) -> Result<void> {
+  if (trim(rawValue) == "[") {
+    for (;;) {
+      auto continuation = std::string{};
+      if (const auto status = readLineOrError(file, continuation); !status) {
+        return tl::make_unexpected(status.error());
+      }
+      const auto trimmed = trim(stripComment(continuation));
+      rawValue += "\n";
+      rawValue += std::string{trimmed};
+      if (trimmed == "]") {
+        return {};
+      }
+    }
+  }
+
+  auto depth = bracketDepthDelta(rawValue);
+  while (depth > 0) {
+    auto continuation = std::string{};
+    if (const auto status = readLineOrError(file, continuation); !status) {
+      return tl::make_unexpected(status.error());
+    }
+    const auto trimmed = trim(stripComment(continuation));
+    rawValue += "\n";
+    rawValue += std::string{trimmed};
+    depth += bracketDepthDelta(trimmed);
+  }
+  return {};
 }
 
 [[nodiscard]] auto parseFloating(std::string_view raw) -> Result<double> {
@@ -89,6 +154,7 @@ namespace {
 
 } // namespace
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto TextConfig::findRaw(std::string_view section, std::string_view key) const
     -> std::optional<std::string_view> {
   const auto sectionIt = sections_.find(std::string{section});
@@ -120,58 +186,24 @@ auto loadTextConfig(std::string_view path) -> Result<TextConfig> {
 
   for (std::string line; std::getline(file, line);) {
     const auto withoutComment = stripComment(line);
-    auto content = trim(withoutComment);
+    const auto content = trim(withoutComment);
     if (content.empty()) {
       continue;
     }
 
-    if (content.front() == '[' && content.back() == ']') {
-      currentSection = std::string{trim(content.substr(1, content.size() - 2U))};
+    if (const auto parsedSection = tryParseSectionLine(content); parsedSection.has_value()) {
+      currentSection = *parsedSection;
       continue;
     }
 
-    const auto separator = content.find('=');
-    if (separator == std::string_view::npos) {
-      return tl::make_unexpected(
-          Error{.code = ErrorCode::InvalidInput,
-                .message = "Invalid config assignment line: " + std::string{content}});
+    auto parsedAssignment = parseAssignment(content);
+    if (!parsedAssignment) {
+      return tl::make_unexpected(parsedAssignment.error());
     }
+    auto [key, rawValue] = std::move(*parsedAssignment);
 
-    const auto key = trim(content.substr(0, separator));
-    auto rawValue = std::string{trim(content.substr(separator + 1))};
-
-    if (trim(rawValue) == "[") {
-      for (;;) {
-        auto continuation = std::string{};
-        if (!std::getline(file, continuation)) {
-          return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                           .message = "Unterminated array value in config file."});
-        }
-        const auto trimmed = trim(stripComment(continuation));
-        rawValue += "\n";
-        rawValue += std::string{trimmed};
-        if (trimmed == "]") {
-          break;
-        }
-      }
-    } else {
-      auto depth = bracketDepthDelta(rawValue);
-      while (depth > 0) {
-        auto continuation = std::string{};
-        if (!std::getline(file, continuation)) {
-          return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                           .message = "Unterminated array value in config file."});
-        }
-        const auto trimmed = trim(stripComment(continuation));
-        rawValue += "\n";
-        rawValue += std::string{trimmed};
-        depth += bracketDepthDelta(trimmed);
-      }
-    }
-
-    if (key.empty()) {
-      return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                       .message = "Config key is empty: " + std::string{content}});
+    if (const auto status = extendMultilineArrayValue(file, rawValue); !status) {
+      return tl::make_unexpected(status.error());
     }
 
     config.setValue(currentSection, key, rawValue);
@@ -189,7 +221,7 @@ auto parseQuotedString(std::string_view raw) -> Result<std::string> {
 
   const auto first = value.front();
   const auto last = value.back();
-  if (!((first == '"' && last == '"') || (first == '\'' && last == '\''))) {
+  if (first != last || (first != '"' && first != '\'')) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "String value must be quoted."});
   }
@@ -239,12 +271,12 @@ auto parseArrayFlat(std::string_view raw) -> Result<std::vector<double>> {
   auto numbers = std::vector<double>{};
   auto token = std::string{};
   auto quote = char{0};
-  for (const auto ch : value) {
-    if (quote == 0 && (ch == '"' || ch == '\'')) {
-      quote = ch;
+  for (const auto character : value) {
+    if (quote == 0 && (character == '"' || character == '\'')) {
+      quote = character;
       continue;
     }
-    if (quote != 0 && ch == quote) {
+    if (quote != 0 && character == quote) {
       quote = 0;
       continue;
     }
@@ -252,11 +284,12 @@ auto parseArrayFlat(std::string_view raw) -> Result<std::vector<double>> {
       continue;
     }
 
-    const auto isNumericChar = std::isdigit(static_cast<unsigned char>(ch)) != 0 || ch == '-' ||
-                               ch == '+' || ch == '.' || ch == 'e' || ch == 'E';
+    const auto isNumericChar = std::isdigit(static_cast<unsigned char>(character)) != 0 ||
+                               character == '-' || character == '+' || character == '.' ||
+                               character == 'e' || character == 'E';
 
     if (isNumericChar) {
-      token.push_back(ch);
+      token.push_back(character);
       continue;
     }
 

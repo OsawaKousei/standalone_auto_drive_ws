@@ -24,15 +24,17 @@ ExtraArgs:
 CheckOptions:
   # 命名規則の設定
   - key: readability-identifier-naming.ClassCase
-    value: PascalCase
+    value: CamelCase
   - key: readability-identifier-naming.StructCase
-    value: PascalCase
+    value: CamelCase
   - key: readability-identifier-naming.FunctionCase
-    value: camelCase
+    value: camelBack
   - key: readability-identifier-naming.VariableCase
-    value: camelCase
+    value: camelBack
   - key: readability-identifier-naming.GlobalConstantCase
-    value: kPascalCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: k
   - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
 
