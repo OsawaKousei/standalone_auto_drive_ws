@@ -1,6 +1,7 @@
 #include "simulation_factory.hpp"
 
 #include "lidar_sim.hpp"
+#include "odometry_sensor.hpp"
 #include "unicycle_model.hpp"
 
 namespace ad::simulation {
@@ -102,15 +103,68 @@ namespace {
                              .maxAngularSpeed = maxAngularSpeedValue};
 }
 
+[[nodiscard]] auto parseOdometryConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<OdometrySensorConfig> {
+  auto forwardNoiseStddevValue = config::kDefaultForwardNoiseStddev;
+  auto lateralNoiseStddevValue = config::kDefaultLateralNoiseStddev;
+  auto thetaNoiseStddevValue = config::kDefaultThetaNoiseStddev;
+  auto seedValue = config::kDefaultSeed;
+  if (!configDoc.has_value()) {
+    return config::odometryDefaultConfig();
+  }
+
+  const auto &cfg = *configDoc;
+  const auto forwardNoiseStddev = cfg.findRaw("", "forward_noise_stddev");
+  if (forwardNoiseStddev) {
+    const auto parsed = ::ad::config::parseDoubleValue(*forwardNoiseStddev);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    forwardNoiseStddevValue = *parsed;
+  }
+
+  const auto lateralNoiseStddev = cfg.findRaw("", "lateral_noise_stddev");
+  if (lateralNoiseStddev) {
+    const auto parsed = ::ad::config::parseDoubleValue(*lateralNoiseStddev);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    lateralNoiseStddevValue = *parsed;
+  }
+
+  const auto thetaNoiseStddev = cfg.findRaw("", "theta_noise_stddev");
+  if (thetaNoiseStddev) {
+    const auto parsed = ::ad::config::parseDoubleValue(*thetaNoiseStddev);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    thetaNoiseStddevValue = *parsed;
+  }
+
+  const auto seed = cfg.findRaw("", "seed");
+  if (seed) {
+    const auto parsed = ::ad::config::parseIntValue(*seed);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    seedValue = *parsed;
+  }
+
+  return OdometrySensorConfig{.forwardNoiseStddev = forwardNoiseStddevValue,
+                              .lateralNoiseStddev = lateralNoiseStddevValue,
+                              .thetaNoiseStddev = thetaNoiseStddevValue,
+                              .seed = seedValue};
+}
+
 } // namespace
 
-auto createSensorFromConfig(std::string_view algorithm,
-                            const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<std::unique_ptr<ISensorModel>> {
+auto createLidarSensorFromConfig(std::string_view algorithm,
+                                 const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::unique_ptr<ILidarSensor>> {
   if (algorithm != "lidar") {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported sensor algorithm: " + std::string{algorithm}});
+              .message = "Unsupported lidar sensor algorithm: " + std::string{algorithm}});
   }
 
   const auto configValue = parseLidarConfig(configDoc);
@@ -119,6 +173,23 @@ auto createSensorFromConfig(std::string_view algorithm,
   }
 
   return std::make_unique<LidarSim>(*configValue);
+}
+
+auto createOdometrySensorFromConfig(std::string_view algorithm,
+                                    const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::unique_ptr<IOdometrySensor>> {
+  if (algorithm != "odometry") {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Unsupported odometry sensor algorithm: " + std::string{algorithm}});
+  }
+
+  const auto configValue = parseOdometryConfig(configDoc);
+  if (!configValue) {
+    return tl::make_unexpected(configValue.error());
+  }
+
+  return std::make_unique<OdometrySensor>(*configValue);
 }
 
 auto createPhysicsFromConfig(std::string_view algorithm,

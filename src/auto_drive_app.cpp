@@ -1,8 +1,12 @@
 #include "features/simulation/collision_checker.hpp"
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
+#endif
 #include "features/visualization/visualizer.hpp"
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
 #include "shared/scenario_runtime.hpp"
@@ -29,6 +33,8 @@ constexpr auto kAnglePeriod =
     std::numbers::pi; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 constexpr auto kLogPrecision =
     8; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+constexpr auto kLidarScheduleEpsilon =
+    1.0e-12; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
   angle = std::fmod(angle + std::numbers::pi, kAnglePeriod);
@@ -128,12 +134,19 @@ auto main(int argc, char **argv) -> int {
   }
   auto controller = std::move(*controllerResult);
 
-  auto sensorResult = ad::scenario::createSensor(scenario);
-  if (!sensorResult) {
-    fmt::print(stderr, "Sensor create error: {}\n", sensorResult.error().message);
+  auto lidarSensorResult = ad::scenario::createLidarSensor(scenario);
+  if (!lidarSensorResult) {
+    fmt::print(stderr, "Lidar sensor create error: {}\n", lidarSensorResult.error().message);
     return 1;
   }
-  auto sensor = std::move(*sensorResult);
+  auto lidarSensor = std::move(*lidarSensorResult);
+
+  auto odometrySensorResult = ad::scenario::createOdometrySensor(scenario);
+  if (!odometrySensorResult) {
+    fmt::print(stderr, "Odometry sensor create error: {}\n", odometrySensorResult.error().message);
+    return 1;
+  }
+  auto odometrySensor = std::move(*odometrySensorResult);
 
   auto physicsResult = ad::scenario::createPhysics(scenario);
   if (!physicsResult) {
@@ -146,7 +159,8 @@ auto main(int argc, char **argv) -> int {
 
   auto trueState = std::optional<ad::simulation::MotionState>{
       ad::simulation::MotionState{.pose = start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
-  const auto deltaT = scenario.runtime.deltaT;
+  const auto odometryDeltaT = scenario.runtime.odometryDeltaT;
+  const auto lidarDeltaT = scenario.runtime.lidarDeltaT;
   const auto kGoalTolerance = scenario.runtime.goalTolerance;
   const auto kFrameDelay = std::chrono::milliseconds{scenario.runtime.frameDelayMs};
   const auto kMaxSteps = scenario.runtime.maxSteps;
@@ -167,17 +181,19 @@ auto main(int argc, char **argv) -> int {
   }
   logFile << std::fixed << std::setprecision(ad::demo::kLogPrecision);
   logFile << "# localization_control_lidar_demo log\n";
-  logFile << "# dt=" << deltaT << ", goal_tolerance=" << kGoalTolerance
-          << ", max_steps=" << kMaxSteps << "\n";
+  logFile << "# odometry_dt=" << odometryDeltaT << ", lidar_dt=" << lidarDeltaT
+          << ", goal_tolerance=" << kGoalTolerance << ", max_steps=" << kMaxSteps << "\n";
   logFile << "# footprint=" << ad::demo::serializePoints(footprint.vertices) << "\n";
   logFile << "# path=" << ad::demo::serializePoints(std::span{*pathResult}) << "\n";
   logFile << "# columns: "
              "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,scan_points\n";
+             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
   logFile << "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,scan_points\n";
+             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
 
   auto failure = std::optional<ad::Error>{};
+  auto lidarElapsed = 0.0;
+  auto lastScan = std::optional<ad::types::LidarScan>{};
 
   {
     const auto frameStatus = viz.renderFrame(preparedMap);
@@ -234,70 +250,10 @@ auto main(int argc, char **argv) -> int {
         const auto appliedCommand = ad::types::Twist{
             .v = scaledV, .w = std::clamp(scaledW, -kMaxAbsAngular, kMaxAbsAngular)};
 
-        const auto predictStatus = localizer->predict(appliedCommand, deltaT);
-        if (!predictStatus) {
-          failure.emplace(predictStatus.error());
-          return true;
-        }
-
-        const auto scanResult = sensor->simulate(map, trueState->pose);
-        if (!scanResult) {
-          failure.emplace(scanResult.error());
-          return true;
-        }
-        const auto scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
-
-        const auto updateStatus = localizer->update(*scanResult, map);
-        if (!updateStatus) {
-          failure.emplace(updateStatus.error());
-          return true;
-        }
-
-        const auto updatedEstimate = localizer->estimate();
-        if (!updatedEstimate) {
-          failure.emplace(updatedEstimate.error());
-          return true;
-        }
-
-        const auto deltaX = updatedEstimate->pose.x - trueState->pose.x;
-        const auto deltaY = updatedEstimate->pose.y - trueState->pose.y;
-        const auto positionError = std::hypot(deltaX, deltaY);
-        const auto headingError =
-            std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
         const auto distanceBefore =
             std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
 
-        const auto frameStatus = viz.renderFrame(preparedMap);
-        if (!frameStatus) {
-          failure.emplace(frameStatus.error());
-          return true;
-        }
-
-        const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
-        if (!pathStatus) {
-          failure.emplace(pathStatus.error());
-          return true;
-        }
-
-        const auto scanStatus = viz.renderScan(trueState->pose, *scanResult, mapGeometry);
-        if (!scanStatus) {
-          failure.emplace(scanStatus.error());
-          return true;
-        }
-
-        const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
-        if (!robotStatus) {
-          failure.emplace(robotStatus.error());
-          return true;
-        }
-
-        const auto presentStatus = viz.presentFrame();
-        if (!presentStatus) {
-          failure.emplace(presentStatus.error());
-          return true;
-        }
-
-        const auto nextState = physics->propagate(*trueState, appliedCommand, deltaT);
+        const auto nextState = physics->propagate(*trueState, appliedCommand, odometryDeltaT);
         if (!nextState) {
           failure.emplace(nextState.error());
           return true;
@@ -315,8 +271,86 @@ auto main(int argc, char **argv) -> int {
           return true;
         }
 
+        const auto odometryDelta = odometrySensor->measure(trueState->pose, nextState->pose);
+        if (!odometryDelta) {
+          failure.emplace(odometryDelta.error());
+          return true;
+        }
+
+        const auto predictStatus = localizer->predictOdometry(*odometryDelta);
+        if (!predictStatus) {
+          failure.emplace(predictStatus.error());
+          return true;
+        }
+
         trueState.emplace(
             ad::simulation::MotionState{.pose = nextState->pose, .twist = nextState->twist});
+
+        auto lidarUpdated = false;
+        auto scanPoints = std::vector<ad::types::Point>{};
+        lidarElapsed += odometryDeltaT;
+        if (lidarElapsed + ad::demo::kLidarScheduleEpsilon >= lidarDeltaT) {
+          const auto scanResult = lidarSensor->simulate(map, trueState->pose);
+          if (!scanResult) {
+            failure.emplace(scanResult.error());
+            return true;
+          }
+
+          const auto updateStatus = localizer->update(*scanResult, map);
+          if (!updateStatus) {
+            failure.emplace(updateStatus.error());
+            return true;
+          }
+
+          lastScan.emplace(*scanResult);
+          scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
+          lidarUpdated = true;
+          lidarElapsed = std::fmod(lidarElapsed, lidarDeltaT);
+        }
+
+        const auto updatedEstimate = localizer->estimate();
+        if (!updatedEstimate) {
+          failure.emplace(updatedEstimate.error());
+          return true;
+        }
+
+        const auto deltaX = updatedEstimate->pose.x - trueState->pose.x;
+        const auto deltaY = updatedEstimate->pose.y - trueState->pose.y;
+        const auto positionError = std::hypot(deltaX, deltaY);
+        const auto headingError =
+            std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
+
+        const auto frameStatus = viz.renderFrame(preparedMap);
+        if (!frameStatus) {
+          failure.emplace(frameStatus.error());
+          return true;
+        }
+
+        const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
+        if (!pathStatus) {
+          failure.emplace(pathStatus.error());
+          return true;
+        }
+
+        if (lastScan.has_value()) {
+          const auto scanStatus = viz.renderScan(trueState->pose, *lastScan, mapGeometry);
+          if (!scanStatus) {
+            failure.emplace(scanStatus.error());
+            return true;
+          }
+        }
+
+        const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
+        if (!robotStatus) {
+          failure.emplace(robotStatus.error());
+          return true;
+        }
+
+        const auto presentStatus = viz.presentFrame();
+        if (!presentStatus) {
+          failure.emplace(presentStatus.error());
+          return true;
+        }
 
         const auto distanceAfter =
             std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
@@ -326,7 +360,9 @@ auto main(int argc, char **argv) -> int {
                 << ',' << trueState->pose.y << ',' << trueState->pose.theta << ','
                 << updatedEstimate->pose.x << ',' << updatedEstimate->pose.y << ','
                 << updatedEstimate->pose.theta << ',' << appliedCommand.v << ',' << appliedCommand.w
-                << ',' << ad::demo::serializePoints(scanPoints) << '\n';
+                << ',' << (lidarUpdated ? 1 : 0) << ',' << odometryDelta->deltaForward << ','
+                << odometryDelta->deltaLateral << ',' << odometryDelta->deltaTheta << ','
+                << ad::demo::serializePoints(scanPoints) << '\n';
 
         std::this_thread::sleep_for(kFrameDelay);
         return distanceAfter <= kGoalTolerance;

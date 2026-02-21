@@ -23,7 +23,7 @@ public:
   auto operator=(ILocalizer &&) -> ILocalizer & = delete;
   [[nodiscard]] virtual auto reset(const types::Pose &initialPose,
                                    const CovarianceMatrix &initialCovariance) -> Status = 0;
-  [[nodiscard]] virtual auto predict(const types::Twist &control, double deltaT) -> Status = 0;
+  [[nodiscard]] virtual auto predictOdometry(const types::OdometryDelta &delta) -> Status = 0;
   [[nodiscard]] virtual auto update(const types::LidarScan &scan, const types::MapData &map)
       -> Status = 0;
   [[nodiscard]] virtual auto estimate() const -> Result<LocalizerEstimate> = 0;

@@ -7,6 +7,7 @@
 #include "../features/simulation/collision_checker.hpp"
 #include "../features/simulation/i_physics.hpp"
 #include "../features/simulation/i_sensor.hpp"
+#include "../features/simulation/odometry_sensor.hpp"
 #include "result.hpp"
 #include "text_config.hpp"
 #include "types.hpp"
@@ -25,7 +26,8 @@ struct AlgorithmSpec {
 };
 
 struct RuntimeConfig {
-  const double deltaT;
+  const double odometryDeltaT;
+  const double lidarDeltaT;
   const int maxSteps;
   const double goalTolerance;
   const int frameDelayMs;
@@ -38,7 +40,8 @@ struct AlgorithmConfigDocs {
   const std::optional<config::TextConfig> localization;
   const std::optional<config::TextConfig> planning;
   const std::optional<config::TextConfig> control;
-  const std::optional<config::TextConfig> sensor;
+  const std::optional<config::TextConfig> lidarSensor;
+  const std::optional<config::TextConfig> odometrySensor;
   const std::optional<config::TextConfig> physics;
 };
 
@@ -55,7 +58,8 @@ struct ScenarioConfig {
   const AlgorithmSpec localization;
   const AlgorithmSpec planning;
   const AlgorithmSpec control;
-  const AlgorithmSpec sensor;
+  const AlgorithmSpec lidarSensor;
+  const AlgorithmSpec odometrySensor;
   const AlgorithmSpec physics;
   const AlgorithmConfigDocs algorithmConfigDocs;
 };
@@ -68,8 +72,10 @@ struct ScenarioConfig {
     -> Result<std::unique_ptr<planning::IPlanner>>;
 [[nodiscard]] auto createController(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<control::IController>>;
-[[nodiscard]] auto createSensor(const ScenarioConfig &scenario)
-    -> Result<std::unique_ptr<simulation::ISensorModel>>;
+[[nodiscard]] auto createLidarSensor(const ScenarioConfig &scenario)
+    -> Result<std::unique_ptr<simulation::ILidarSensor>>;
+[[nodiscard]] auto createOdometrySensor(const ScenarioConfig &scenario)
+    -> Result<std::unique_ptr<simulation::IOdometrySensor>>;
 [[nodiscard]] auto createPhysics(const ScenarioConfig &scenario)
     -> Result<std::unique_ptr<simulation::IPhysicsModel>>;
 [[nodiscard]] auto resolvePath(const ScenarioConfig &scenario, std::string_view path)

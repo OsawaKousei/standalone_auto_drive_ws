@@ -30,7 +30,7 @@ constexpr double kDefaultRangeStep = 0.0;
 
 } // namespace config
 
-class LidarSim final : public ISensorModel {
+class LidarSim final : public ILidarSensor {
 public:
   explicit LidarSim(LidarSimConfig config = config::lidarDefaultConfig());
   [[nodiscard]] auto simulate(const types::MapData &map, const types::Pose &pose) const

@@ -44,6 +44,12 @@ struct LidarScan {
   const double maxRange;
 };
 
+struct OdometryDelta {
+  const double deltaForward;
+  const double deltaLateral;
+  const double deltaTheta;
+};
+
 using Path = std::vector<Point>;
 
 } // namespace ad::types

@@ -18,7 +18,8 @@ theta = 0.0
 vertices = [-0.2, -0.1, 0.3, -0.1, 0.3, 0.1, -0.2, 0.1]
 
 [simulation.runtime]
-delta_t = 0.2
+odometry_delta_t = 0.02
+lidar_delta_t = 0.2
 max_steps = 250
 goal_tolerance = 0.3
 frame_delay_ms = 80
@@ -42,9 +43,13 @@ config_path = "planning/astar.toml"
 algorithm = "pure_pursuit"
 config_path = "control/pure_pursuit.toml"
 
-[sensor]
+[lidar_sensor]
 algorithm = "lidar"
 config_path = "sensor/lidar.toml"
+
+[odometry_sensor]
+algorithm = "odometry"
+config_path = "sensor/odometry.toml"
 
 [physics]
 algorithm = "unicycle"

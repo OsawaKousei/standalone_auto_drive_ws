@@ -204,35 +204,38 @@ auto EkfLocalizer::reset(const types::Pose &initialPose, const CovarianceMatrix 
   return {};
 }
 
-auto EkfLocalizer::predict(const types::Twist &control, double deltaT) -> Status {
+auto EkfLocalizer::predictOdometry(const types::OdometryDelta &delta) -> Status {
   if (!hasState_) {
     return tl::make_unexpected(
         Error{ErrorCode::InvalidInput, "Localizer state is not initialized."});
   }
 
-  if (deltaT <= 0.0) {
-    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Delta time must be positive."});
+  if (!std::isfinite(delta.deltaForward) || !std::isfinite(delta.deltaLateral) ||
+      !std::isfinite(delta.deltaTheta)) {
+    return tl::make_unexpected(
+        Error{ErrorCode::InvalidInput, "Odometry delta values must be finite."});
   }
 
   const auto cosTheta = std::cos(state_.theta);
   const auto sinTheta = std::sin(state_.theta);
-  const auto deltaX = control.v * cosTheta * deltaT;
-  const auto deltaY = control.v * sinTheta * deltaT;
-  const auto deltaTheta = control.w * deltaT;
+  const auto deltaX = (delta.deltaForward * cosTheta) - (delta.deltaLateral * sinTheta);
+  const auto deltaY = (delta.deltaForward * sinTheta) + (delta.deltaLateral * cosTheta);
+  const auto deltaTheta = delta.deltaTheta;
 
   state_ = State{.x = state_.x + deltaX,
                  .y = state_.y + deltaY,
                  .theta = util::normalizeAngle(state_.theta + deltaTheta)};
 
-  const auto f02 = -control.v * sinTheta * deltaT;
-  const auto f12 = control.v * cosTheta * deltaT;
+  const auto f02 = (-delta.deltaForward * sinTheta) - (delta.deltaLateral * cosTheta);
+  const auto f12 = (delta.deltaForward * cosTheta) - (delta.deltaLateral * sinTheta);
 
   const Mat3 stateTransition = (Mat3() << 1.0, 0.0, f02, 0.0, 1.0, f12, 0.0, 0.0, 1.0).finished();
 
   Mat3 newCovariance = Mat3::Zero();
   newCovariance = stateTransition * covariance_ * stateTransition.transpose();
-  const auto qPos = config_.ekf.processNoiseTranslation * deltaT;
-  const auto qRot = config_.ekf.processNoiseRotation * deltaT;
+  const auto translationTravel = std::hypot(delta.deltaForward, delta.deltaLateral);
+  const auto qPos = config_.ekf.processNoiseTranslation * std::max(translationTravel, 1.0e-6);
+  const auto qRot = config_.ekf.processNoiseRotation * std::max(std::abs(deltaTheta), 1.0e-6);
   newCovariance(0, 0) += qPos;
   newCovariance(1, 1) += qPos;
   newCovariance(2, 2) += qRot;
@@ -276,7 +279,7 @@ auto EkfLocalizer::update(const types::LidarScan &scan, const types::MapData &ma
 
   const Eigen::MatrixXd innovationInv =
       innovationDecomp.solve(Eigen::MatrixXd::Identity(measurementData.size, measurementData.size));
-  Eigen::MatrixXd kalmanGain =
+  const Eigen::MatrixXd kalmanGain =
       covariance_ * measurementData.measurementMatrix.transpose() * innovationInv;
   const Eigen::Vector3d delta = kalmanGain * measurementData.residual;
 

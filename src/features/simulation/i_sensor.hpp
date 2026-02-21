@@ -7,14 +7,14 @@ namespace ad::simulation {
 
 using LidarScan = types::LidarScan;
 
-class ISensorModel {
+class ILidarSensor {
 public:
-  virtual ~ISensorModel() = default;
-  ISensorModel() = default;
-  ISensorModel(const ISensorModel &) = delete;
-  auto operator=(const ISensorModel &) -> ISensorModel & = delete;
-  ISensorModel(ISensorModel &&) = delete;
-  auto operator=(ISensorModel &&) -> ISensorModel & = delete;
+  virtual ~ILidarSensor() = default;
+  ILidarSensor() = default;
+  ILidarSensor(const ILidarSensor &) = delete;
+  auto operator=(const ILidarSensor &) -> ILidarSensor & = delete;
+  ILidarSensor(ILidarSensor &&) = delete;
+  auto operator=(ILidarSensor &&) -> ILidarSensor & = delete;
   [[nodiscard]] virtual auto simulate(const types::MapData &map, const types::Pose &pose) const
       -> Result<LidarScan> = 0;
 };

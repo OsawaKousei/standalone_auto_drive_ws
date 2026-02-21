@@ -2,6 +2,7 @@
 
 #include "i_physics.hpp"
 #include "i_sensor.hpp"
+#include "odometry_sensor.hpp"
 
 #include "../../shared/result.hpp"
 #include "../../shared/text_config.hpp"
@@ -12,9 +13,15 @@
 
 namespace ad::simulation {
 
-[[nodiscard]] auto createSensorFromConfig(std::string_view algorithm,
-                                          const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<std::unique_ptr<ISensorModel>>;
+[[nodiscard]] auto
+createLidarSensorFromConfig(std::string_view algorithm,
+                            const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::unique_ptr<ILidarSensor>>;
+
+[[nodiscard]] auto
+createOdometrySensorFromConfig(std::string_view algorithm,
+                               const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::unique_ptr<IOdometrySensor>>;
 
 [[nodiscard]] auto createPhysicsFromConfig(std::string_view algorithm,
                                            const std::optional<::ad::config::TextConfig> &configDoc)

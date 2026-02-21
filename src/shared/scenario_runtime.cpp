@@ -17,7 +17,8 @@ namespace ad::scenario {
 
 namespace {
 
-constexpr auto kDefaultDeltaT = 0.2;
+constexpr auto kDefaultOdometryDeltaT = 0.02;
+constexpr auto kDefaultLidarDeltaT = 0.2;
 constexpr auto kDefaultGoalTolerance = 0.3;
 constexpr auto kDefaultFrameDelayMs = 80;
 constexpr auto kDefaultMaxSteps = 250;
@@ -180,7 +181,8 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
 }
 
 [[nodiscard]] auto parseRuntimeConfig(const config::TextConfig &cfg) -> Result<RuntimeConfig> {
-  auto deltaTValue = kDefaultDeltaT;
+  auto odometryDeltaTValue = kDefaultOdometryDeltaT;
+  auto lidarDeltaTValue = kDefaultLidarDeltaT;
   auto maxStepsValue = kDefaultMaxSteps;
   auto goalToleranceValue = kDefaultGoalTolerance;
   auto frameDelayMsValue = kDefaultFrameDelayMs;
@@ -188,11 +190,17 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   auto minSpeedScaleValue = kDefaultMinSpeedScale;
   auto maxAbsAngularValue = kDefaultMaxAbsAngular;
 
-  const auto deltaT = optionalDouble(cfg, "simulation.runtime", "delta_t");
-  if (!deltaT) {
-    return tl::make_unexpected(deltaT.error());
+  const auto odometryDeltaT = optionalDouble(cfg, "simulation.runtime", "odometry_delta_t");
+  if (!odometryDeltaT) {
+    return tl::make_unexpected(odometryDeltaT.error());
   }
-  deltaTValue = deltaT->value_or(deltaTValue);
+  odometryDeltaTValue = odometryDeltaT->value_or(odometryDeltaTValue);
+
+  const auto lidarDeltaT = optionalDouble(cfg, "simulation.runtime", "lidar_delta_t");
+  if (!lidarDeltaT) {
+    return tl::make_unexpected(lidarDeltaT.error());
+  }
+  lidarDeltaTValue = lidarDeltaT->value_or(lidarDeltaTValue);
 
   const auto maxSteps = optionalInt(cfg, "simulation.runtime", "max_steps");
   if (!maxSteps) {
@@ -230,14 +238,16 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
   }
   maxAbsAngularValue = maxAbsAngular->value_or(maxAbsAngularValue);
 
-  if (deltaTValue <= 0.0 || maxStepsValue <= 0 || goalToleranceValue <= 0.0 ||
+  if (odometryDeltaTValue <= 0.0 || lidarDeltaTValue <= 0.0 ||
+      lidarDeltaTValue < odometryDeltaTValue || maxStepsValue <= 0 || goalToleranceValue <= 0.0 ||
       frameDelayMsValue < 0 || scoreThresholdValue <= 0.0 || minSpeedScaleValue <= 0.0 ||
       maxAbsAngularValue <= 0.0) {
     return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
                                      .message = "simulation.runtime has invalid values."});
   }
 
-  return RuntimeConfig{.deltaT = deltaTValue,
+  return RuntimeConfig{.odometryDeltaT = odometryDeltaTValue,
+                       .lidarDeltaT = lidarDeltaTValue,
                        .maxSteps = maxStepsValue,
                        .goalTolerance = goalToleranceValue,
                        .frameDelayMs = frameDelayMsValue,
@@ -354,9 +364,13 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
   if (!controlSpec) {
     return tl::make_unexpected(controlSpec.error());
   }
-  const auto sensorSpec = parseAlgorithmSpec(cfg, "sensor", "lidar");
-  if (!sensorSpec) {
-    return tl::make_unexpected(sensorSpec.error());
+  const auto lidarSensorSpec = parseAlgorithmSpec(cfg, "lidar_sensor", "lidar");
+  if (!lidarSensorSpec) {
+    return tl::make_unexpected(lidarSensorSpec.error());
+  }
+  const auto odometrySensorSpec = parseAlgorithmSpec(cfg, "odometry_sensor", "odometry");
+  if (!odometrySensorSpec) {
+    return tl::make_unexpected(odometrySensorSpec.error());
   }
   const auto physicsSpec = parseAlgorithmSpec(cfg, "physics", "unicycle");
   if (!physicsSpec) {
@@ -379,9 +393,13 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
   if (!controlDoc) {
     return tl::make_unexpected(controlDoc.error());
   }
-  const auto sensorDoc = loadIfExists(baseDirNormalized, sensorSpec->configPath);
-  if (!sensorDoc) {
-    return tl::make_unexpected(sensorDoc.error());
+  const auto lidarSensorDoc = loadIfExists(baseDirNormalized, lidarSensorSpec->configPath);
+  if (!lidarSensorDoc) {
+    return tl::make_unexpected(lidarSensorDoc.error());
+  }
+  const auto odometrySensorDoc = loadIfExists(baseDirNormalized, odometrySensorSpec->configPath);
+  if (!odometrySensorDoc) {
+    return tl::make_unexpected(odometrySensorDoc.error());
   }
   const auto physicsDoc = loadIfExists(baseDirNormalized, physicsSpec->configPath);
   if (!physicsDoc) {
@@ -405,13 +423,16 @@ auto loadScenario(std::string_view scenarioPath) -> Result<ScenarioConfig> {
                         .localization = *localizationSpec,
                         .planning = *planningSpec,
                         .control = *controlSpec,
-                        .sensor = *sensorSpec,
+                        .lidarSensor = *lidarSensorSpec,
+                        .odometrySensor = *odometrySensorSpec,
                         .physics = *physicsSpec,
-                        .algorithmConfigDocs = AlgorithmConfigDocs{.localization = *localizationDoc,
-                                                                   .planning = *planningDoc,
-                                                                   .control = *controlDoc,
-                                                                   .sensor = *sensorDoc,
-                                                                   .physics = *physicsDoc}};
+                        .algorithmConfigDocs =
+                            AlgorithmConfigDocs{.localization = *localizationDoc,
+                                                .planning = *planningDoc,
+                                                .control = *controlDoc,
+                                                .lidarSensor = *lidarSensorDoc,
+                                                .odometrySensor = *odometrySensorDoc,
+                                                .physics = *physicsDoc}};
 }
 
 auto createLocalizer(const ScenarioConfig &scenario, const types::MapData &map)
@@ -433,10 +454,16 @@ auto createController(const ScenarioConfig &scenario)
                                              scenario.algorithmConfigDocs.control);
 }
 
-auto createSensor(const ScenarioConfig &scenario)
-    -> Result<std::unique_ptr<simulation::ISensorModel>> {
-  return simulation::createSensorFromConfig(scenario.sensor.algorithm,
-                                            scenario.algorithmConfigDocs.sensor);
+auto createLidarSensor(const ScenarioConfig &scenario)
+    -> Result<std::unique_ptr<simulation::ILidarSensor>> {
+  return simulation::createLidarSensorFromConfig(scenario.lidarSensor.algorithm,
+                                                 scenario.algorithmConfigDocs.lidarSensor);
+}
+
+auto createOdometrySensor(const ScenarioConfig &scenario)
+    -> Result<std::unique_ptr<simulation::IOdometrySensor>> {
+  return simulation::createOdometrySensorFromConfig(scenario.odometrySensor.algorithm,
+                                                    scenario.algorithmConfigDocs.odometrySensor);
 }
 
 auto createPhysics(const ScenarioConfig &scenario)
