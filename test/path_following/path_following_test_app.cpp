@@ -32,6 +32,7 @@ namespace ad::path_following_test {
 
 constexpr auto kLogPrecision = 8;
 constexpr auto kAnglePeriod = 2.0 * std::numbers::pi;
+constexpr auto kRenderScheduleEpsilon = 1.0e-12;
 
 struct AlgorithmSpec {
   std::string algorithm;
@@ -40,6 +41,7 @@ struct AlgorithmSpec {
 
 struct RuntimeConfig {
   double stepSeconds;
+  double renderDeltaT;
   int maxSteps;
   double goalTolerance;
 };
@@ -263,6 +265,10 @@ struct ProgramOptions {
   if (!stepSeconds) {
     return tl::make_unexpected(stepSeconds.error());
   }
+  const auto renderDeltaT = requiredDouble(*cfg, "simulation.runtime", "render_delta_t");
+  if (!renderDeltaT) {
+    return tl::make_unexpected(renderDeltaT.error());
+  }
   const auto maxSteps = requiredInt(*cfg, "simulation.runtime", "max_steps");
   if (!maxSteps) {
     return tl::make_unexpected(maxSteps.error());
@@ -270,6 +276,13 @@ struct ProgramOptions {
   const auto goalTolerance = requiredDouble(*cfg, "simulation.runtime", "goal_tolerance");
   if (!goalTolerance) {
     return tl::make_unexpected(goalTolerance.error());
+  }
+
+  if (*stepSeconds <= 0.0 || *renderDeltaT <= 0.0 || *maxSteps <= 0 || *goalTolerance <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "simulation.runtime values must be positive for step_seconds, "
+                         "render_delta_t, max_steps, and goal_tolerance."});
   }
 
   const auto maxTranslationStep =
@@ -310,6 +323,7 @@ struct ProgramOptions {
       .start = *start,
       .goal = *goal,
       .runtime = RuntimeConfig{.stepSeconds = *stepSeconds,
+                               .renderDeltaT = *renderDeltaT,
                                .maxSteps = *maxSteps,
                                .goalTolerance = *goalTolerance},
       .collision = simulation::CollisionCheckConfig{.maxTranslationStep = *maxTranslationStep,
@@ -393,13 +407,13 @@ struct ProgramOptions {
                                      std::string_view scenarioPath)
     -> std::optional<std::ofstream> {
   std::error_code fsError;
-  std::filesystem::create_directories("logs", fsError);
+  std::filesystem::create_directories("test/path_following/logs", fsError);
   if (fsError) {
     fmt::print(stderr, "Log directory error: {}\n", fsError.message());
     return std::nullopt;
   }
 
-  auto logFile = std::ofstream{"logs/path_following_test.log"};
+  auto logFile = std::ofstream{"test/path_following/logs/path_following_test.log"};
   if (!logFile.is_open()) {
     fmt::print(stderr, "Log file error: failed to open log file.\n");
     return std::nullopt;
@@ -538,6 +552,7 @@ int main(int argc, char **argv) {
   auto odometryPose = std::optional<ad::types::Pose>{scenario.start};
   auto reachedGoal = false;
   std::optional<ad::Error> failure;
+  auto renderElapsed = 0.0;
 
   if (options.render) {
     const auto renderError =
@@ -606,12 +621,17 @@ int main(int argc, char **argv) {
              << odometryDelta->deltaLateral << ',' << odometryDelta->deltaTheta << '\n';
 
     if (options.render) {
-      const auto renderError =
-          ad::path_following_test::renderFrame(*visualizer, *preparedMap, std::span{*pathResult},
-                                               trueState->pose, scenario.goal, scenario.footprint);
-      if (renderError) {
-        failure.emplace(*renderError);
-        break;
+      renderElapsed += scenario.runtime.stepSeconds;
+      if (renderElapsed + ad::path_following_test::kRenderScheduleEpsilon >=
+          scenario.runtime.renderDeltaT) {
+        const auto renderError = ad::path_following_test::renderFrame(
+            *visualizer, *preparedMap, std::span{*pathResult}, trueState->pose, scenario.goal,
+            scenario.footprint);
+        if (renderError) {
+          failure.emplace(*renderError);
+          break;
+        }
+        renderElapsed = std::fmod(renderElapsed, scenario.runtime.renderDeltaT);
       }
     }
 
@@ -632,6 +652,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  fmt::print("Path following test reached goal. Log: logs/path_following_test.log\n");
+  fmt::print("Path following test reached goal. Log: "
+             "test/path_following/logs/path_following_test.log\n");
   return 0;
 }
