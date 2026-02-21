@@ -43,6 +43,7 @@ struct AlgorithmSpec {
 struct RuntimeConfig {
   double stepSeconds;
   double lidarDeltaT;
+  double renderDeltaT;
   int maxSteps;
   double goalTolerance;
 };
@@ -282,6 +283,10 @@ struct ProgramOptions {
   if (!lidarDeltaT) {
     return tl::make_unexpected(lidarDeltaT.error());
   }
+  const auto renderDeltaT = requiredDouble(*cfg, "simulation.runtime", "render_delta_t");
+  if (!renderDeltaT) {
+    return tl::make_unexpected(renderDeltaT.error());
+  }
   const auto maxSteps = requiredInt(*cfg, "simulation.runtime", "max_steps");
   if (!maxSteps) {
     return tl::make_unexpected(maxSteps.error());
@@ -291,12 +296,12 @@ struct ProgramOptions {
     return tl::make_unexpected(goalTolerance.error());
   }
 
-  if (*stepSeconds <= 0.0 || *lidarDeltaT <= 0.0 || *lidarDeltaT < *stepSeconds || *maxSteps <= 0 ||
-      *goalTolerance <= 0.0) {
+  if (*stepSeconds <= 0.0 || *lidarDeltaT <= 0.0 || *renderDeltaT <= 0.0 ||
+      *lidarDeltaT < *stepSeconds || *maxSteps <= 0 || *goalTolerance <= 0.0) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "simulation.runtime values are invalid for step_seconds, lidar_delta_t, "
-                         "max_steps, and goal_tolerance."});
+                         "render_delta_t, max_steps, and goal_tolerance."});
   }
 
   const auto maxTranslationStep =
@@ -348,6 +353,7 @@ struct ProgramOptions {
       .goal = *goal,
       .runtime = RuntimeConfig{.stepSeconds = *stepSeconds,
                                .lidarDeltaT = *lidarDeltaT,
+                               .renderDeltaT = *renderDeltaT,
                                .maxSteps = *maxSteps,
                                .goalTolerance = *goalTolerance},
       .collision = simulation::CollisionCheckConfig{.maxTranslationStep = *maxTranslationStep,
@@ -397,7 +403,7 @@ struct ProgramOptions {
 [[nodiscard]] auto renderFrame(const ad::visualization::Visualizer &viz,
                                const ad::visualization::Visualizer::PreparedMap &preparedMap,
                                std::span<const types::Point> path, const types::Pose &robotPose,
-                               const types::Pose &goal, const types::Footprint &footprint,
+                               const types::Footprint &footprint,
                                const std::optional<std::vector<types::Point>> &scanWorldPoints)
     -> std::optional<ad::Error> {
   const auto &mapGeometry = preparedMap.geometry;
@@ -411,14 +417,8 @@ struct ProgramOptions {
     return pathStatus.error();
   }
 
-  const auto goalStatus =
-      viz.renderMarker(types::Point{.x = goal.x, .y = goal.y}, mapGeometry, 18.0, "red");
-  if (!goalStatus) {
-    return goalStatus.error();
-  }
-
   if (scanWorldPoints.has_value() && !scanWorldPoints->empty()) {
-    const auto scanStatus = viz.renderPoints(*scanWorldPoints, mapGeometry, 8.0, "green");
+    const auto scanStatus = viz.renderPoints(*scanWorldPoints, mapGeometry, 10.0, "green");
     if (!scanStatus) {
       return scanStatus.error();
     }
@@ -634,9 +634,9 @@ int main(int argc, char **argv) {
   auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
 
   if (optionsResult->render) {
-    const auto renderError = ad::localization_test::renderFrame(
-        *visualizerPtr, *preparedMapPtr, std::span{*pathResult}, trueState->pose, scenario.goal,
-        scenario.footprint, std::nullopt);
+    const auto renderError =
+        ad::localization_test::renderFrame(*visualizerPtr, *preparedMapPtr, std::span{*pathResult},
+                                           trueState->pose, scenario.footprint, std::nullopt);
     if (renderError) {
       fmt::print(stderr, "Render error: {}\n", renderError->message);
       return 1;
@@ -742,17 +742,17 @@ int main(int argc, char **argv) {
     if (optionsResult->render) {
       renderElapsed += scenario.runtime.stepSeconds;
       const auto shouldRender =
-          lidarUpdated ||
-          (renderElapsed + ad::localization_test::kScheduleEpsilon >= scenario.runtime.lidarDeltaT);
+          lidarUpdated || (renderElapsed + ad::localization_test::kScheduleEpsilon >=
+                           scenario.runtime.renderDeltaT);
       if (shouldRender) {
         const auto renderError = ad::localization_test::renderFrame(
-            *visualizerPtr, *preparedMapPtr, std::span{*pathResult}, trueState->pose, scenario.goal,
+            *visualizerPtr, *preparedMapPtr, std::span{*pathResult}, trueState->pose,
             scenario.footprint, lastScanWorldPoints);
         if (renderError) {
           failure.emplace(*renderError);
           break;
         }
-        renderElapsed = std::fmod(renderElapsed, scenario.runtime.lidarDeltaT);
+        renderElapsed = std::fmod(renderElapsed, scenario.runtime.renderDeltaT);
       }
     }
 

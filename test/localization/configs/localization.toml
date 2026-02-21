@@ -20,6 +20,7 @@ vertices = [-0.2, -0.1, 0.3, -0.1, 0.3, 0.1, -0.2, 0.1]
 [simulation.runtime]
 step_seconds = 0.01
 lidar_delta_t = 0.20
+render_delta_t = 0.10
 max_steps = 10000
 goal_tolerance = 0.30
 
