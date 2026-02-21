@@ -23,11 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # LLVM公式リポジトリから Clang 17 をインストール
 # (Ubuntu 22.04標準のClang 14はGCC12のrangesヘッダーと相性が悪いため)
-RUN wget https://apt.llvm.org/llvm.sh && \
+RUN wget -q https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
     ./llvm.sh 17 && \
     rm llvm.sh && \
-    apt-get install -y clang-tidy-17 clang-format-17
+    apt-get install -y clang-tidy-17 clang-format-17 --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # update-alternatives でシステム標準のコマンドとして登録
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100 && \
