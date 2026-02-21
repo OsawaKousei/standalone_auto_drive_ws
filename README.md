@@ -5,23 +5,38 @@
 ## 前提条件
 
 - ホストに Docker が導入済み
+- ホストに `uv` が導入済み
 - VS Code の DevContainer 機能が利用可能
 - 実行にはマップファイル（YAML/PGM）が必要
 
-
 ## 使い始める手順（最初に必ず実施）
 
-1. ホスト側で初回ビルドを実行して `compile_commands.json` と依存関係を生成する。
-   - `./scripts/build.sh`
-2. ビルド完了後に DevContainer を開く。IntelliSense は生成された compile commands を前提とするため、先にビルドが必要。
-3. 以降の編集・開発は DevContainer 内で行い、ビルドが必要になったらホストで `./scripts/build.sh` を再実行する。
+1. ワークスペースをクローンする。
+2. クローン直後に依存関係を同期する（必須）。
+
+- `uv sync`
+
+3. ホスト側で初回ビルドを実行して `compile_commands.json` と依存関係を生成する。
+
+- `./scripts/build.sh`
+
+4. ビルド完了後に DevContainer を開く。IntelliSense は生成された compile commands を前提とするため、先にビルドが必要。
+5. 以降の編集・開発は DevContainer 内で行う。ビルド時は実行環境に応じてスクリプトを使い分ける（下記参照）。
 
 ## よく使うコマンド
 
-- ビルド（ホスト）: `./scripts/build.sh`
+- 依存関係同期（クローン直後・更新時）: `uv sync`
+- ビルド（ホストで実行）: `./scripts/build.sh`
+- ビルド（コンテナ内で実行）: `./scripts/build_internal.sh`
 - 実行（コンテナ）:
   - `./build/auto_drive_app`
   - `./build/auto_drive_log_replay`
+
+## ビルドスクリプトの使い分け
+
+- `scripts/build.sh`: **ホスト OS から実行**するエントリポイント。ビルド用コンテナを起動し、使い捨て環境で `uv sync` と CMake ビルドを実行します。
+- `scripts/build_internal.sh`: **コンテナ内部で実行**するスクリプト。DevContainer やビルド用コンテナの中で、同様に `uv sync` を行ってから CMake ビルドします。
+- 使い分けを間違えると、想定外の環境（ホスト/コンテナ）でビルドされるため、原則として「ホストでは `build.sh`、コンテナ内では `build_internal.sh`」を守ってください。
 
 ## マップの準備（必須）
 
