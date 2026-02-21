@@ -24,8 +24,7 @@ namespace ad::control {
 CascadePidController::CascadePidController(CascadePidConfig config) : config_(config) {}
 
 auto CascadePidController::selectLookaheadTarget(std::span<const types::Point> path,
-                                                 const types::Pose &pose,
-                                                 double lookaheadDistance,
+                                                 const types::Pose &pose, double lookaheadDistance,
                                                  std::size_t minClosestIndex)
     -> LookaheadSelection {
   if (minClosestIndex >= path.size()) {
@@ -60,8 +59,9 @@ auto CascadePidController::selectLookaheadTarget(std::span<const types::Point> p
     }
     if (remaining <= segment) {
       const auto ratio = remaining / segment;
-      return LookaheadSelection{.target = types::Point{.x = currentX + (ratio * (next.x - currentX)),
-                                                       .y = currentY + (ratio * (next.y - currentY))},
+      return LookaheadSelection{.target =
+                                    types::Point{.x = currentX + (ratio * (next.x - currentX)),
+                                                 .y = currentY + (ratio * (next.y - currentY))},
                                 .closestIndex = closestIndex};
     }
     remaining -= segment;
@@ -116,30 +116,10 @@ auto CascadePidController::computeCommand(const ControlInput &input) const -> Re
   }
 
   const auto minClosestIndex = std::min(pathProgressIndex_, input.path.size() - 1U);
-  const auto lookahead =
-      selectLookaheadTarget(input.path, input.currentPose, config_.lookaheadDistance, minClosestIndex);
+  const auto lookahead = selectLookaheadTarget(input.path, input.currentPose,
+                                               config_.lookaheadDistance, minClosestIndex);
   pathProgressIndex_ = std::max(pathProgressIndex_, lookahead.closestIndex);
   const auto target = lookahead.target;
-
-  auto measuredBodyVx = 0.0;
-  auto measuredBodyVy = 0.0;
-  auto measuredYawRate = 0.0;
-  const auto hasMeasuredVelocity = previousPose_.has_value();
-
-  if (hasMeasuredVelocity) {
-    const auto deltaPosX = input.currentPose.x - previousPose_->x;
-    const auto deltaPosY = input.currentPose.y - previousPose_->y;
-    const auto dTheta = normalizeAngle(input.currentPose.theta - previousPose_->theta);
-
-    const auto worldVx = deltaPosX / input.deltaSeconds;
-    const auto worldVy = deltaPosY / input.deltaSeconds;
-
-    const auto cosTheta = std::cos(input.currentPose.theta);
-    const auto sinTheta = std::sin(input.currentPose.theta);
-    measuredBodyVx = (cosTheta * worldVx) + (sinTheta * worldVy);
-    measuredBodyVy = (-sinTheta * worldVx) + (cosTheta * worldVy);
-    measuredYawRate = dTheta / input.deltaSeconds;
-  }
 
   const auto errorX = target.x - input.currentPose.x;
   const auto errorY = target.y - input.currentPose.y;
@@ -147,11 +127,9 @@ auto CascadePidController::computeCommand(const ControlInput &input) const -> Re
   const auto positionGains = PidGains{.proportional = config_.positionKp,
                                       .integral = config_.positionKi,
                                       .derivative = config_.positionKd};
-  const auto velocityInnerGains = PidGains{.proportional = 0.0, .integral = 0.0, .derivative = 0.0};
   const auto headingGains = PidGains{.proportional = config_.headingKp,
                                      .integral = config_.headingKi,
                                      .derivative = config_.headingKd};
-  const auto headingInnerGains = PidGains{.proportional = 0.0, .integral = 0.0, .derivative = 0.0};
 
   const auto desiredWorldVx =
       updatePid(positionXState_, errorX, input.deltaSeconds, positionGains, config_.maxLinearSpeed);
@@ -171,29 +149,9 @@ auto CascadePidController::computeCommand(const ControlInput &input) const -> Re
                                                    headingGains, config_.maxAngularSpeed),
                                          -config_.maxAngularSpeed, config_.maxAngularSpeed);
 
-  auto velocityCorrectionX = 0.0;
-  auto velocityCorrectionY = 0.0;
-  auto yawRateCorrection = 0.0;
-
-  if (hasMeasuredVelocity) {
-    const auto velocityErrorX = desiredBodyVx - measuredBodyVx;
-    const auto velocityErrorY = desiredBodyVy - measuredBodyVy;
-    const auto yawRateError = desiredYawRate - measuredYawRate;
-
-    velocityCorrectionX = updatePid(velocityXState_, velocityErrorX, input.deltaSeconds,
-                                    velocityInnerGains, config_.maxLinearSpeed);
-    velocityCorrectionY = updatePid(velocityYState_, velocityErrorY, input.deltaSeconds,
-                                    velocityInnerGains, config_.maxLinearSpeed);
-    yawRateCorrection = updatePid(yawRateState_, yawRateError, input.deltaSeconds,
-                                  headingInnerGains, config_.maxAngularSpeed);
-  }
-
-  auto commandV = std::clamp(desiredBodyVx + velocityCorrectionX, -config_.maxLinearSpeed,
-                             config_.maxLinearSpeed);
-  auto commandVy = std::clamp(desiredBodyVy + velocityCorrectionY, -config_.maxLinearSpeed,
-                              config_.maxLinearSpeed);
-  auto commandW = std::clamp(desiredYawRate + yawRateCorrection, -config_.maxAngularSpeed,
-                             config_.maxAngularSpeed);
+  auto commandV = desiredBodyVx;
+  auto commandVy = desiredBodyVy;
+  auto commandW = desiredYawRate;
 
   if (previousCommand_.has_value()) {
     const auto maxLinearDelta = config_.maxLinearSpeed * input.deltaSeconds;
@@ -209,7 +167,6 @@ auto CascadePidController::computeCommand(const ControlInput &input) const -> Re
 
   const auto command = types::Twist{.v = commandV, .vy = commandVy, .w = commandW};
 
-  previousPose_.emplace(input.currentPose);
   previousCommand_.emplace(command);
 
   return command;

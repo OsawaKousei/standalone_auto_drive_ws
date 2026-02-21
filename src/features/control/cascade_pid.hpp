@@ -57,11 +57,7 @@ private:
   const CascadePidConfig config_;
   mutable PidState positionXState_{};
   mutable PidState positionYState_{};
-  mutable PidState velocityXState_{};
-  mutable PidState velocityYState_{};
   mutable PidState headingState_{};
-  mutable PidState yawRateState_{};
-  mutable std::optional<types::Pose> previousPose_{};
   mutable std::optional<types::Twist> previousCommand_{};
   mutable std::size_t pathProgressIndex_{0U};
   mutable std::size_t previousPathSize_{0U};
