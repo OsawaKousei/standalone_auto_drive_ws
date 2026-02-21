@@ -7,7 +7,6 @@
 #include "shared/types.hpp"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -22,10 +21,6 @@
 #include <vector>
 
 namespace ad::demo {
-
-[[nodiscard]] auto makeFootprint() -> types::Footprint {
-  return types::Footprint{{{-0.2, -0.1}, {0.3, -0.1}, {0.3, 0.1}, {-0.2, 0.1}}};
-}
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
   angle = std::fmod(angle + std::numbers::pi, 2.0 * std::numbers::pi);
@@ -42,17 +37,6 @@ namespace ad::demo {
       output.push_back(';');
     }
     output += fmt::format("{:.8f}:{:.8f}", points[index].x, points[index].y);
-  }
-  return output;
-}
-
-[[nodiscard]] auto serializeRanges(std::span<const double> ranges) -> std::string {
-  auto output = std::string{};
-  for (std::size_t index = 0; index < ranges.size(); ++index) {
-    if (index != 0) {
-      output.push_back(';');
-    }
-    output += fmt::format("{:.8f}", ranges[index]);
   }
   return output;
 }
