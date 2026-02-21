@@ -13,6 +13,7 @@
 #include <fmt/core.h>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -383,13 +384,17 @@ struct ProgramOptions {
   logFile << "# path=" << serializePoints(path) << "\n";
   logFile << "# columns: "
              "step,time,dist_goal,true_x,true_y,true_theta,est_x,est_y,est_theta,pos_err,"
-             "heading_err,score,cov_xx,cov_yy,cov_tt,cmd_v,cmd_vy,cmd_w,odom_df,odom_dl,"
-             "odom_dtheta,lidar_updated,scan_count,scan_min_angle,scan_angle_inc,scan_max_range,"
-             "scan_ranges,scan_points_robot\n";
+             "heading_err,pre_update_pos_err,post_update_pos_err,delta_pos_err,"
+             "pre_update_heading_err,post_update_heading_err,delta_heading_err,score,cov_xx,"
+             "cov_yy,cov_tt,cmd_v,cmd_vy,cmd_w,odom_df,odom_dl,odom_dtheta,lidar_updated,"
+             "scan_count,scan_min_angle,scan_angle_inc,scan_max_range,scan_ranges,"
+             "scan_points_robot\n";
   logFile << "step,time,dist_goal,true_x,true_y,true_theta,est_x,est_y,est_theta,pos_err,"
-             "heading_err,score,cov_xx,cov_yy,cov_tt,cmd_v,cmd_vy,cmd_w,odom_df,odom_dl,"
-             "odom_dtheta,lidar_updated,scan_count,scan_min_angle,scan_angle_inc,scan_max_range,"
-             "scan_ranges,scan_points_robot\n";
+             "heading_err,pre_update_pos_err,post_update_pos_err,delta_pos_err,"
+             "pre_update_heading_err,post_update_heading_err,delta_heading_err,score,cov_xx,"
+             "cov_yy,cov_tt,cmd_v,cmd_vy,cmd_w,odom_df,odom_dl,odom_dtheta,lidar_updated,"
+             "scan_count,scan_min_angle,scan_angle_inc,scan_max_range,scan_ranges,"
+             "scan_points_robot\n";
   return logFile;
 }
 
@@ -584,6 +589,17 @@ int main(int argc, char **argv) {
     trueState.emplace(
         ad::simulation::MotionState{.pose = nextState->pose, .twist = nextState->twist});
 
+    const auto estimateBeforeUpdate = (*localizerResult)->estimate();
+    if (!estimateBeforeUpdate) {
+      failure.emplace(estimateBeforeUpdate.error());
+      break;
+    }
+
+    const auto prePositionError = std::hypot(estimateBeforeUpdate->pose.x - trueState->pose.x,
+                                             estimateBeforeUpdate->pose.y - trueState->pose.y);
+    const auto preHeadingError = std::abs(ad::localization_test::normalizeAngle(
+        estimateBeforeUpdate->pose.theta - trueState->pose.theta));
+
     auto lidarUpdated = false;
     auto scanCount = 0;
     auto scanMinAngle = 0.0;
@@ -623,17 +639,24 @@ int main(int argc, char **argv) {
       break;
     }
 
-    const auto positionError = std::hypot(estimateAfter->pose.x - trueState->pose.x,
-                                          estimateAfter->pose.y - trueState->pose.y);
-    const auto headingError = std::abs(
+    const auto postPositionError = std::hypot(estimateAfter->pose.x - trueState->pose.x,
+                                              estimateAfter->pose.y - trueState->pose.y);
+    const auto postHeadingError = std::abs(
         ad::localization_test::normalizeAngle(estimateAfter->pose.theta - trueState->pose.theta));
+    const auto deltaPositionError = lidarUpdated ? (prePositionError - postPositionError)
+                                                 : std::numeric_limits<double>::quiet_NaN();
+    const auto deltaHeadingError = lidarUpdated ? (preHeadingError - postHeadingError)
+                                                : std::numeric_limits<double>::quiet_NaN();
+
     const auto distanceGoal = ad::localization_test::distanceToGoal(trueState->pose, scenario.goal);
     const auto timeSeconds = scenario.runtime.stepSeconds * static_cast<double>(step + 1);
 
     *logFile << step << ',' << timeSeconds << ',' << distanceGoal << ',' << trueState->pose.x << ','
              << trueState->pose.y << ',' << trueState->pose.theta << ',' << estimateAfter->pose.x
              << ',' << estimateAfter->pose.y << ',' << estimateAfter->pose.theta << ','
-             << positionError << ',' << headingError << ',' << estimateAfter->score << ','
+             << postPositionError << ',' << postHeadingError << ',' << prePositionError << ','
+             << postPositionError << ',' << deltaPositionError << ',' << preHeadingError << ','
+             << postHeadingError << ',' << deltaHeadingError << ',' << estimateAfter->score << ','
              << estimateAfter->covariance(0, 0) << ',' << estimateAfter->covariance(1, 1) << ','
              << estimateAfter->covariance(2, 2) << ',' << commandResult->v << ','
              << commandResult->vy << ',' << commandResult->w << ',' << odometryDelta->deltaForward

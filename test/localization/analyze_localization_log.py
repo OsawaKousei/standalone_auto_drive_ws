@@ -156,6 +156,61 @@ def save_map_plot(
     plt.close(fig)
 
 
+def save_update_colored_map_plot(
+    out_path: Path,
+    map_image_path: Path,
+    map_resolution: float,
+    map_origin: Tuple[float, float],
+    true_xy: np.ndarray,
+    est_xy: np.ndarray,
+    update_true_xy: np.ndarray,
+    update_improved_mask: np.ndarray,
+) -> None:
+    image = plt.imread(map_image_path)
+    if image.ndim == 3:
+        image = image[..., 0]
+
+    height, width = image.shape[:2]
+    x0, y0 = map_origin
+    extent = [x0, x0 + width * map_resolution, y0, y0 + height * map_resolution]
+
+    fig, ax = plt.subplots(figsize=(8, 8), dpi=120)
+    ax.imshow(image, cmap="gray", origin="upper", extent=extent)
+    ax.plot(true_xy[:, 0], true_xy[:, 1], "b-", lw=1.2, label="true trajectory")
+    ax.plot(est_xy[:, 0], est_xy[:, 1], "r-", lw=1.0, alpha=0.9, label="estimated trajectory")
+
+    improved_points = update_true_xy[update_improved_mask]
+    worsened_points = update_true_xy[~update_improved_mask]
+    if improved_points.size > 0:
+        ax.scatter(
+            improved_points[:, 0],
+            improved_points[:, 1],
+            c="blue",
+            s=16,
+            alpha=0.9,
+            label="update improved",
+        )
+    if worsened_points.size > 0:
+        ax.scatter(
+            worsened_points[:, 0],
+            worsened_points[:, 1],
+            c="red",
+            s=16,
+            alpha=0.9,
+            label="update worsened",
+        )
+
+    ax.set_title("Update Effect on Map (Improved vs Worsened)")
+    ax.set_xlabel("x [m]")
+    ax.set_ylabel("y [m]")
+    ax.set_aspect("equal")
+    ax.legend(loc="best")
+    ax.grid(alpha=0.2)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
 def save_timeseries_plot(
     out_path: Path,
     time_s: np.ndarray,
@@ -172,6 +227,62 @@ def save_timeseries_plot(
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
+
+
+def save_update_error_triplet_plot(
+    out_path: Path,
+    update_time_s: np.ndarray,
+    e_before: np.ndarray,
+    e_after: np.ndarray,
+    delta_e: np.ndarray,
+    title: str,
+    y_label: str,
+) -> None:
+    fig, axes = plt.subplots(3, 1, figsize=(10, 9), dpi=120, sharex=True)
+
+    axes[0].plot(update_time_s, e_before, lw=1.2, color="tab:orange")
+    axes[0].set_ylabel(f"before {y_label}")
+    axes[0].grid(alpha=0.25)
+
+    axes[1].plot(update_time_s, e_after, lw=1.2, color="tab:green")
+    axes[1].set_ylabel(f"after {y_label}")
+    axes[1].grid(alpha=0.25)
+
+    axes[2].plot(update_time_s, delta_e, lw=1.2, color="tab:blue")
+    axes[2].axhline(0.0, color="black", linestyle="--", linewidth=1.0, alpha=0.7)
+    axes[2].set_ylabel(f"delta {y_label}")
+    axes[2].set_xlabel("time [s]")
+    axes[2].grid(alpha=0.25)
+
+    fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+def ratio(mask: np.ndarray) -> float:
+    if mask.size == 0:
+        return 0.0
+    return float(np.mean(mask.astype(float)))
+
+
+def safe_mean(values: np.ndarray) -> float:
+    if values.size == 0:
+        return 0.0
+    return float(np.mean(values))
+
+
+def bucket_stats(dist_goal: np.ndarray, delta_pos: np.ndarray, delta_heading: np.ndarray) -> Dict[str, float]:
+    return {
+        "count": int(dist_goal.size),
+        "mean_delta_pos_err": safe_mean(delta_pos),
+        "mean_delta_heading_err": safe_mean(delta_heading),
+        "position_improvement_rate": ratio(delta_pos > 0.0),
+        "heading_improvement_rate": ratio(delta_heading > 0.0),
+        "position_degradation_rate": ratio(delta_pos < 0.0),
+        "heading_degradation_rate": ratio(delta_heading < 0.0),
+        "mean_dist_goal": safe_mean(dist_goal),
+    }
 
 
 def build_relative_poses(x: np.ndarray, y: np.ndarray, theta: np.ndarray) -> np.ndarray:
@@ -221,6 +332,7 @@ def main() -> int:
 
     required_cols = [
         "time",
+        "dist_goal",
         "true_x",
         "true_y",
         "true_theta",
@@ -229,6 +341,13 @@ def main() -> int:
         "est_theta",
         "pos_err",
         "heading_err",
+        "lidar_updated",
+        "pre_update_pos_err",
+        "post_update_pos_err",
+        "delta_pos_err",
+        "pre_update_heading_err",
+        "post_update_heading_err",
+        "delta_heading_err",
     ]
     missing = [name for name in required_cols if name not in col_idx]
     if missing:
@@ -243,6 +362,7 @@ def main() -> int:
     map_image_path, map_resolution, map_origin = parse_map_metadata(scenario_cfg_path)
 
     time_s = column_as_float(rows, col_idx["time"])
+    dist_goal = column_as_float(rows, col_idx["dist_goal"])
     true_x = column_as_float(rows, col_idx["true_x"])
     true_y = column_as_float(rows, col_idx["true_y"])
     true_theta = column_as_float(rows, col_idx["true_theta"])
@@ -251,6 +371,14 @@ def main() -> int:
     est_theta = column_as_float(rows, col_idx["est_theta"])
     pos_err = column_as_float(rows, col_idx["pos_err"])
     heading_err = column_as_float(rows, col_idx["heading_err"])
+    lidar_updated = column_as_float(rows, col_idx["lidar_updated"])
+
+    pre_update_pos_err = column_as_float(rows, col_idx["pre_update_pos_err"])
+    post_update_pos_err = column_as_float(rows, col_idx["post_update_pos_err"])
+    delta_pos_err = column_as_float(rows, col_idx["delta_pos_err"])
+    pre_update_heading_err = column_as_float(rows, col_idx["pre_update_heading_err"])
+    post_update_heading_err = column_as_float(rows, col_idx["post_update_heading_err"])
+    delta_heading_err = column_as_float(rows, col_idx["delta_heading_err"])
 
     true_xy = np.stack([true_x, true_y], axis=1)
     est_xy = np.stack([est_x, est_y], axis=1)
@@ -278,12 +406,82 @@ def main() -> int:
         "heading error [rad]",
     )
 
+    update_mask = (
+        (lidar_updated > 0.5)
+        & np.isfinite(pre_update_pos_err)
+        & np.isfinite(post_update_pos_err)
+        & np.isfinite(delta_pos_err)
+        & np.isfinite(pre_update_heading_err)
+        & np.isfinite(post_update_heading_err)
+        & np.isfinite(delta_heading_err)
+    )
+
+    if not np.any(update_mask):
+        print("no lidar update rows with pre/post/delta errors found", file=sys.stderr)
+        return 1
+
+    update_time_s = time_s[update_mask]
+    update_true_xy = true_xy[update_mask]
+    update_dist_goal = dist_goal[update_mask]
+
+    update_pre_pos = pre_update_pos_err[update_mask]
+    update_post_pos = post_update_pos_err[update_mask]
+    update_delta_pos = delta_pos_err[update_mask]
+
+    update_pre_heading = pre_update_heading_err[update_mask]
+    update_post_heading = post_update_heading_err[update_mask]
+    update_delta_heading = delta_heading_err[update_mask]
+
+    save_update_error_triplet_plot(
+        args.out_dir / "update_position_error_triplet.png",
+        update_time_s,
+        update_pre_pos,
+        update_post_pos,
+        update_delta_pos,
+        "Observation Update Effect (Position Error)",
+        "[m]",
+    )
+    save_update_error_triplet_plot(
+        args.out_dir / "update_heading_error_triplet.png",
+        update_time_s,
+        update_pre_heading,
+        update_post_heading,
+        update_delta_heading,
+        "Observation Update Effect (Heading Error)",
+        "[rad]",
+    )
+    save_update_colored_map_plot(
+        args.out_dir / "map_update_improvement_colored.png",
+        map_image_path,
+        map_resolution,
+        map_origin,
+        true_xy,
+        est_xy,
+        update_true_xy,
+        update_delta_pos > 0.0,
+    )
+
     ate = float(np.mean(pos_err))
     rmse = float(np.sqrt(np.mean(np.square(pos_err))))
 
     rpe_trans, rpe_rot = compute_rpe(true_x, true_y, true_theta, est_x, est_y, est_theta)
     rpe = float(np.sqrt(np.mean(np.square(rpe_trans)))) if rpe_trans.size > 0 else 0.0
     rpe_rot_rmse = float(np.sqrt(np.mean(np.square(rpe_rot)))) if rpe_rot.size > 0 else 0.0
+
+    dist_median = float(np.median(update_dist_goal))
+    near_mask = update_dist_goal <= dist_median
+    far_mask = update_dist_goal > dist_median
+
+    near_stats = bucket_stats(
+        update_dist_goal[near_mask],
+        update_delta_pos[near_mask],
+        update_delta_heading[near_mask],
+    )
+    far_stats = bucket_stats(
+        update_dist_goal[far_mask],
+        update_delta_pos[far_mask],
+        update_delta_heading[far_mask],
+    )
 
     metrics = {
         "samples": int(len(pos_err)),
@@ -296,6 +494,20 @@ def main() -> int:
         "rpe_rot_rmse": rpe_rot_rmse,
         "max_position_error": float(np.max(pos_err)),
         "max_heading_error": float(np.max(heading_err)),
+        "observation_update": {
+            "count": int(update_delta_pos.size),
+            "mean_delta_pos_err": safe_mean(update_delta_pos),
+            "mean_delta_heading_err": safe_mean(update_delta_heading),
+            "position_improvement_rate": ratio(update_delta_pos > 0.0),
+            "heading_improvement_rate": ratio(update_delta_heading > 0.0),
+            "position_degradation_rate": ratio(update_delta_pos < 0.0),
+            "heading_degradation_rate": ratio(update_delta_heading < 0.0),
+            "position_effective_rate": ratio(update_delta_pos >= 0.0),
+            "heading_effective_rate": ratio(update_delta_heading >= 0.0),
+            "distance_bucket_threshold": dist_median,
+            "near": near_stats,
+            "far": far_stats,
+        },
         "result": header.get("result", "unknown"),
     }
 
@@ -306,6 +518,9 @@ def main() -> int:
     print(f"Saved map plot: {args.out_dir / 'map_true_vs_estimated.png'}")
     print(f"Saved position error plot: {args.out_dir / 'position_error_timeseries.png'}")
     print(f"Saved heading error plot: {args.out_dir / 'heading_error_timeseries.png'}")
+    print(f"Saved update position triplet plot: {args.out_dir / 'update_position_error_triplet.png'}")
+    print(f"Saved update heading triplet plot: {args.out_dir / 'update_heading_error_triplet.png'}")
+    print(f"Saved update colored map plot: {args.out_dir / 'map_update_improvement_colored.png'}")
     print(f"Saved metrics: {metrics_path}")
     print(json.dumps(metrics, indent=2))
     return 0
