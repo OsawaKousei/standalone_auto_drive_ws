@@ -15,9 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     lsb-release \
     software-properties-common \
-    python3 \
-    python3-dev \
-    python3-tk \
+    libx11-6 \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
 # LLVM公式リポジトリから Clang 17 をインストール
@@ -34,19 +33,8 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100 && 
     update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-17 100 && \
     update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-17 100
 
-# Install uv and Python packages
-ENV PATH="/root/.local/bin:${PATH}"
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Python setup
-WORKDIR /opt/ad-viz
-RUN uv init && \
-    uv venv --python /usr/bin/python3 && \
-    uv add numpy matplotlib
-
-ENV VIRTUAL_ENV=/opt/ad-viz/.venv
-ENV PATH="/opt/ad-viz/.venv/bin:/root/.local/bin:${PATH}"
-ENV Python3_ROOT_DIR=/opt/ad-viz/.venv
+# 3. uv のインストール (公式推奨のマルチステージビルド形式でクリーンに取得)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # ビルドには引き続き GCC 12 を使用
 ENV CC=gcc-12 \

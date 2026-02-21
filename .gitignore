@@ -3,3 +3,4 @@ build/
 tools/*yaml
 tools/*pgm
 *.log
+.venv/

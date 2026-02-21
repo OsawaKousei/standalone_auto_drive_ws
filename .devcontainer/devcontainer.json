@@ -11,8 +11,25 @@
         "redhat.vscode-yaml",
         "ms-vscode.cpptools-extension-pack"
       ]
-    }
+    },
+    "settings": {
+        // コンテナ内のPythonを自動的に認識させる
+        "python.defaultInterpreterPath": "/workspace/.venv_docker/bin/python"
+      }
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-  "workspaceFolder": "/workspace"
+  "workspaceFolder": "/workspace",
+  // 1. ホストの uv キャッシュをマウント（パスは適宜調整してください）
+  "mounts": [
+    "source=${localEnv:HOME}/.cache/uv,target=/root/.cache/uv,type=bind"
+  ],
+
+  // 2. コンテナ起動後に自動で uv sync を実行
+  "postCreateCommand": "uv sync",
+
+  // 3. 環境変数の注入
+  "remoteEnv": {
+    "UV_PROJECT_ENVIRONMENT": ".venv_docker",
+    "PATH": "/workspace/.venv_docker/bin:${containerEnv:PATH}"
+  }
 }
