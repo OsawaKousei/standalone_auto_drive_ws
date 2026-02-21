@@ -19,17 +19,10 @@ struct HoughConfig {
 struct EkfConfig {
   const double processNoiseTranslation;
   const double processNoiseRotation;
-  const double measurementNoiseRange;
-  const double measurementNoiseAngle;
 };
 
 struct EkfLocalizerConfig {
-  const HoughConfig hough;
   const EkfConfig ekf;
-  const double maxAssociationDistance;
-  const double segmentMargin;
-  const double gateThreshold;
-  const std::size_t minObservations;
 };
 
 using CovarianceMatrix = Eigen::Matrix3d;

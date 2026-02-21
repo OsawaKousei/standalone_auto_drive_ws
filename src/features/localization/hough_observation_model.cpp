@@ -43,6 +43,123 @@ struct ObservationSummary {
   int candidates = 0;
 };
 
+[[nodiscard]] auto requiredRaw(const ::ad::config::TextConfig &cfg, std::string_view section,
+                               std::string_view key) -> ad::Result<std::string_view> {
+  const auto raw = cfg.findRaw(section, key);
+  if (!raw) {
+    return tl::make_unexpected(ad::Error{
+        .code = ad::ErrorCode::InvalidInput,
+        .message = "Required localization config key is missing: " + std::string{section} + "." +
+                   std::string{key}});
+  }
+  return *raw;
+}
+
+[[nodiscard]] auto requiredInt(const ::ad::config::TextConfig &cfg, std::string_view section,
+                               std::string_view key) -> ad::Result<int> {
+  const auto raw = requiredRaw(cfg, section, key);
+  if (!raw) {
+    return tl::make_unexpected(raw.error());
+  }
+  return ::ad::config::parseIntValue(*raw);
+}
+
+[[nodiscard]] auto requiredDouble(const ::ad::config::TextConfig &cfg, std::string_view section,
+                                  std::string_view key) -> ad::Result<double> {
+  const auto raw = requiredRaw(cfg, section, key);
+  if (!raw) {
+    return tl::make_unexpected(raw.error());
+  }
+  return ::ad::config::parseDoubleValue(*raw);
+}
+
+[[nodiscard]] auto
+parseHoughObservationConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> ad::Result<ad::localization::HoughObservationModelConfig> {
+  if (!configDoc.has_value()) {
+    return tl::make_unexpected(
+        ad::Error{.code = ad::ErrorCode::InvalidInput,
+                  .message = "Localization config is required for hough_line."});
+  }
+
+  const auto &cfg = *configDoc;
+  const auto thetaBins = requiredInt(cfg, "hough", "theta_bins");
+  if (!thetaBins) {
+    return tl::make_unexpected(thetaBins.error());
+  }
+  const auto rhoBins = requiredInt(cfg, "hough", "rho_bins");
+  if (!rhoBins) {
+    return tl::make_unexpected(rhoBins.error());
+  }
+  const auto minVotes = requiredInt(cfg, "hough", "min_votes");
+  if (!minVotes) {
+    return tl::make_unexpected(minVotes.error());
+  }
+  const auto maxLines = requiredInt(cfg, "hough", "max_lines");
+  if (!maxLines) {
+    return tl::make_unexpected(maxLines.error());
+  }
+  const auto inlierDistance = requiredDouble(cfg, "hough", "inlier_distance");
+  if (!inlierDistance) {
+    return tl::make_unexpected(inlierDistance.error());
+  }
+  const auto minSegmentLength = requiredDouble(cfg, "hough", "min_segment_length");
+  if (!minSegmentLength) {
+    return tl::make_unexpected(minSegmentLength.error());
+  }
+  const auto mergeRho = requiredDouble(cfg, "hough", "merge_rho");
+  if (!mergeRho) {
+    return tl::make_unexpected(mergeRho.error());
+  }
+  const auto mergeTheta = requiredDouble(cfg, "hough", "merge_theta");
+  if (!mergeTheta) {
+    return tl::make_unexpected(mergeTheta.error());
+  }
+
+  const auto measurementNoiseRange = requiredDouble(cfg, "ekf", "measurement_noise_range");
+  if (!measurementNoiseRange) {
+    return tl::make_unexpected(measurementNoiseRange.error());
+  }
+  const auto measurementNoiseAngle = requiredDouble(cfg, "ekf", "measurement_noise_angle");
+  if (!measurementNoiseAngle) {
+    return tl::make_unexpected(measurementNoiseAngle.error());
+  }
+
+  const auto maxAssociationDistance =
+      requiredDouble(cfg, "association", "max_association_distance");
+  if (!maxAssociationDistance) {
+    return tl::make_unexpected(maxAssociationDistance.error());
+  }
+  const auto segmentMargin = requiredDouble(cfg, "association", "segment_margin");
+  if (!segmentMargin) {
+    return tl::make_unexpected(segmentMargin.error());
+  }
+  const auto gateThreshold = requiredDouble(cfg, "association", "gate_threshold");
+  if (!gateThreshold) {
+    return tl::make_unexpected(gateThreshold.error());
+  }
+  const auto minObservations = requiredInt(cfg, "association", "min_observations");
+  if (!minObservations) {
+    return tl::make_unexpected(minObservations.error());
+  }
+
+  return ad::localization::HoughObservationModelConfig{
+      .hough = ad::localization::HoughConfig{.thetaBins = *thetaBins,
+                                             .rhoBins = *rhoBins,
+                                             .minVotes = *minVotes,
+                                             .maxLines = *maxLines,
+                                             .inlierDistance = *inlierDistance,
+                                             .minSegmentLength = *minSegmentLength,
+                                             .mergeRho = *mergeRho,
+                                             .mergeTheta = *mergeTheta},
+      .measurementNoiseRange = *measurementNoiseRange,
+      .measurementNoiseAngle = *measurementNoiseAngle,
+      .maxAssociationDistance = *maxAssociationDistance,
+      .segmentMargin = *segmentMargin,
+      .gateThreshold = *gateThreshold,
+      .minObservations = static_cast<std::size_t>(*minObservations)};
+}
+
 auto buildHoughParams(const ad::localization::HoughConfig &config, double maxRho) -> HoughParams {
   const auto thetaMin = -0.5 * std::numbers::pi;
   const auto thetaMax = 0.5 * std::numbers::pi;
@@ -245,7 +362,8 @@ auto extractLinesFromMap(const ad::types::MapData &map, const ad::localization::
 
 auto buildBuckets(const ad::types::LidarScan &scan,
                   const std::vector<ad::localization::util::MapLine> &mapLines,
-                  const ad::types::Pose &pose, const ad::localization::EkfLocalizerConfig &config)
+                  const ad::types::Pose &pose,
+                  const ad::localization::HoughObservationModelConfig &config)
     -> std::vector<std::vector<ad::types::Point>> {
   const auto cosTheta = std::cos(pose.theta);
   const auto sinTheta = std::sin(pose.theta);
@@ -298,8 +416,8 @@ auto buildBuckets(const ad::types::LidarScan &scan,
 auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets,
                        const std::vector<ad::localization::util::MapLine> &mapLines,
                        const ad::types::Pose &pose,
-                       const ad::localization::EkfLocalizerConfig &config, const Mat3 &covariance)
-    -> ObservationSummary {
+                       const ad::localization::HoughObservationModelConfig &config,
+                       const Mat3 &covariance) -> ObservationSummary {
   ObservationSummary summary{};
   summary.observations.reserve(mapLines.size());
 
@@ -318,8 +436,8 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
         mapLines[lineIndex].model, ad::types::Pose{.x = pose.x, .y = pose.y, .theta = pose.theta});
     observation.observed = fit->model;
     const auto pointCount = std::max(1.0, static_cast<double>(fit->pointCount));
-    const auto baseRangeVar = config.ekf.measurementNoiseRange * config.ekf.measurementNoiseRange;
-    const auto baseAngleVar = config.ekf.measurementNoiseAngle * config.ekf.measurementNoiseAngle;
+    const auto baseRangeVar = config.measurementNoiseRange * config.measurementNoiseRange;
+    const auto baseAngleVar = config.measurementNoiseAngle * config.measurementNoiseAngle;
     const auto scale = std::max(1.0, kReferencePoints / pointCount);
     const auto minRangeVar = baseRangeVar * kMinRangeVarianceFactor;
     const auto minAngleVar = baseAngleVar * kMinAngleVarianceFactor;
@@ -386,11 +504,11 @@ namespace ad::localization {
 
 HoughObservationModel::HoughObservationModel(std::vector<util::MapLine> mapLines,
                                              util::MapSignature signature,
-                                             EkfLocalizerConfig config)
+                                             HoughObservationModelConfig config)
     : config_(std::move(config)), mapLines_(std::move(mapLines)),
       mapSignature_(std::move(signature)) {}
 
-auto HoughObservationModel::create(const types::MapData &map, EkfLocalizerConfig config)
+auto HoughObservationModel::create(const types::MapData &map, HoughObservationModelConfig config)
     -> Result<std::unique_ptr<HoughObservationModel>> {
   const auto signature = util::mapSignatureFromMap(map);
   if (!signature) {
@@ -405,6 +523,16 @@ auto HoughObservationModel::create(const types::MapData &map, EkfLocalizerConfig
   auto observationModel =
       std::make_unique<HoughObservationModel>(std::move(*mapLines), *signature, config);
   return {std::move(observationModel)};
+}
+
+auto HoughObservationModel::createFromConfig(
+    const types::MapData &map, const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::unique_ptr<HoughObservationModel>> {
+  const auto modelConfig = parseHoughObservationConfig(configDoc);
+  if (!modelConfig) {
+    return tl::make_unexpected(modelConfig.error());
+  }
+  return create(map, *modelConfig);
 }
 
 auto HoughObservationModel::buildUpdateInput(const types::LidarScan &scan,
