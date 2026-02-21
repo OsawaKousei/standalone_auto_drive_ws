@@ -2,6 +2,7 @@
 
 #include "i_controller.hpp"
 
+#include <cstddef>
 #include <optional>
 
 namespace ad::control {
@@ -40,9 +41,16 @@ private:
     bool initialized{false};
   };
 
+  struct LookaheadSelection {
+    types::Point target;
+    std::size_t closestIndex;
+  };
+
   [[nodiscard]] static auto selectLookaheadTarget(std::span<const types::Point> path,
-                                                  const types::Pose &pose, double lookaheadDistance)
-      -> types::Point;
+                                                  const types::Pose &pose,
+                                                  double lookaheadDistance,
+                                                  std::size_t minClosestIndex)
+      -> LookaheadSelection;
 
   [[nodiscard]] static auto updatePid(PidState &state, double error, double deltaSeconds,
                                       const PidGains &gains, double integralLimit) -> double;
@@ -56,6 +64,8 @@ private:
   mutable PidState yawRateState_{};
   mutable std::optional<types::Pose> previousPose_{};
   mutable std::optional<types::Twist> previousCommand_{};
+  mutable std::size_t pathProgressIndex_{0U};
+  mutable std::size_t previousPathSize_{0U};
 };
 
 } // namespace ad::control
