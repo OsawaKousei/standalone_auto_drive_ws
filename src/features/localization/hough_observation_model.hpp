@@ -3,10 +3,7 @@
 #include "i_observation_model.hpp"
 #include "localizer_util.hpp"
 
-#include "../../shared/text_config.hpp"
-
 #include <memory>
-#include <optional>
 #include <vector>
 
 namespace ad::localization {
@@ -24,10 +21,6 @@ struct HoughObservationModelConfig {
 class HoughObservationModel final : public IObservationModel {
 public:
   [[nodiscard]] static auto create(const types::MapData &map, HoughObservationModelConfig config)
-      -> Result<std::unique_ptr<HoughObservationModel>>;
-  [[nodiscard]] static auto
-  createFromConfig(const types::MapData &map,
-                   const std::optional<::ad::config::TextConfig> &configDoc)
       -> Result<std::unique_ptr<HoughObservationModel>>;
 
   HoughObservationModel(std::vector<util::MapLine> mapLines, util::MapSignature signature,
