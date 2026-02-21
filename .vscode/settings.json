@@ -24,6 +24,14 @@
     "tests/**": true
   },
 
+  // 生成物ディレクトリを VS Code 全体の探索/監視対象から除外
+  "search.exclude": {
+    "**/build/**": true
+  },
+  "files.watcherExclude": {
+    "**/build/**": true
+  },
+
   // 既存の他言語設定
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "[yaml]": {

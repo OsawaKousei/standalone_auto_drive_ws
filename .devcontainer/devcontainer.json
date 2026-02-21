@@ -10,12 +10,12 @@
         "esbenp.prettier-vscode",
         "redhat.vscode-yaml",
         "ms-vscode.cpptools-extension-pack"
-      ]
-    },
-    "settings": {
+      ],
+      "settings": {
         // コンテナ内のPythonを自動的に認識させる
         "python.defaultInterpreterPath": "/workspace/.venv_docker/bin/python"
       }
+    }
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace",
