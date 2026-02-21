@@ -1,0 +1,13 @@
+{
+  "samples": 1931,
+  "duration_seconds": 19.31,
+  "final_position_error": 0.15239741,
+  "final_heading_error": 0.01643659,
+  "ate": 0.10302899343345417,
+  "rpe": 0.012095956785412483,
+  "rmse": 0.11969613439087262,
+  "rpe_rot_rmse": 0.008842647030108855,
+  "max_position_error": 0.24809449,
+  "max_heading_error": 0.19385871,
+  "result": "success"
+}
