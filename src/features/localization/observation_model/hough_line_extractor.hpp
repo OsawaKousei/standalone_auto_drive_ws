@@ -1,10 +1,10 @@
 #pragma once
 
-#include "localization_config.hpp"
-#include "localizer_util.hpp"
+#include "../localization_config.hpp"
+#include "../localizer_util.hpp"
 
-#include "../../shared/result.hpp"
-#include "../../shared/types.hpp"
+#include "../../../shared/result.hpp"
+#include "../../../shared/types.hpp"
 
 #include <vector>
 

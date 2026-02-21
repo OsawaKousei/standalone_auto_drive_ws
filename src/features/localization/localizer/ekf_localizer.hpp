@@ -1,8 +1,8 @@
 #pragma once
 
-#include "i_localizer.hpp"
-#include "i_observation_model.hpp"
-#include "localization_config.hpp"
+#include "../i_localizer.hpp"
+#include "../i_observation_model.hpp"
+#include "../localization_config.hpp"
 
 #include <memory>
 

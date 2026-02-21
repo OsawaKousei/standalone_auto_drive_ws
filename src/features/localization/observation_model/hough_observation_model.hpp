@@ -1,7 +1,7 @@
 #pragma once
 
-#include "i_observation_model.hpp"
-#include "localizer_util.hpp"
+#include "../i_observation_model.hpp"
+#include "../localizer_util.hpp"
 
 #include <memory>
 #include <vector>

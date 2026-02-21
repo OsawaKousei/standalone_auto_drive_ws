@@ -1,9 +1,9 @@
 #include "localizer_factory.hpp"
 
-#include "ekf_localizer.hpp"
-#include "hough_observation_model.hpp"
-#include "hough_ransac_observation_model.hpp"
 #include "localization_config.hpp"
+#include "localizer/ekf_localizer.hpp"
+#include "observation_model/hough_observation_model.hpp"
+#include "observation_model/hough_ransac_observation_model.hpp"
 
 #include <cstddef>
 

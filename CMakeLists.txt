@@ -78,11 +78,11 @@ add_library(ad_core
   src/features/control/pure_pursuit.cpp
   src/features/control/pid.cpp
   src/features/control/controller_factory.cpp
-  src/features/localization/ekf_localizer.cpp
-  src/features/localization/hough_line_extractor.cpp
-  src/features/localization/hough_observation_model.cpp
-  src/features/localization/ransac_core.cpp
-  src/features/localization/hough_ransac_observation_model.cpp
+  src/features/localization/localizer/ekf_localizer.cpp
+  src/features/localization/observation_model/hough_line_extractor.cpp
+  src/features/localization/observation_model/hough_observation_model.cpp
+  src/features/localization/observation_model/ransac_core.cpp
+  src/features/localization/observation_model/hough_ransac_observation_model.cpp
   src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker.cpp
