@@ -4,6 +4,7 @@
 #include "shared/types.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <optional>
@@ -12,12 +13,16 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
 #include <fmt/core.h>
 
 namespace ad::demo {
+
+constexpr auto kRenderScheduleEpsilon =
+    1.0e-12; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 struct LogRecord {
   int step = 0;
@@ -39,6 +44,9 @@ struct LogData {
   types::Footprint footprint;
   std::vector<types::Point> path;
   std::optional<ScanMeta> scanMeta;
+  std::optional<double> odometryDeltaT;
+  std::optional<double> lidarDeltaT;
+  std::optional<double> renderDeltaT;
 };
 
 struct LogColumns {
@@ -118,6 +126,54 @@ struct LogColumns {
   }
 }
 
+[[nodiscard]] auto parseRuntimeLine(std::string_view input)
+    -> Result<std::tuple<double, double, double>> {
+  const auto payload = input.substr(std::string_view{"# "}.size());
+  auto values = std::unordered_map<std::string, double>{};
+  const auto trim = [](std::string value) -> std::string {
+    const auto begin = value.find_first_not_of(" \t");
+    if (begin == std::string::npos) {
+      return {};
+    }
+    const auto end = value.find_last_not_of(" \t");
+    return value.substr(begin, (end - begin) + 1U);
+  };
+  for (const auto &token : splitDelimited(payload, ',')) {
+    const auto keyValue = splitDelimited(token, '=');
+    if (keyValue.size() != 2U) {
+      continue;
+    }
+    try {
+      values.emplace(trim(keyValue[0]), std::stod(trim(keyValue[1])));
+    } catch (const std::exception &) {
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse runtime values."});
+    }
+  }
+
+  if (!values.contains("odometry_dt") || !values.contains("lidar_dt") ||
+      !values.contains("render_dt")) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Missing runtime dt values in log."});
+  }
+
+  return std::tuple{values["odometry_dt"], values["lidar_dt"], values["render_dt"]};
+}
+
+[[nodiscard]] auto scanToPoints(const types::Pose &pose, const types::LidarScan &scan)
+    -> std::vector<types::Point> {
+  auto points = std::vector<types::Point>{};
+  points.reserve(scan.ranges.size());
+  for (const auto angleIndex : std::views::iota(std::size_t{0}, scan.ranges.size())) {
+    const auto angle =
+        pose.theta + scan.minAngle + (scan.angleIncrement * static_cast<double>(angleIndex));
+    const auto distance = scan.ranges[angleIndex];
+    points.push_back(types::Point{.x = pose.x + (distance * std::cos(angle)),
+                                  .y = pose.y + (distance * std::sin(angle))});
+  }
+  return points;
+}
+
 [[nodiscard]] auto parseLogColumns(std::string_view header) -> Result<LogColumns> {
   const auto names = splitCsvLine(header);
   auto indexByName = std::unordered_map<std::string, std::size_t>{};
@@ -190,6 +246,9 @@ struct LogColumns {
   auto footprint = std::optional<types::Footprint>{};
   auto pathPoints = std::optional<std::vector<types::Point>>{};
   auto scanMeta = std::optional<ScanMeta>{};
+  auto odometryDeltaT = std::optional<double>{};
+  auto lidarDeltaT = std::optional<double>{};
+  auto renderDeltaT = std::optional<double>{};
   auto columns = std::optional<LogColumns>{};
   std::string line;
   while (std::getline(file, line)) {
@@ -217,6 +276,15 @@ struct LogColumns {
           return tl::make_unexpected(parsed.error());
         }
         scanMeta = *parsed;
+      }
+      if (line.starts_with("# odometry_dt=")) {
+        const auto parsed = parseRuntimeLine(line);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        odometryDeltaT = std::get<0>(*parsed);
+        lidarDeltaT = std::get<1>(*parsed);
+        renderDeltaT = std::get<2>(*parsed);
       }
       if (line.starts_with("step,")) {
         const auto parsed = parseLogColumns(line);
@@ -295,13 +363,18 @@ struct LogColumns {
   return LogData{.records = std::move(records),
                  .footprint = footprintValue,
                  .path = pathValue,
-                 .scanMeta = scanMeta};
+                 .scanMeta = scanMeta,
+                 .odometryDeltaT = odometryDeltaT,
+                 .lidarDeltaT = lidarDeltaT,
+                 .renderDeltaT = renderDeltaT};
 }
 
 struct Args {
   std::string logPath = "logs/localization_control_lidar_demo.log";
   std::string mapPath = "tools/map.yaml";
   int delayMs = 80;
+  std::optional<double> odometryDeltaTOverride;
+  std::optional<double> renderDeltaTOverride;
 };
 
 [[nodiscard]] auto parseArgs(int argc, char **argv) -> Result<Args> {
@@ -325,11 +398,29 @@ struct Args {
       }
       continue;
     }
+    if (token == "--odometry-dt" && index + 1 < argc) {
+      try {
+        args.odometryDeltaTOverride = std::stod(argv[++index]);
+      } catch (const std::exception &) {
+        return tl::make_unexpected(
+            Error{.code = ErrorCode::InvalidInput, .message = "odometry-dt must be a number."});
+      }
+      continue;
+    }
+    if (token == "--render-dt" && index + 1 < argc) {
+      try {
+        args.renderDeltaTOverride = std::stod(argv[++index]);
+      } catch (const std::exception &) {
+        return tl::make_unexpected(
+            Error{.code = ErrorCode::InvalidInput, .message = "render-dt must be a number."});
+      }
+      continue;
+    }
     if (token == "--help") {
       return tl::make_unexpected(
           Error{.code = ErrorCode::InvalidInput,
                 .message = "Usage: localization_control_lidar_log_replay [--log PATH] [--map PATH] "
-                           "[--delay-ms N]"});
+                           "[--delay-ms N] [--odometry-dt SEC] [--render-dt SEC]"});
     }
 
     return tl::make_unexpected(
@@ -339,6 +430,14 @@ struct Args {
   if (args.delayMs < 0) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput, .message = "delay-ms must be non-negative."});
+  }
+  if (args.odometryDeltaTOverride && *args.odometryDeltaTOverride <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "odometry-dt must be positive."});
+  }
+  if (args.renderDeltaTOverride && *args.renderDeltaTOverride <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "render-dt must be positive."});
   }
 
   return args;
@@ -382,7 +481,39 @@ auto main(int argc, char **argv) -> int {
   trueTrail.reserve(logData.records.size());
   estTrail.reserve(logData.records.size());
 
+  const auto defaultOdometryDeltaT = 0.02;
+  const auto defaultRenderDeltaT = 0.1;
+  const auto odometryDeltaT =
+      args.odometryDeltaTOverride.value_or(logData.odometryDeltaT.value_or(defaultOdometryDeltaT));
+  const auto renderDeltaT =
+      args.renderDeltaTOverride.value_or(logData.renderDeltaT.value_or(defaultRenderDeltaT));
+  auto renderElapsed = 0.0;
+  auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
+
   for (const auto &record : logData.records) {
+    auto lidarUpdated = false;
+    if (!record.scanPoints.empty()) {
+      lastScanWorldPoints.emplace(record.scanPoints.begin(), record.scanPoints.end());
+      lidarUpdated = true;
+    } else if (logData.scanMeta && !record.ranges.empty()) {
+      const auto scan = ad::types::LidarScan{.ranges = record.ranges,
+                                             .minAngle = logData.scanMeta->minAngle,
+                                             .angleIncrement = logData.scanMeta->angleIncrement,
+                                             .maxRange = logData.scanMeta->maxRange};
+      lastScanWorldPoints.emplace(ad::demo::scanToPoints(record.truePose, scan));
+      lidarUpdated = true;
+    }
+
+    trueTrail.push_back(ad::types::Point{.x = record.truePose.x, .y = record.truePose.y});
+    estTrail.push_back(ad::types::Point{.x = record.estPose.x, .y = record.estPose.y});
+
+    renderElapsed += odometryDeltaT;
+    const auto shouldRender =
+        lidarUpdated || (renderElapsed + ad::demo::kRenderScheduleEpsilon >= renderDeltaT);
+    if (!shouldRender) {
+      continue;
+    }
+
     const auto frameStatus = viz.renderFrame(preparedMap);
     if (!frameStatus) {
       fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
@@ -396,9 +527,6 @@ auto main(int argc, char **argv) -> int {
         return 1;
       }
     }
-
-    trueTrail.push_back(ad::types::Point{.x = record.truePose.x, .y = record.truePose.y});
-    estTrail.push_back(ad::types::Point{.x = record.estPose.x, .y = record.estPose.y});
 
     const auto truePathStatus = viz.renderPath(std::span{trueTrail}, mapGeometry);
     if (!truePathStatus) {
@@ -418,19 +546,9 @@ auto main(int argc, char **argv) -> int {
       return 1;
     }
 
-    if (!record.scanPoints.empty()) {
+    if (lastScanWorldPoints.has_value() && !lastScanWorldPoints->empty()) {
       const auto scanStatus =
-          viz.renderPoints(std::span{record.scanPoints}, mapGeometry, 10.0, "green");
-      if (!scanStatus) {
-        fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
-        return 1;
-      }
-    } else if (logData.scanMeta && !record.ranges.empty()) {
-      const auto scan = ad::types::LidarScan{.ranges = record.ranges,
-                                             .minAngle = logData.scanMeta->minAngle,
-                                             .angleIncrement = logData.scanMeta->angleIncrement,
-                                             .maxRange = logData.scanMeta->maxRange};
-      const auto scanStatus = viz.renderScan(record.truePose, scan, mapGeometry);
+          viz.renderPoints(std::span{*lastScanWorldPoints}, mapGeometry, 10.0, "green");
       if (!scanStatus) {
         fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
         return 1;
@@ -450,6 +568,7 @@ auto main(int argc, char **argv) -> int {
       return 1;
     }
 
+    renderElapsed = std::fmod(renderElapsed, renderDeltaT);
     std::this_thread::sleep_for(std::chrono::milliseconds{args.delayMs});
   }
 
