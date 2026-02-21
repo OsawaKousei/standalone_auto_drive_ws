@@ -1,4 +1,4 @@
-lookahead_distance = 0.9
+lookahead_distance = 2.0
 max_linear_speed = 0.8
 max_angular_speed = 1.2
 position_kp = 0.7

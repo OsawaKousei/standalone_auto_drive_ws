@@ -37,8 +37,8 @@ algorithm = "astar"
 config_path = "planning/astar.toml"
 
 [control]
-algorithm = "cascade_pid"
-config_path = "control/cascade_pid.toml"
+algorithm = "pure_pursuit"
+config_path = "control/pure_pursuit.toml"
 
 [lidar_sensor]
 algorithm = "lidar"
