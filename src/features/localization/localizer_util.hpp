@@ -73,7 +73,5 @@ struct ObservationGateConfig {
 [[nodiscard]] auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
 [[nodiscard]] auto signatureMatches(const MapSignature &signature, const types::MapData &map)
     -> bool;
-[[nodiscard]] auto extractLinesFromMap(const types::MapData &map, const HoughConfig &config)
-    -> Result<std::vector<MapLine>>;
 
 } // namespace ad::localization::util
