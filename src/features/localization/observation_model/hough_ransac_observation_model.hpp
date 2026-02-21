@@ -3,7 +3,7 @@
 #include "../i_observation_model.hpp"
 #include "../localizer_util.hpp"
 #include "hough_observation_model.hpp"
-#include "hough_ransac_config.hpp"
+#include "ransac_config.hpp"
 
 #include <memory>
 #include <vector>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../localizer_util.hpp"
-#include "hough_ransac_config.hpp"
+#include "ransac_config.hpp"
 
 #include "../../../shared/types.hpp"
 
