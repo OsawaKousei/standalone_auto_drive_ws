@@ -31,7 +31,7 @@ namespace ad::demo {
 
 [[nodiscard]] auto serializePoints(std::span<const types::Point> points) -> std::string {
   auto output = std::string{};
-  for (std::size_t index = 0; index < points.size(); ++index) {
+  for (const auto index : std::views::iota(std::size_t{0}, points.size())) {
     if (index != 0) {
       output.push_back(';');
     }

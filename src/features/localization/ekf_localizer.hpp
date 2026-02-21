@@ -15,6 +15,9 @@ public:
   [[nodiscard]] static auto create(const types::MapData &map, EkfLocalizerConfig config)
       -> Result<std::unique_ptr<EkfLocalizer>>;
 
+  EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
+               EkfLocalizerConfig config);
+
   [[nodiscard]] auto reset(const types::Pose &initialPose,
                            const CovarianceMatrix &initialCovariance) -> Status override;
   [[nodiscard]] auto predict(const types::Twist &control, double deltaT) -> Status override;
@@ -29,8 +32,6 @@ private:
     double theta;
   };
 
-  EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
-               EkfLocalizerConfig config);
   EkfLocalizerConfig config_;
   std::vector<util::MapLine> mapLines_{};
   util::MapSignature mapSignature_;

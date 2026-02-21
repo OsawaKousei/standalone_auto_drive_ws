@@ -191,8 +191,7 @@ auto EkfLocalizer::create(const types::MapData &map, EkfLocalizerConfig config)
     return tl::make_unexpected(mapLines.error());
   }
 
-  auto localizer =
-      std::unique_ptr<EkfLocalizer>(new EkfLocalizer(std::move(*mapLines), *signature, config));
+  auto localizer = std::make_unique<EkfLocalizer>(std::move(*mapLines), *signature, config);
   return {std::move(localizer)};
 }
 

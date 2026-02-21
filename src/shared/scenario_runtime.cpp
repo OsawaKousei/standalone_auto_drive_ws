@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -164,9 +165,12 @@ auto parseFootprintVertices(const config::TextConfig &cfg) -> Result<types::Foot
 
   auto vertices = std::vector<types::Point>{};
   vertices.reserve(values->size() / 2U);
-  for (std::size_t index = 0; index < values->size(); index += 2U) {
-    vertices.push_back(types::Point{.x = (*values)[index], .y = (*values)[index + 1U]});
-  }
+  const auto pairIndices = std::views::iota(std::size_t{0}, values->size() / 2U);
+  std::ranges::transform(
+      pairIndices, std::back_inserter(vertices), [&](const std::size_t pairIndex) -> types::Point {
+        const auto baseIndex = pairIndex * 2U;
+        return types::Point{.x = (*values)[baseIndex], .y = (*values)[baseIndex + 1U]};
+      });
   return types::Footprint{std::move(vertices)};
 }
 
