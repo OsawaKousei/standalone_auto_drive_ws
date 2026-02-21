@@ -1,6 +1,7 @@
 #include "localizer_factory.hpp"
 
 #include "ekf_localizer.hpp"
+#include "hough_observation_model.hpp"
 #include "localization_config.hpp"
 
 #include <cstddef>
@@ -132,6 +133,26 @@ namespace {
                             .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
+[[nodiscard]] auto
+parseObservationModelType(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::string> {
+  if (!configDoc.has_value()) {
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "Localization config is required for ekf."});
+  }
+
+  const auto raw = configDoc->findRaw("", "observation_model");
+  if (!raw) {
+    return std::string{"hough_line"};
+  }
+
+  const auto parsed = ::ad::config::parseQuotedString(*raw);
+  if (!parsed) {
+    return tl::make_unexpected(parsed.error());
+  }
+  return *parsed;
+}
+
 } // namespace
 
 auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -189,7 +210,25 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
     return tl::make_unexpected(configValue.error());
   }
 
-  auto localizer = EkfLocalizer::create(map, *configValue);
+  const auto observationModelType = parseObservationModelType(configDoc);
+  if (!observationModelType) {
+    return tl::make_unexpected(observationModelType.error());
+  }
+
+  std::unique_ptr<IObservationModel> observationModel;
+  if (*observationModelType == "hough_line") {
+    auto model = HoughObservationModel::create(map, *configValue);
+    if (!model) {
+      return tl::make_unexpected(model.error());
+    }
+    observationModel = std::move(*model);
+  } else {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Unsupported observation model: " + *observationModelType});
+  }
+
+  auto localizer = EkfLocalizer::create(*configValue, std::move(observationModel));
   if (!localizer) {
     return tl::make_unexpected(localizer.error());
   }

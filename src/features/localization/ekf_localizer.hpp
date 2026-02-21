@@ -1,22 +1,20 @@
 #pragma once
 
 #include "i_localizer.hpp"
+#include "i_observation_model.hpp"
 #include "localization_config.hpp"
-#include "localizer_util.hpp"
 
-#include <cstddef>
 #include <memory>
-#include <vector>
 
 namespace ad::localization {
 
 class EkfLocalizer final : public ILocalizer {
 public:
-  [[nodiscard]] static auto create(const types::MapData &map, EkfLocalizerConfig config)
+  [[nodiscard]] static auto create(EkfLocalizerConfig config,
+                                   std::unique_ptr<IObservationModel> observationModel)
       -> Result<std::unique_ptr<EkfLocalizer>>;
 
-  EkfLocalizer(std::vector<util::MapLine> mapLines, util::MapSignature signature,
-               EkfLocalizerConfig config);
+  EkfLocalizer(EkfLocalizerConfig config, std::unique_ptr<IObservationModel> observationModel);
 
   [[nodiscard]] auto reset(const types::Pose &initialPose,
                            const CovarianceMatrix &initialCovariance) -> Status override;
@@ -33,8 +31,7 @@ private:
   };
 
   EkfLocalizerConfig config_;
-  std::vector<util::MapLine> mapLines_{};
-  util::MapSignature mapSignature_;
+  std::unique_ptr<IObservationModel> observationModel_;
   State state_;
   CovarianceMatrix covariance_{CovarianceMatrix::Zero()};
   double score_ = 0.0;

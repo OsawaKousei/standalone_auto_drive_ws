@@ -1,3 +1,5 @@
+observation_model = "hough_line"
+
 [hough]
 theta_bins = 180
 rho_bins = 200
