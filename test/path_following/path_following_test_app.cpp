@@ -2,6 +2,14 @@
 #include "features/planning/planner_factory.hpp"
 #include "features/simulation/collision_checker.hpp"
 #include "features/simulation/simulation_factory.hpp"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#endif
+#include "features/visualization/visualizer.hpp"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
 #include "shared/text_config.hpp"
@@ -49,6 +57,11 @@ struct TestScenarioConfig {
   AlgorithmSpec control;
   AlgorithmSpec odometrySensor;
   AlgorithmSpec physics;
+};
+
+struct ProgramOptions {
+  std::string scenarioPath;
+  bool render;
 };
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
@@ -312,6 +325,70 @@ struct TestScenarioConfig {
   return config::loadTextConfig(resolvePath(baseDir, configPath));
 }
 
+[[nodiscard]] auto parseProgramOptions(std::span<char *> arguments) -> Result<ProgramOptions> {
+  auto scenarioPath = std::string{"test/path_following/configs/path_following.toml"};
+  auto render = false;
+
+  for (std::size_t index = 1; index < arguments.size(); ++index) {
+    const auto argument = std::string_view{arguments[index]};
+    if (argument == "--render") {
+      render = true;
+      continue;
+    }
+    if (argument == "--no-render") {
+      render = false;
+      continue;
+    }
+    if (argument == "-h" || argument == "--help") {
+      return tl::make_unexpected(Error{
+          .code = ErrorCode::InvalidInput,
+          .message = "Usage: path_following_test_app [scenario.toml] [--render|--no-render]"});
+    }
+    if (!argument.empty() && argument.front() == '-') {
+      return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                       .message = "Unknown option: " + std::string{argument}});
+    }
+    scenarioPath = std::string{argument};
+  }
+
+  return ProgramOptions{.scenarioPath = scenarioPath, .render = render};
+}
+
+[[nodiscard]] auto renderFrame(const ad::visualization::Visualizer &viz,
+                               const ad::visualization::Visualizer::PreparedMap &preparedMap,
+                               std::span<const types::Point> path, const types::Pose &robotPose,
+                               const types::Pose &goal, const types::Footprint &footprint)
+    -> std::optional<ad::Error> {
+  const auto &mapGeometry = preparedMap.geometry;
+  const auto frameStatus = viz.renderFrame(preparedMap);
+  if (!frameStatus) {
+    return frameStatus.error();
+  }
+
+  const auto pathStatus = viz.renderPath(path, mapGeometry);
+  if (!pathStatus) {
+    return pathStatus.error();
+  }
+
+  const auto goalStatus =
+      viz.renderMarker(types::Point{.x = goal.x, .y = goal.y}, mapGeometry, 18.0, "red");
+  if (!goalStatus) {
+    return goalStatus.error();
+  }
+
+  const auto robotStatus = viz.renderRobot(robotPose, footprint, mapGeometry);
+  if (!robotStatus) {
+    return robotStatus.error();
+  }
+
+  const auto presentStatus = viz.presentFrame();
+  if (!presentStatus) {
+    return presentStatus.error();
+  }
+
+  return std::nullopt;
+}
+
 [[nodiscard]] auto initializeLogFile(std::span<const types::Point> path,
                                      std::string_view scenarioPath)
     -> std::optional<std::ofstream> {
@@ -346,8 +423,13 @@ struct TestScenarioConfig {
 
 int main(int argc, char **argv) {
   const auto arguments = std::span<char *>{argv, static_cast<std::size_t>(argc)};
-  const auto scenarioPath = std::string{
-      arguments.size() > 1U ? arguments[1] : "test/path_following/configs/path_following.toml"};
+  const auto optionsResult = ad::path_following_test::parseProgramOptions(arguments);
+  if (!optionsResult) {
+    fmt::print(stderr, "Argument error: {}\n", optionsResult.error().message);
+    return 1;
+  }
+  const auto &options = *optionsResult;
+  const auto &scenarioPath = options.scenarioPath;
 
   const auto scenarioResult = ad::path_following_test::loadScenario(scenarioPath);
   if (!scenarioResult) {
@@ -363,6 +445,18 @@ int main(int argc, char **argv) {
     return 1;
   }
   const auto &map = *mapResult;
+
+  auto visualizer = std::optional<ad::visualization::Visualizer>{};
+  auto preparedMap = std::optional<ad::visualization::Visualizer::PreparedMap>{};
+  if (options.render) {
+    const auto preparedMapResult = ad::visualization::Visualizer::prepareMap(map);
+    if (!preparedMapResult) {
+      fmt::print(stderr, "Render error: {}\n", preparedMapResult.error().message);
+      return 1;
+    }
+    visualizer.emplace();
+    preparedMap.emplace(*preparedMapResult);
+  }
 
   const auto planningConfig =
       ad::path_following_test::loadAlgorithmConfig(scenario.baseDir, scenario.planning.configPath);
@@ -445,6 +539,16 @@ int main(int argc, char **argv) {
   auto reachedGoal = false;
   std::optional<ad::Error> failure;
 
+  if (options.render) {
+    const auto renderError =
+        ad::path_following_test::renderFrame(*visualizer, *preparedMap, std::span{*pathResult},
+                                             trueState->pose, scenario.goal, scenario.footprint);
+    if (renderError) {
+      fmt::print(stderr, "Render error: {}\n", renderError->message);
+      return 1;
+    }
+  }
+
   for (int step = 0; step < scenario.runtime.maxSteps; ++step) {
     const auto commandResult = controller->computeCommand(
         ad::control::ControlInput{.path = std::span{*pathResult},
@@ -500,6 +604,16 @@ int main(int argc, char **argv) {
              << trackingHeadingError << ',' << commandResult->v << ',' << commandResult->vy << ','
              << commandResult->w << ',' << odometryDelta->deltaForward << ','
              << odometryDelta->deltaLateral << ',' << odometryDelta->deltaTheta << '\n';
+
+    if (options.render) {
+      const auto renderError =
+          ad::path_following_test::renderFrame(*visualizer, *preparedMap, std::span{*pathResult},
+                                               trueState->pose, scenario.goal, scenario.footprint);
+      if (renderError) {
+        failure.emplace(*renderError);
+        break;
+      }
+    }
 
     if (distGoal <= scenario.runtime.goalTolerance) {
       reachedGoal = true;
