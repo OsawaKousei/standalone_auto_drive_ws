@@ -67,6 +67,224 @@ constexpr auto kLidarScheduleEpsilon =
   return points;
 }
 
+[[nodiscard]] auto distanceToGoal(const types::Pose &pose, const types::Pose &goal) -> double {
+  return std::hypot(goal.x - pose.x, goal.y - pose.y);
+}
+
+[[nodiscard]] auto initializeLogFile(double odometryDeltaT, double lidarDeltaT, double renderDeltaT,
+                                     double goalTolerance, int maxSteps,
+                                     std::span<const types::Point> footprint,
+                                     std::span<const types::Point> path)
+    -> std::optional<std::ofstream> {
+  std::error_code fsError;
+  std::filesystem::create_directories("logs", fsError);
+  if (fsError) {
+    fmt::print(stderr, "Log directory error: {}\n", fsError.message());
+    return std::nullopt;
+  }
+
+  auto logFile = std::ofstream{"logs/localization_control_lidar_demo.log"};
+  if (!logFile.is_open()) {
+    fmt::print(stderr, "Log file error: failed to open log file.\n");
+    return std::nullopt;
+  }
+
+  logFile << std::fixed << std::setprecision(kLogPrecision);
+  logFile << "# localization_control_lidar_demo log\n";
+  logFile << "# odometry_dt=" << odometryDeltaT << ", lidar_dt=" << lidarDeltaT
+          << ", render_dt=" << renderDeltaT << ", goal_tolerance=" << goalTolerance
+          << ", max_steps=" << maxSteps << "\n";
+  logFile << "# footprint=" << serializePoints(footprint) << "\n";
+  logFile << "# path=" << serializePoints(path) << "\n";
+  logFile << "# columns: "
+             "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
+             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
+  logFile << "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
+             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
+  return logFile;
+}
+
+[[nodiscard]] auto renderFrame(const ad::visualization::Visualizer &viz, const auto &preparedMap,
+                               std::span<const types::Point> path,
+                               const std::optional<std::vector<types::Point>> &scanWorldPoints,
+                               const types::Pose &robotPose, const types::Footprint &footprint)
+    -> std::optional<ad::Error> {
+  const auto &mapGeometry = preparedMap.geometry;
+  const auto frameStatus = viz.renderFrame(preparedMap);
+  if (!frameStatus) {
+    return frameStatus.error();
+  }
+
+  const auto pathStatus = viz.renderPath(path, mapGeometry);
+  if (!pathStatus) {
+    return pathStatus.error();
+  }
+
+  if (scanWorldPoints.has_value() && !scanWorldPoints->empty()) {
+    const auto scanStatus = viz.renderPoints(*scanWorldPoints, mapGeometry, 10.0, "green");
+    if (!scanStatus) {
+      return scanStatus.error();
+    }
+  }
+
+  const auto robotStatus = viz.renderRobot(robotPose, footprint, mapGeometry);
+  if (!robotStatus) {
+    return robotStatus.error();
+  }
+
+  const auto presentStatus = viz.presentFrame();
+  if (!presentStatus) {
+    return presentStatus.error();
+  }
+  return std::nullopt;
+}
+
+auto appendLogEntry(std::ofstream &logFile, int step, double distanceBefore, double distanceAfter,
+                    double positionError, double headingError, double estimateScore,
+                    const types::Pose &truePose, const types::Pose &estimatedPose,
+                    const types::Twist &appliedCommand, bool lidarUpdated,
+                    const auto &odometryDelta, std::span<const types::Point> scanPoints) -> void {
+  logFile << step << ',' << distanceBefore << ',' << distanceAfter << ',' << positionError << ','
+          << headingError << ',' << estimateScore << ',' << truePose.x << ',' << truePose.y << ','
+          << truePose.theta << ',' << estimatedPose.x << ',' << estimatedPose.y << ','
+          << estimatedPose.theta << ',' << appliedCommand.v << ',' << appliedCommand.w << ','
+          << (lidarUpdated ? 1 : 0) << ',' << odometryDelta.deltaForward << ','
+          << odometryDelta.deltaLateral << ',' << odometryDelta.deltaTheta << ','
+          << serializePoints(scanPoints) << '\n';
+}
+
+struct SimulationOutcome {
+  bool reachedGoal{false};
+  std::optional<ad::Error> failure{};
+};
+
+[[nodiscard]] auto
+runSimulationLoop(const types::Pose &start, const types::Pose &goal,
+                  const types::Footprint &footprint, std::span<const types::Point> path,
+                  const auto &map, const ad::simulation::CollisionChecker &collisionChecker,
+                  double odometryDeltaT, double lidarDeltaT, double renderDeltaT,
+                  double goalTolerance, int maxSteps, const ad::visualization::Visualizer &viz,
+                  const auto &preparedMap, auto &controller, auto &localizer, auto &lidarSensor,
+                  auto &odometrySensor, auto &physics, std::ofstream &logFile)
+    -> SimulationOutcome {
+  auto outcome = SimulationOutcome{};
+  auto trueState = std::optional<ad::simulation::MotionState>{
+      ad::simulation::MotionState{.pose = start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
+  auto lidarElapsed = 0.0;
+  auto renderElapsed = 0.0;
+  auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
+
+  for (const auto step : std::views::iota(0, maxSteps)) {
+    const auto estimateResult = localizer->estimate();
+    if (!estimateResult) {
+      outcome.failure.emplace(estimateResult.error());
+      break;
+    }
+
+    const auto input = ad::control::ControlInput{.path = path, .currentPose = estimateResult->pose};
+    const auto commandResult = controller->computeCommand(input);
+    if (!commandResult) {
+      outcome.failure.emplace(commandResult.error());
+      break;
+    }
+    const auto appliedCommand = *commandResult;
+
+    const auto distanceBefore = distanceToGoal(trueState->pose, goal);
+
+    const auto nextState = physics->propagate(*trueState, appliedCommand, odometryDeltaT);
+    if (!nextState) {
+      outcome.failure.emplace(nextState.error());
+      break;
+    }
+
+    const auto trajectoryFree = collisionChecker.checkTrajectory(trueState->pose, nextState->pose);
+    if (!trajectoryFree) {
+      outcome.failure.emplace(trajectoryFree.error());
+      break;
+    }
+    if (!*trajectoryFree) {
+      outcome.failure.emplace(
+          ad::Error{.code = ad::ErrorCode::InvalidInput,
+                    .message = "Collision detected in trajectory propagation."});
+      break;
+    }
+
+    const auto odometryDelta = odometrySensor->measure(trueState->pose, nextState->pose);
+    if (!odometryDelta) {
+      outcome.failure.emplace(odometryDelta.error());
+      break;
+    }
+
+    const auto predictStatus = localizer->predictOdometry(*odometryDelta);
+    if (!predictStatus) {
+      outcome.failure.emplace(predictStatus.error());
+      break;
+    }
+
+    trueState.emplace(
+        ad::simulation::MotionState{.pose = nextState->pose, .twist = nextState->twist});
+
+    auto lidarUpdated = false;
+    auto scanPoints = std::vector<ad::types::Point>{};
+    lidarElapsed += odometryDeltaT;
+    if (lidarElapsed + kLidarScheduleEpsilon >= lidarDeltaT) {
+      const auto scanResult = lidarSensor->simulate(map, trueState->pose);
+      if (!scanResult) {
+        outcome.failure.emplace(scanResult.error());
+        break;
+      }
+
+      const auto updateStatus = localizer->update(*scanResult, map);
+      if (!updateStatus) {
+        outcome.failure.emplace(updateStatus.error());
+        break;
+      }
+
+      scanPoints = scanToPoints(trueState->pose, *scanResult);
+      lastScanWorldPoints.emplace(scanPoints);
+      lidarUpdated = true;
+      lidarElapsed = std::fmod(lidarElapsed, lidarDeltaT);
+    }
+
+    const auto updatedEstimate = localizer->estimate();
+    if (!updatedEstimate) {
+      outcome.failure.emplace(updatedEstimate.error());
+      break;
+    }
+
+    const auto deltaX = updatedEstimate->pose.x - trueState->pose.x;
+    const auto deltaY = updatedEstimate->pose.y - trueState->pose.y;
+    const auto positionError = std::hypot(deltaX, deltaY);
+    const auto headingError =
+        std::abs(normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
+
+    renderElapsed += odometryDeltaT;
+    const auto shouldRender =
+        lidarUpdated || (renderElapsed + kLidarScheduleEpsilon >= renderDeltaT);
+    if (shouldRender) {
+      const auto renderError =
+          renderFrame(viz, preparedMap, path, lastScanWorldPoints, trueState->pose, footprint);
+      if (renderError) {
+        outcome.failure.emplace(*renderError);
+        break;
+      }
+      renderElapsed = std::fmod(renderElapsed, renderDeltaT);
+    }
+
+    const auto distanceAfter = distanceToGoal(trueState->pose, goal);
+    appendLogEntry(logFile, step, distanceBefore, distanceAfter, positionError, headingError,
+                   updatedEstimate->score, trueState->pose, updatedEstimate->pose, appliedCommand,
+                   lidarUpdated, *odometryDelta, scanPoints);
+
+    if (distanceAfter <= goalTolerance) {
+      outcome.reachedGoal = true;
+      break;
+    }
+  }
+
+  return outcome;
+}
+
 } // namespace ad::demo
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -123,7 +341,6 @@ auto main(int argc, char **argv) -> int {
     return 1;
   }
   const auto &preparedMap = *preparedMapResult;
-  const auto &mapGeometry = preparedMap.geometry;
 
   auto controllerResult = ad::scenario::createController(scenario);
   if (!controllerResult) {
@@ -155,215 +372,31 @@ auto main(int argc, char **argv) -> int {
 
   const ad::simulation::CollisionChecker collisionChecker{map, footprint, scenario.collision};
 
-  auto trueState = std::optional<ad::simulation::MotionState>{
-      ad::simulation::MotionState{.pose = start, .twist = ad::types::Twist{.v = 0.0, .w = 0.0}}};
   const auto odometryDeltaT = scenario.runtime.odometryDeltaT;
   const auto lidarDeltaT = scenario.runtime.lidarDeltaT;
   const auto renderDeltaT = scenario.runtime.renderDeltaT;
   const auto kGoalTolerance = scenario.runtime.goalTolerance;
   const auto kMaxSteps = scenario.runtime.maxSteps;
-
-  std::error_code fsError;
-  std::filesystem::create_directories("logs", fsError);
-  if (fsError) {
-    fmt::print(stderr, "Log directory error: {}\n", fsError.message());
+  auto logFile =
+      ad::demo::initializeLogFile(odometryDeltaT, lidarDeltaT, renderDeltaT, kGoalTolerance,
+                                  kMaxSteps, footprint.vertices, std::span{*pathResult});
+  if (!logFile) {
     return 1;
   }
-  std::ofstream logFile("logs/localization_control_lidar_demo.log");
-  if (!logFile.is_open()) {
-    fmt::print(stderr, "Log file error: failed to open log file.\n");
+
+  const auto initialRenderError = ad::demo::renderFrame(viz, preparedMap, std::span{*pathResult},
+                                                        std::nullopt, start, footprint);
+  if (initialRenderError) {
+    fmt::print(stderr, "Render error: {}\n", initialRenderError->message);
     return 1;
   }
-  logFile << std::fixed << std::setprecision(ad::demo::kLogPrecision);
-  logFile << "# localization_control_lidar_demo log\n";
-  logFile << "# odometry_dt=" << odometryDeltaT << ", lidar_dt=" << lidarDeltaT
-          << ", render_dt=" << renderDeltaT << ", goal_tolerance=" << kGoalTolerance
-          << ", max_steps=" << kMaxSteps << "\n";
-  logFile << "# footprint=" << ad::demo::serializePoints(footprint.vertices) << "\n";
-  logFile << "# path=" << ad::demo::serializePoints(std::span{*pathResult}) << "\n";
-  logFile << "# columns: "
-             "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
-  logFile << "step,dist_before,dist_after,pos_err,head_err,score,true_x,true_y,true_theta,est_x,"
-             "est_y,est_theta,v,w,lidar_updated,odom_df,odom_dl,odom_dtheta,scan_points\n";
 
-  auto failure = std::optional<ad::Error>{};
-  auto lidarElapsed = 0.0;
-  auto renderElapsed = 0.0;
-  auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
-
-  {
-    const auto frameStatus = viz.renderFrame(preparedMap);
-    if (!frameStatus) {
-      fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
-      return 1;
-    }
-
-    const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
-    if (!pathStatus) {
-      fmt::print(stderr, "Render error: {}\n", pathStatus.error().message);
-      return 1;
-    }
-
-    const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
-    if (!robotStatus) {
-      fmt::print(stderr, "Render error: {}\n", robotStatus.error().message);
-      return 1;
-    }
-
-    const auto presentStatus = viz.presentFrame();
-    if (!presentStatus) {
-      fmt::print(stderr, "Render error: {}\n", presentStatus.error().message);
-      return 1;
-    }
-  }
-
-  const auto reachedGoal =
-      std::ranges::any_of(std::views::iota(0, kMaxSteps), [&](int step) -> bool {
-        if (failure) {
-          return true;
-        }
-
-        const auto estimateResult = localizer->estimate();
-        if (!estimateResult) {
-          failure.emplace(estimateResult.error());
-          return true;
-        }
-
-        const auto input = ad::control::ControlInput{.path = std::span{*pathResult},
-                                                     .currentPose = estimateResult->pose};
-        const auto commandResult = controller->computeCommand(input);
-        if (!commandResult) {
-          failure.emplace(commandResult.error());
-          return true;
-        }
-
-        const auto appliedCommand = *commandResult;
-
-        const auto distanceBefore =
-            std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
-
-        const auto nextState = physics->propagate(*trueState, appliedCommand, odometryDeltaT);
-        if (!nextState) {
-          failure.emplace(nextState.error());
-          return true;
-        }
-
-        const auto trajectoryFree =
-            collisionChecker.checkTrajectory(trueState->pose, nextState->pose);
-        if (!trajectoryFree) {
-          failure.emplace(trajectoryFree.error());
-          return true;
-        }
-        if (!*trajectoryFree) {
-          failure.emplace(ad::Error{.code = ad::ErrorCode::InvalidInput,
-                                    .message = "Collision detected in trajectory propagation."});
-          return true;
-        }
-
-        const auto odometryDelta = odometrySensor->measure(trueState->pose, nextState->pose);
-        if (!odometryDelta) {
-          failure.emplace(odometryDelta.error());
-          return true;
-        }
-
-        const auto predictStatus = localizer->predictOdometry(*odometryDelta);
-        if (!predictStatus) {
-          failure.emplace(predictStatus.error());
-          return true;
-        }
-
-        trueState.emplace(
-            ad::simulation::MotionState{.pose = nextState->pose, .twist = nextState->twist});
-
-        auto lidarUpdated = false;
-        auto scanPoints = std::vector<ad::types::Point>{};
-        lidarElapsed += odometryDeltaT;
-        if (lidarElapsed + ad::demo::kLidarScheduleEpsilon >= lidarDeltaT) {
-          const auto scanResult = lidarSensor->simulate(map, trueState->pose);
-          if (!scanResult) {
-            failure.emplace(scanResult.error());
-            return true;
-          }
-
-          const auto updateStatus = localizer->update(*scanResult, map);
-          if (!updateStatus) {
-            failure.emplace(updateStatus.error());
-            return true;
-          }
-
-          scanPoints = ad::demo::scanToPoints(trueState->pose, *scanResult);
-          lastScanWorldPoints.emplace(scanPoints);
-          lidarUpdated = true;
-          lidarElapsed = std::fmod(lidarElapsed, lidarDeltaT);
-        }
-
-        const auto updatedEstimate = localizer->estimate();
-        if (!updatedEstimate) {
-          failure.emplace(updatedEstimate.error());
-          return true;
-        }
-
-        const auto deltaX = updatedEstimate->pose.x - trueState->pose.x;
-        const auto deltaY = updatedEstimate->pose.y - trueState->pose.y;
-        const auto positionError = std::hypot(deltaX, deltaY);
-        const auto headingError =
-            std::abs(ad::demo::normalizeAngle(updatedEstimate->pose.theta - trueState->pose.theta));
-
-        renderElapsed += odometryDeltaT;
-        const auto shouldRender =
-            lidarUpdated || (renderElapsed + ad::demo::kLidarScheduleEpsilon >= renderDeltaT);
-        if (shouldRender) {
-          const auto frameStatus = viz.renderFrame(preparedMap);
-          if (!frameStatus) {
-            failure.emplace(frameStatus.error());
-            return true;
-          }
-
-          const auto pathStatus = viz.renderPath(std::span{*pathResult}, mapGeometry);
-          if (!pathStatus) {
-            failure.emplace(pathStatus.error());
-            return true;
-          }
-
-          if (lastScanWorldPoints.has_value() && !lastScanWorldPoints->empty()) {
-            const auto scanStatus =
-                viz.renderPoints(*lastScanWorldPoints, mapGeometry, 10.0, "green");
-            if (!scanStatus) {
-              failure.emplace(scanStatus.error());
-              return true;
-            }
-          }
-
-          const auto robotStatus = viz.renderRobot(trueState->pose, footprint, mapGeometry);
-          if (!robotStatus) {
-            failure.emplace(robotStatus.error());
-            return true;
-          }
-
-          const auto presentStatus = viz.presentFrame();
-          if (!presentStatus) {
-            failure.emplace(presentStatus.error());
-            return true;
-          }
-
-          renderElapsed = std::fmod(renderElapsed, renderDeltaT);
-        }
-
-        const auto distanceAfter =
-            std::hypot(goal.x - trueState->pose.x, goal.y - trueState->pose.y);
-
-        logFile << step << ',' << distanceBefore << ',' << distanceAfter << ',' << positionError
-                << ',' << headingError << ',' << updatedEstimate->score << ',' << trueState->pose.x
-                << ',' << trueState->pose.y << ',' << trueState->pose.theta << ','
-                << updatedEstimate->pose.x << ',' << updatedEstimate->pose.y << ','
-                << updatedEstimate->pose.theta << ',' << appliedCommand.v << ',' << appliedCommand.w
-                << ',' << (lidarUpdated ? 1 : 0) << ',' << odometryDelta->deltaForward << ','
-                << odometryDelta->deltaLateral << ',' << odometryDelta->deltaTheta << ','
-                << ad::demo::serializePoints(scanPoints) << '\n';
-
-        return distanceAfter <= kGoalTolerance;
-      });
+  const auto loopOutcome = ad::demo::runSimulationLoop(
+      start, goal, footprint, std::span{*pathResult}, map, collisionChecker, odometryDeltaT,
+      lidarDeltaT, renderDeltaT, kGoalTolerance, kMaxSteps, viz, preparedMap, controller, localizer,
+      lidarSensor, odometrySensor, physics, *logFile);
+  const auto reachedGoal = loopOutcome.reachedGoal;
+  const auto &failure = loopOutcome.failure;
 
   if (failure) {
     fmt::print(stderr, "Simulation error: {}\n", failure->message);
@@ -373,9 +406,9 @@ auto main(int argc, char **argv) -> int {
     fmt::print(stderr, "Simulation ended before reaching the goal.\n");
   }
 
-  logFile << "# result=" << (reachedGoal && !failure ? "success" : "failure") << '\n';
+  *logFile << "# result=" << (reachedGoal && !failure ? "success" : "failure") << '\n';
   if (failure) {
-    logFile << "# error=" << failure->message << '\n';
+    *logFile << "# error=" << failure->message << '\n';
   }
 
   const auto saveStatus = viz.saveFigure("localization_control_lidar_path.png");
