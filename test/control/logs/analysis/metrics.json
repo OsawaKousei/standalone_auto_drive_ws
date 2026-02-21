@@ -1,13 +1,16 @@
 {
-  "rmse": 0.0,
+  "rmse": 0.03750368212589705,
   "max_deviation": 0.11118674,
-  "mean_speed": 1.2,
-  "max_speed": 1.2,
-  "max_angular_speed": 2.56372346,
-  "max_acceleration": 0.0,
-  "max_angular_acceleration": 36.12040899999997,
-  "max_jerk": 0.0,
+  "mean_speed": 1.1999999997451853,
+  "max_speed": 1.2000010434262538,
+  "max_angular_speed": 2.56372300000005,
+  "max_acceleration": 0.00018420498792970756,
+  "max_angular_acceleration": 36.120299999999816,
+  "max_jerk": 0.03488944518404018,
   "curvature_fitness": 0.19070615460986007,
   "curvature_rmse": 1.657021493116477,
-  "oscillation_count": 15
+  "oscillation_count": 15,
+  "heading_error_rmse": 0.19246685126970056,
+  "heading_error_max": 0.7797784966025518,
+  "goal_reach_time": 18.4
 }

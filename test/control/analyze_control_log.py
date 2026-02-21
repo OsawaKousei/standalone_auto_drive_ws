@@ -189,6 +189,39 @@ def count_oscillation(signal: np.ndarray, threshold: float = 1e-2) -> int:
     return int(np.sum(signs[1:] * signs[:-1] < 0.0))
 
 
+def normalize_angle(angle: np.ndarray) -> np.ndarray:
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def compute_path_tangent_heading_error(
+    planned_path_xy: np.ndarray, followed_xy: np.ndarray, followed_heading: np.ndarray
+) -> np.ndarray:
+    if len(planned_path_xy) < 2:
+        return np.zeros(len(followed_xy), dtype=float)
+
+    seg_vec = np.diff(planned_path_xy, axis=0)
+    seg_heading = np.arctan2(seg_vec[:, 1], seg_vec[:, 0])
+
+    heading_error = np.zeros(len(followed_xy), dtype=float)
+    for i, point in enumerate(followed_xy):
+        d2 = np.sum((planned_path_xy - point) ** 2, axis=1)
+        nearest_idx = int(np.argmin(d2))
+        tangent_idx = min(nearest_idx, len(seg_heading) - 1)
+        path_heading = seg_heading[tangent_idx]
+        heading_error[i] = normalize_angle(np.array([followed_heading[i] - path_heading]))[0]
+
+    return heading_error
+
+
+def finite_max_abs(values: np.ndarray) -> float:
+    if values.size == 0:
+        return 0.0
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 0.0
+    return float(np.max(np.abs(finite)))
+
+
 def save_map_plot(
     out_path: Path,
     map_image_path: Path,
@@ -206,7 +239,7 @@ def save_map_plot(
     extent = [x0, x0 + width * map_resolution, y0, y0 + height * map_resolution]
 
     fig, ax = plt.subplots(figsize=(8, 8), dpi=120)
-    ax.imshow(image, cmap="gray", origin="lower", extent=extent)
+    ax.imshow(image, cmap="gray", origin="upper", extent=extent)
     ax.plot(planned_path_xy[:, 0], planned_path_xy[:, 1], "b-", lw=1.5, label="planned path")
     ax.plot(followed_path_xy[:, 0], followed_path_xy[:, 1], "r-", lw=1.5, label="followed path")
     ax.set_title("Planned vs Followed Path on Map")
@@ -250,7 +283,6 @@ def main() -> int:
     required_cols = [
         "time",
         "cross_track",
-        "track_heading_err",
         "cmd_v",
         "cmd_vy",
         "cmd_w",
@@ -258,7 +290,6 @@ def main() -> int:
         "true_y",
         "odom_x",
         "odom_y",
-        "track_err",
     ]
     missing = [c for c in required_cols if c not in col_idx]
     if missing:
@@ -282,11 +313,9 @@ def main() -> int:
 
     time_s = data[:, col_idx["time"]]
     cross_track = data[:, col_idx["cross_track"]]
-    heading_error = data[:, col_idx["track_heading_err"]]
     cmd_v = data[:, col_idx["cmd_v"]]
     cmd_vy = data[:, col_idx["cmd_vy"]]
     cmd_w = data[:, col_idx["cmd_w"]]
-    track_err = data[:, col_idx["track_err"]]
 
     followed_xy = (
         np.stack([data[:, col_idx["true_x"]], data[:, col_idx["true_y"]]], axis=1)
@@ -294,13 +323,30 @@ def main() -> int:
         else np.stack([data[:, col_idx["odom_x"]], data[:, col_idx["odom_y"]]], axis=1)
     )
 
-    speed = np.hypot(cmd_v, cmd_vy)
+    theta_col = "true_theta" if args.trajectory_source == "true" else "odom_theta"
+    if theta_col not in col_idx:
+        print(f"missing required columns: ['{theta_col}']", file=sys.stderr)
+        return 1
+    followed_heading = data[:, col_idx[theta_col]]
+    heading_error = compute_path_tangent_heading_error(planned_path_xy, followed_xy, followed_heading)
+
+    pos_dt = np.diff(time_s)
+    pos_dt_safe = np.where(pos_dt <= 1e-12, np.nan, pos_dt)
+    vel_x = np.diff(followed_xy[:, 0]) / pos_dt_safe
+    vel_y = np.diff(followed_xy[:, 1]) / pos_dt_safe
+    speed = np.hypot(vel_x, vel_y)
+
+    heading = np.unwrap(followed_heading)
+    angular_speed = np.diff(heading) / pos_dt_safe
+
     dt = np.diff(time_s)
     dt_safe = np.where(dt <= 1e-12, np.nan, dt)
 
-    accel = np.diff(speed) / dt_safe
-    angular_accel = np.diff(cmd_w) / dt_safe
-    jerk = np.diff(accel) / dt_safe[1:] if len(accel) > 1 else np.asarray([], dtype=float)
+    accel = np.diff(speed) / pos_dt_safe[1:] if len(speed) > 1 else np.asarray([], dtype=float)
+    angular_accel = (
+        np.diff(angular_speed) / pos_dt_safe[1:] if len(angular_speed) > 1 else np.asarray([], dtype=float)
+    )
+    jerk = np.diff(accel) / pos_dt_safe[2:] if len(accel) > 1 else np.asarray([], dtype=float)
 
     planned_curvature = compute_curvature(planned_path_xy)
     followed_curvature = compute_curvature(followed_xy)
@@ -311,19 +357,20 @@ def main() -> int:
     curvature_fitness = float(math.exp(-curvature_rmse))
 
     metrics = {
-        "rmse": float(np.sqrt(np.mean(track_err**2))),
+        "rmse": float(np.sqrt(np.mean(cross_track**2))),
         "max_deviation": float(np.max(cross_track)),
-        "mean_speed": float(np.mean(speed)),
-        "max_speed": float(np.max(speed)),
-        "max_angular_speed": float(np.max(np.abs(cmd_w))),
-        "max_acceleration": float(np.nanmax(np.abs(accel))) if len(accel) > 0 else 0.0,
-        "max_angular_acceleration": float(np.nanmax(np.abs(angular_accel)))
-        if len(angular_accel) > 0
-        else 0.0,
-        "max_jerk": float(np.nanmax(np.abs(jerk))) if len(jerk) > 0 else 0.0,
+        "mean_speed": float(np.nanmean(speed)) if speed.size > 0 else 0.0,
+        "max_speed": finite_max_abs(speed),
+        "max_angular_speed": finite_max_abs(angular_speed),
+        "max_acceleration": finite_max_abs(accel),
+        "max_angular_acceleration": finite_max_abs(angular_accel),
+        "max_jerk": finite_max_abs(jerk),
         "curvature_fitness": curvature_fitness,
         "curvature_rmse": curvature_rmse,
         "oscillation_count": count_oscillation(cmd_w),
+        "heading_error_rmse": float(np.sqrt(np.mean(heading_error**2))),
+        "heading_error_max": finite_max_abs(heading_error),
+        "goal_reach_time": float(time_s[-1]) if header.get("result", "") == "success" else -1.0,
     }
 
     map_image_path, map_resolution, map_origin = parse_map_metadata(scenario_cfg_path)
@@ -351,8 +398,8 @@ def main() -> int:
         "heading error [rad]",
     )
 
-    accel_time = time_s[1:] if len(time_s) > 1 else np.asarray([], dtype=float)
-    ang_accel_time = time_s[1:] if len(time_s) > 1 else np.asarray([], dtype=float)
+    accel_time = time_s[2:] if len(time_s) > 2 else np.asarray([], dtype=float)
+    ang_accel_time = time_s[2:] if len(time_s) > 2 else np.asarray([], dtype=float)
 
     if len(accel) > 0:
         save_timeseries_plot(
