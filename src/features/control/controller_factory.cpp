@@ -1,6 +1,6 @@
 #include "controller_factory.hpp"
 
-#include "cascade_pid.hpp"
+#include "pid.hpp"
 #include "pure_pursuit.hpp"
 
 namespace ad::control {
@@ -48,11 +48,11 @@ namespace {
                            .desiredLinearVelocity = *desiredLinearVelocityValue};
 }
 
-[[nodiscard]] auto parseCascadePidConfig(const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<CascadePidConfig> {
+[[nodiscard]] auto parsePidConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<PidConfig> {
   if (!configDoc.has_value()) {
-    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                     .message = "Control config is required for cascade_pid."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Control config is required for pid."});
   }
 
   const auto &cfg = *configDoc;
@@ -165,18 +165,18 @@ namespace {
     return tl::make_unexpected(headingKdValue.error());
   }
 
-  return CascadePidConfig{.lookaheadDistance = *lookaheadDistanceValue,
-                          .maxLinearSpeed = *maxLinearSpeedValue,
-                          .maxAngularSpeed = *maxAngularSpeedValue,
-                          .positionKp = *positionKpValue,
-                          .positionKi = *positionKiValue,
-                          .positionKd = *positionKdValue,
-                          .velocityKp = *velocityKpValue,
-                          .velocityKi = *velocityKiValue,
-                          .velocityKd = *velocityKdValue,
-                          .headingKp = *headingKpValue,
-                          .headingKi = *headingKiValue,
-                          .headingKd = *headingKdValue};
+  return PidConfig{.lookaheadDistance = *lookaheadDistanceValue,
+                   .maxLinearSpeed = *maxLinearSpeedValue,
+                   .maxAngularSpeed = *maxAngularSpeedValue,
+                   .positionKp = *positionKpValue,
+                   .positionKi = *positionKiValue,
+                   .positionKd = *positionKdValue,
+                   .velocityKp = *velocityKpValue,
+                   .velocityKi = *velocityKiValue,
+                   .velocityKd = *velocityKdValue,
+                   .headingKp = *headingKpValue,
+                   .headingKi = *headingKiValue,
+                   .headingKd = *headingKdValue};
 }
 
 } // namespace
@@ -193,13 +193,13 @@ auto createControllerFromConfig(std::string_view algorithm,
     return std::make_unique<PurePursuitController>(*configValue);
   }
 
-  if (algorithm == "cascade_pid") {
-    const auto configValue = parseCascadePidConfig(configDoc);
+  if (algorithm == "pid") {
+    const auto configValue = parsePidConfig(configDoc);
     if (!configValue) {
       return tl::make_unexpected(configValue.error());
     }
 
-    return std::make_unique<CascadePidController>(*configValue);
+    return std::make_unique<PidController>(*configValue);
   }
 
   return tl::make_unexpected(

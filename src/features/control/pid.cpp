@@ -1,4 +1,4 @@
-#include "cascade_pid.hpp"
+#include "pid.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,12 +21,11 @@ constexpr auto kAnglePeriod = 2.0 * std::numbers::pi;
 
 namespace ad::control {
 
-CascadePidController::CascadePidController(CascadePidConfig config) : config_(config) {}
+PidController::PidController(PidConfig config) : config_(config) {}
 
-auto CascadePidController::selectLookaheadTarget(std::span<const types::Point> path,
-                                                 const types::Pose &pose, double lookaheadDistance,
-                                                 std::size_t minClosestIndex)
-    -> LookaheadSelection {
+auto PidController::selectLookaheadTarget(std::span<const types::Point> path,
+                                          const types::Pose &pose, double lookaheadDistance,
+                                          std::size_t minClosestIndex) -> LookaheadSelection {
   if (minClosestIndex >= path.size()) {
     minClosestIndex = path.size() - 1U;
   }
@@ -72,8 +71,8 @@ auto CascadePidController::selectLookaheadTarget(std::span<const types::Point> p
   return LookaheadSelection{.target = path.back(), .closestIndex = closestIndex};
 }
 
-auto CascadePidController::updatePid(PidState &state, double error, double deltaSeconds,
-                                     const PidGains &gains, double integralLimit) -> double {
+auto PidController::updatePid(PidState &state, double error, double deltaSeconds,
+                              const PidGains &gains, double integralLimit) -> double {
   state.integral += error * deltaSeconds;
   state.integral = std::clamp(state.integral, -integralLimit, integralLimit);
 
@@ -93,7 +92,7 @@ auto CascadePidController::updatePid(PidState &state, double error, double delta
   return proportionalTerm + (gains.integral * state.integral) + derivativeTerm;
 }
 
-auto CascadePidController::computeCommand(const ControlInput &input) const -> Result<types::Twist> {
+auto PidController::computeCommand(const ControlInput &input) const -> Result<types::Twist> {
   if (input.path.empty()) {
     return tl::make_unexpected(
         Error{.code = ErrorCode::EmptyCollection, .message = "Path is empty."});
@@ -107,7 +106,7 @@ auto CascadePidController::computeCommand(const ControlInput &input) const -> Re
   if (config_.lookaheadDistance <= 0.0 || config_.maxLinearSpeed <= 0.0 ||
       config_.maxAngularSpeed <= 0.0) {
     return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "Cascade PID limits must be positive."});
+        Error{.code = ErrorCode::InvalidInput, .message = "PID limits must be positive."});
   }
 
   if (previousPathSize_ != input.path.size()) {

@@ -7,7 +7,7 @@
 
 namespace ad::control {
 
-struct CascadePidConfig {
+struct PidConfig {
   const double lookaheadDistance;
   const double maxLinearSpeed;
   const double maxAngularSpeed;
@@ -22,9 +22,9 @@ struct CascadePidConfig {
   const double headingKd;
 };
 
-class CascadePidController final : public IController {
+class PidController final : public IController {
 public:
-  explicit CascadePidController(CascadePidConfig config);
+  explicit PidController(PidConfig config);
   [[nodiscard]] auto computeCommand(const ControlInput &input) const
       -> Result<types::Twist> override;
 
@@ -54,7 +54,7 @@ private:
   [[nodiscard]] static auto updatePid(PidState &state, double error, double deltaSeconds,
                                       const PidGains &gains, double integralLimit) -> double;
 
-  const CascadePidConfig config_;
+  const PidConfig config_;
   mutable PidState positionXState_{};
   mutable PidState positionYState_{};
   mutable PidState headingState_{};

@@ -76,7 +76,7 @@ add_library(ad_core
   src/features/planning/grid_collision_checker.cpp
   src/features/planning/planner_utils.cpp
   src/features/control/pure_pursuit.cpp
-  src/features/control/cascade_pid.cpp
+  src/features/control/pid.cpp
   src/features/control/controller_factory.cpp
   src/features/localization/ekf_localizer.cpp
   src/features/localization/localizer_factory.cpp
