@@ -1,0 +1,71 @@
+#include "planner_factory.hpp"
+
+#include "collision_checker/grid_collision_checker.hpp"
+#include "planner/astar_planner.hpp"
+#include "planner/dijkstra_planner.hpp"
+
+namespace ad::planning {
+
+namespace {
+
+[[nodiscard]] auto
+parseCollisionCheckerType(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::string> {
+  if (!configDoc.has_value()) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Planning config is required."});
+  }
+
+  const auto raw = configDoc->findRaw("", "collision_checker");
+  if (!raw) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Required planning config key is missing: collision_checker"});
+  }
+
+  const auto parsed = ::ad::config::parseQuotedString(*raw);
+  if (!parsed) {
+    return tl::make_unexpected(parsed.error());
+  }
+  return *parsed;
+}
+
+} // namespace
+
+auto createPlannerFromConfig(std::string_view algorithm, const types::MapData &map,
+                             const types::Footprint &footprint,
+                             const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<std::unique_ptr<IPlanner>> {
+  const auto checkerType = parseCollisionCheckerType(configDoc);
+  if (!checkerType) {
+    return tl::make_unexpected(checkerType.error());
+  }
+
+  std::unique_ptr<ICollisionChecker> collisionChecker;
+  if (*checkerType == "grid") {
+    auto checker = GridCollisionChecker::create(map, footprint);
+    if (!checker) {
+      return tl::make_unexpected(checker.error());
+    }
+    collisionChecker = std::move(*checker);
+  } else {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Unsupported planner collision checker: " + *checkerType});
+  }
+
+  std::unique_ptr<IPlanner> planner;
+  if (algorithm == "astar") {
+    planner = std::make_unique<AStarPlanner>(std::move(collisionChecker));
+  } else if (algorithm == "dijkstra") {
+    planner = std::make_unique<DijkstraPlanner>(std::move(collisionChecker));
+  } else {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Unsupported planning algorithm: " + std::string{algorithm}});
+  }
+
+  return planner;
+}
+
+} // namespace ad::planning

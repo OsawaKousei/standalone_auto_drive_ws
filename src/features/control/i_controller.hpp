@@ -10,6 +10,7 @@ namespace ad::control {
 struct ControlInput {
   const std::span<const types::Point> path;
   const types::Pose currentPose;
+  const double deltaSeconds;
 };
 
 class IController {
@@ -17,9 +18,9 @@ public:
   virtual ~IController() = default;
   IController() = default;
   IController(const IController &) = delete;
-  auto operator=(const IController &) -> IController = delete;
+  auto operator=(const IController &) -> IController & = delete;
   IController(IController &&) = delete;
-  auto operator=(IController &&) -> IController = delete;
+  auto operator=(IController &&) -> IController & = delete;
   [[nodiscard]] virtual auto computeCommand(const ControlInput &input) const
       -> Result<types::Twist> = 0;
 };

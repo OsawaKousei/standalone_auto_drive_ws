@@ -1,21 +1,29 @@
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
+#include "shared/text_config.hpp"
 #include "shared/types.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include <fmt/core.h>
 
 namespace ad::demo {
+
+constexpr auto kRenderScheduleEpsilon =
+    1.0e-12; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 struct LogRecord {
   int step = 0;
@@ -37,6 +45,20 @@ struct LogData {
   types::Footprint footprint;
   std::vector<types::Point> path;
   std::optional<ScanMeta> scanMeta;
+  std::optional<double> odometryDeltaT;
+  std::optional<double> lidarDeltaT;
+  std::optional<double> renderDeltaT;
+};
+
+struct LogColumns {
+  std::size_t step = 0;
+  std::size_t trueX = 0;
+  std::size_t trueY = 0;
+  std::size_t trueTheta = 0;
+  std::size_t estX = 0;
+  std::size_t estY = 0;
+  std::size_t estTheta = 0;
+  std::optional<std::size_t> scanPoints{};
 };
 
 [[nodiscard]] auto makeFootprint() -> types::Footprint {
@@ -105,6 +127,115 @@ struct LogData {
   }
 }
 
+[[nodiscard]] auto parseRuntimeLine(std::string_view input)
+    -> Result<std::tuple<double, double, double>> {
+  const auto payload = input.substr(std::string_view{"# "}.size());
+  auto values = std::unordered_map<std::string, double>{};
+  const auto trim = [](std::string value) -> std::string {
+    const auto begin = value.find_first_not_of(" \t");
+    if (begin == std::string::npos) {
+      return {};
+    }
+    const auto end = value.find_last_not_of(" \t");
+    return value.substr(begin, (end - begin) + 1U);
+  };
+  for (const auto &token : splitDelimited(payload, ',')) {
+    const auto keyValue = splitDelimited(token, '=');
+    if (keyValue.size() != 2U) {
+      continue;
+    }
+    try {
+      values.emplace(trim(keyValue[0]), std::stod(trim(keyValue[1])));
+    } catch (const std::exception &) {
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput, .message = "Failed to parse runtime values."});
+    }
+  }
+
+  if (!values.contains("odometry_dt") || !values.contains("lidar_dt") ||
+      !values.contains("render_dt")) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput, .message = "Missing runtime dt values in log."});
+  }
+
+  return std::tuple{values["odometry_dt"], values["lidar_dt"], values["render_dt"]};
+}
+
+[[nodiscard]] auto scanToPoints(const types::Pose &pose, const types::LidarScan &scan)
+    -> std::vector<types::Point> {
+  auto points = std::vector<types::Point>{};
+  points.reserve(scan.ranges.size());
+  for (const auto angleIndex : std::views::iota(std::size_t{0}, scan.ranges.size())) {
+    const auto angle =
+        pose.theta + scan.minAngle + (scan.angleIncrement * static_cast<double>(angleIndex));
+    const auto distance = scan.ranges[angleIndex];
+    points.push_back(types::Point{.x = pose.x + (distance * std::cos(angle)),
+                                  .y = pose.y + (distance * std::sin(angle))});
+  }
+  return points;
+}
+
+[[nodiscard]] auto parseLogColumns(std::string_view header) -> Result<LogColumns> {
+  const auto names = splitCsvLine(header);
+  auto indexByName = std::unordered_map<std::string, std::size_t>{};
+  indexByName.reserve(names.size());
+  for (const auto index : std::views::iota(std::size_t{0}, names.size())) {
+    indexByName.emplace(names[index], index);
+  }
+
+  const auto getRequiredIndex = [&](const std::string &name) -> Result<std::size_t> {
+    const auto iterator = indexByName.find(name);
+    if (iterator == indexByName.end()) {
+      return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                       .message = "Missing required log column: " + name});
+    }
+    return iterator->second;
+  };
+
+  const auto stepIndex = getRequiredIndex("step");
+  if (!stepIndex) {
+    return tl::make_unexpected(stepIndex.error());
+  }
+  const auto trueXIndex = getRequiredIndex("true_x");
+  if (!trueXIndex) {
+    return tl::make_unexpected(trueXIndex.error());
+  }
+  const auto trueYIndex = getRequiredIndex("true_y");
+  if (!trueYIndex) {
+    return tl::make_unexpected(trueYIndex.error());
+  }
+  const auto trueThetaIndex = getRequiredIndex("true_theta");
+  if (!trueThetaIndex) {
+    return tl::make_unexpected(trueThetaIndex.error());
+  }
+  const auto estXIndex = getRequiredIndex("est_x");
+  if (!estXIndex) {
+    return tl::make_unexpected(estXIndex.error());
+  }
+  const auto estYIndex = getRequiredIndex("est_y");
+  if (!estYIndex) {
+    return tl::make_unexpected(estYIndex.error());
+  }
+  const auto estThetaIndex = getRequiredIndex("est_theta");
+  if (!estThetaIndex) {
+    return tl::make_unexpected(estThetaIndex.error());
+  }
+
+  auto scanPointsIndex = std::optional<std::size_t>{};
+  if (const auto iterator = indexByName.find("scan_points"); iterator != indexByName.end()) {
+    scanPointsIndex.emplace(iterator->second);
+  }
+
+  return LogColumns{.step = *stepIndex,
+                    .trueX = *trueXIndex,
+                    .trueY = *trueYIndex,
+                    .trueTheta = *trueThetaIndex,
+                    .estX = *estXIndex,
+                    .estY = *estYIndex,
+                    .estTheta = *estThetaIndex,
+                    .scanPoints = scanPointsIndex};
+}
+
 [[nodiscard]] auto parseLogFile(const std::string &path) -> Result<LogData> {
   auto file = std::ifstream{path};
   if (!file.is_open()) {
@@ -116,6 +247,10 @@ struct LogData {
   auto footprint = std::optional<types::Footprint>{};
   auto pathPoints = std::optional<std::vector<types::Point>>{};
   auto scanMeta = std::optional<ScanMeta>{};
+  auto odometryDeltaT = std::optional<double>{};
+  auto lidarDeltaT = std::optional<double>{};
+  auto renderDeltaT = std::optional<double>{};
+  auto columns = std::optional<LogColumns>{};
   std::string line;
   while (std::getline(file, line)) {
     if (line.empty() || line.starts_with('#') || line.starts_with("step,")) {
@@ -143,32 +278,59 @@ struct LogData {
         }
         scanMeta = *parsed;
       }
+      if (line.starts_with("# odometry_dt=")) {
+        const auto parsed = parseRuntimeLine(line);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        odometryDeltaT = std::get<0>(*parsed);
+        lidarDeltaT = std::get<1>(*parsed);
+        renderDeltaT = std::get<2>(*parsed);
+      }
+      if (line.starts_with("step,")) {
+        const auto parsed = parseLogColumns(line);
+        if (!parsed) {
+          return tl::make_unexpected(parsed.error());
+        }
+        columns = *parsed;
+      }
       continue;
     }
 
     const auto cells = splitCsvLine(line);
-    if (cells.size() < 14U) {
+    if (!columns) {
+      return tl::make_unexpected(
+          Error{.code = ErrorCode::InvalidInput, .message = "Missing log header row."});
+    }
+
+    const auto maxRequiredIndex =
+        std::max({columns->step, columns->trueX, columns->trueY, columns->trueTheta, columns->estX,
+                  columns->estY, columns->estTheta});
+    if (cells.size() <= maxRequiredIndex) {
       return tl::make_unexpected(
           Error{.code = ErrorCode::SizeMismatch, .message = "Unexpected column count."});
     }
 
     try {
-      const auto step = std::stoi(cells[0]);
-      const auto truePose = types::Pose{
-          .x = std::stod(cells[1]), .y = std::stod(cells[2]), .theta = std::stod(cells[3])};
-      const auto estPose = types::Pose{
-          .x = std::stod(cells[9]), .y = std::stod(cells[10]), .theta = std::stod(cells[11])};
+      const auto step = std::stoi(cells[columns->step]);
+      const auto truePose = types::Pose{.x = std::stod(cells[columns->trueX]),
+                                        .y = std::stod(cells[columns->trueY]),
+                                        .theta = std::stod(cells[columns->trueTheta])};
+      const auto estPose = types::Pose{.x = std::stod(cells[columns->estX]),
+                                       .y = std::stod(cells[columns->estY]),
+                                       .theta = std::stod(cells[columns->estTheta])};
       auto scanPoints = std::vector<types::Point>{};
       auto ranges = std::vector<double>{};
-      if (cells.size() >= 15U) {
-        if (cells[14].find(':') != std::string::npos) {
-          auto parsed = parsePoints(cells[14]);
+      if (columns->scanPoints.has_value() && cells.size() > *columns->scanPoints) {
+        const auto &scanCell = cells[*columns->scanPoints];
+        if (scanCell.find(':') != std::string::npos) {
+          auto parsed = parsePoints(scanCell);
           if (!parsed) {
             return tl::make_unexpected(parsed.error());
           }
           scanPoints = std::move(*parsed);
         } else {
-          for (const auto &value : splitDelimited(cells[14], ';')) {
+          for (const auto &value : splitDelimited(scanCell, ';')) {
             if (value.empty()) {
               continue;
             }
@@ -202,72 +364,103 @@ struct LogData {
   return LogData{.records = std::move(records),
                  .footprint = footprintValue,
                  .path = pathValue,
-                 .scanMeta = scanMeta};
+                 .scanMeta = scanMeta,
+                 .odometryDeltaT = odometryDeltaT,
+                 .lidarDeltaT = lidarDeltaT,
+                 .renderDeltaT = renderDeltaT};
 }
 
-struct Args {
+struct ReplayConfig {
   std::string logPath = "logs/localization_control_lidar_demo.log";
   std::string mapPath = "tools/map.yaml";
   int delayMs = 80;
+  std::optional<double> odometryDeltaT;
+  std::optional<double> renderDeltaT;
 };
 
-[[nodiscard]] auto parseArgs(int argc, char **argv) -> Result<Args> {
-  auto args = Args{};
-  for (int index = 1; index < argc; ++index) {
-    const std::string_view token{argv[index]};
-    if (token == "--log" && index + 1 < argc) {
-      args.logPath = argv[++index];
-      continue;
-    }
-    if (token == "--map" && index + 1 < argc) {
-      args.mapPath = argv[++index];
-      continue;
-    }
-    if (token == "--delay-ms" && index + 1 < argc) {
-      try {
-        args.delayMs = std::stoi(argv[++index]);
-      } catch (const std::exception &) {
-        return tl::make_unexpected(
-            Error{.code = ErrorCode::InvalidInput, .message = "delay-ms must be an integer."});
-      }
-      continue;
-    }
-    if (token == "--help") {
-      return tl::make_unexpected(
-          Error{.code = ErrorCode::InvalidInput,
-                .message = "Usage: localization_control_lidar_log_replay [--log PATH] [--map PATH] "
-                           "[--delay-ms N]"});
-    }
+[[nodiscard]] auto loadReplayConfig(const std::string &path) -> Result<ReplayConfig> {
+  const auto cfgResult = ad::config::loadTextConfig(path);
+  if (!cfgResult) {
+    return tl::make_unexpected(cfgResult.error());
+  }
+  const auto &cfg = *cfgResult;
 
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "Unknown argument."});
+  auto replay = ReplayConfig{};
+
+  if (const auto value = cfg.findRaw("replay", "log_path")) {
+    const auto parsed = ad::config::parseQuotedString(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.logPath = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay", "map_path")) {
+    const auto parsed = ad::config::parseQuotedString(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.mapPath = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay", "delay_ms")) {
+    const auto parsed = ad::config::parseIntValue(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.delayMs = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay.runtime", "odometry_delta_t")) {
+    const auto parsed = ad::config::parseDoubleValue(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.odometryDeltaT = *parsed;
+  }
+  if (const auto value = cfg.findRaw("replay.runtime", "render_delta_t")) {
+    const auto parsed = ad::config::parseDoubleValue(*value);
+    if (!parsed) {
+      return tl::make_unexpected(parsed.error());
+    }
+    replay.renderDeltaT = *parsed;
   }
 
-  if (args.delayMs < 0) {
+  if (replay.delayMs < 0) {
     return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput, .message = "delay-ms must be non-negative."});
+        Error{.code = ErrorCode::InvalidInput, .message = "replay.delay_ms must be non-negative."});
+  }
+  if (replay.odometryDeltaT && *replay.odometryDeltaT <= 0.0) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "replay.runtime.odometry_delta_t must be positive."});
+  }
+  if (replay.renderDeltaT && *replay.renderDeltaT <= 0.0) {
+    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
+                                     .message = "replay.runtime.render_delta_t must be positive."});
   }
 
-  return args;
+  return replay;
 }
 
 } // namespace ad::demo
 
-auto main(int argc, char **argv) -> int {
-  const auto argsResult = ad::demo::parseArgs(argc, argv);
-  if (!argsResult) {
-    fmt::print(stderr, "{}\n", argsResult.error().message);
+auto main() -> int {
+  const auto replayConfigResult = ad::demo::loadReplayConfig("configs/replay.toml");
+  if (!replayConfigResult) {
+    fmt::print(stderr, "Replay config error: {}\n", replayConfigResult.error().message);
     return 1;
   }
-  const auto args = *argsResult;
+  const auto &replayConfig = *replayConfigResult;
 
-  const auto mapResult = ad::loadMapFromYaml(args.mapPath);
+  const auto &logPath = replayConfig.logPath;
+  const auto &mapPath = replayConfig.mapPath;
+  const auto delayMs = replayConfig.delayMs;
+
+  const auto mapResult = ad::loadMapFromYaml(mapPath);
   if (!mapResult) {
     fmt::print(stderr, "Map load error: {}\n", mapResult.error().message);
     return 1;
   }
 
-  const auto logDataResult = ad::demo::parseLogFile(args.logPath);
+  const auto logDataResult = ad::demo::parseLogFile(logPath);
   if (!logDataResult) {
     fmt::print(stderr, "Log parse error: {}\n", logDataResult.error().message);
     return 1;
@@ -289,7 +482,39 @@ auto main(int argc, char **argv) -> int {
   trueTrail.reserve(logData.records.size());
   estTrail.reserve(logData.records.size());
 
+  const auto defaultOdometryDeltaT = 0.02;
+  const auto defaultRenderDeltaT = 0.1;
+  const auto odometryDeltaT =
+      replayConfig.odometryDeltaT.value_or(logData.odometryDeltaT.value_or(defaultOdometryDeltaT));
+  const auto renderDeltaT =
+      replayConfig.renderDeltaT.value_or(logData.renderDeltaT.value_or(defaultRenderDeltaT));
+  auto renderElapsed = 0.0;
+  auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
+
   for (const auto &record : logData.records) {
+    auto lidarUpdated = false;
+    if (!record.scanPoints.empty()) {
+      lastScanWorldPoints.emplace(record.scanPoints.begin(), record.scanPoints.end());
+      lidarUpdated = true;
+    } else if (logData.scanMeta && !record.ranges.empty()) {
+      const auto scan = ad::types::LidarScan{.ranges = record.ranges,
+                                             .minAngle = logData.scanMeta->minAngle,
+                                             .angleIncrement = logData.scanMeta->angleIncrement,
+                                             .maxRange = logData.scanMeta->maxRange};
+      lastScanWorldPoints.emplace(ad::demo::scanToPoints(record.truePose, scan));
+      lidarUpdated = true;
+    }
+
+    trueTrail.push_back(ad::types::Point{.x = record.truePose.x, .y = record.truePose.y});
+    estTrail.push_back(ad::types::Point{.x = record.estPose.x, .y = record.estPose.y});
+
+    renderElapsed += odometryDeltaT;
+    const auto shouldRender =
+        lidarUpdated || (renderElapsed + ad::demo::kRenderScheduleEpsilon >= renderDeltaT);
+    if (!shouldRender) {
+      continue;
+    }
+
     const auto frameStatus = viz.renderFrame(preparedMap);
     if (!frameStatus) {
       fmt::print(stderr, "Render error: {}\n", frameStatus.error().message);
@@ -303,9 +528,6 @@ auto main(int argc, char **argv) -> int {
         return 1;
       }
     }
-
-    trueTrail.push_back(ad::types::Point{.x = record.truePose.x, .y = record.truePose.y});
-    estTrail.push_back(ad::types::Point{.x = record.estPose.x, .y = record.estPose.y});
 
     const auto truePathStatus = viz.renderPath(std::span{trueTrail}, mapGeometry);
     if (!truePathStatus) {
@@ -325,19 +547,9 @@ auto main(int argc, char **argv) -> int {
       return 1;
     }
 
-    if (!record.scanPoints.empty()) {
+    if (lastScanWorldPoints.has_value() && !lastScanWorldPoints->empty()) {
       const auto scanStatus =
-          viz.renderPoints(std::span{record.scanPoints}, mapGeometry, 10.0, "green");
-      if (!scanStatus) {
-        fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
-        return 1;
-      }
-    } else if (logData.scanMeta && !record.ranges.empty()) {
-      const auto scan = ad::types::LidarScan{.ranges = record.ranges,
-                                             .minAngle = logData.scanMeta->minAngle,
-                                             .angleIncrement = logData.scanMeta->angleIncrement,
-                                             .maxRange = logData.scanMeta->maxRange};
-      const auto scanStatus = viz.renderScan(record.truePose, scan, mapGeometry);
+          viz.renderPoints(std::span{*lastScanWorldPoints}, mapGeometry, 10.0, "green");
       if (!scanStatus) {
         fmt::print(stderr, "Render error: {}\n", scanStatus.error().message);
         return 1;
@@ -357,7 +569,8 @@ auto main(int argc, char **argv) -> int {
       return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds{args.delayMs});
+    renderElapsed = std::fmod(renderElapsed, renderDeltaT);
+    std::this_thread::sleep_for(std::chrono::milliseconds{delayMs});
   }
 
   const auto saveStatus = viz.saveFigure("localization_control_lidar_log_replay.png");

@@ -1,0 +1,683 @@
+#include "ransac_line_association_model.hpp"
+#include "ransac_engine.hpp"
+
+#include "../localizer_util.hpp"
+
+#include <Eigen/Dense>
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numbers>
+#include <numeric>
+#include <optional>
+#include <random>
+#include <utility>
+#include <vector>
+
+namespace {
+
+constexpr double kEpsilon = 1e-9;
+constexpr std::uint32_t kPointRansacSeedBias = 17U;
+constexpr int kDistinctSampleRetryCount = 8;
+constexpr double kClusterSplitDistanceMultiplier = 3.0;
+
+struct ObservedLine {
+  ad::localization::observation_model::util::LineModel model;
+  ad::types::LineSegment segment;
+  std::size_t supportPointCount;
+  double mse;
+};
+
+struct ExtractedLineCandidate {
+  std::vector<std::size_t> inlierIndices;
+  std::optional<ObservedLine> observedLine;
+};
+
+struct ScanPoint {
+  ad::types::Point point;
+  std::size_t scanIndex;
+};
+
+struct PoseMatchResult {
+  ad::types::Pose pose;
+  std::vector<std::pair<std::size_t, std::size_t>> pairs;
+  double mahalanobisDistanceSquared;
+};
+
+struct AssociationSample {
+  std::pair<std::size_t, std::size_t> observed;
+  std::pair<std::size_t, std::size_t> map;
+};
+
+auto sampleDistinctIndexInRange(std::mt19937 &rng, const std::size_t firstIndex,
+                                const std::size_t startInclusive, const std::size_t endInclusive)
+    -> std::optional<std::size_t> {
+  auto distribution = std::uniform_int_distribution<std::size_t>{startInclusive, endInclusive};
+  auto secondIndex = distribution(rng);
+  for (int retries = 0; retries < kDistinctSampleRetryCount && secondIndex == firstIndex;
+       ++retries) {
+    secondIndex = distribution(rng);
+  }
+  if (secondIndex == firstIndex) {
+    return std::nullopt;
+  }
+  return secondIndex;
+}
+
+auto sampleDistinctIndices(std::mt19937 &rng, const std::size_t size)
+    -> std::optional<std::pair<std::size_t, std::size_t>> {
+  if (size < 2U) {
+    return std::nullopt;
+  }
+
+  auto distribution = std::uniform_int_distribution<std::size_t>{0, size - 1U};
+  const auto firstIndex = distribution(rng);
+  const auto secondIndex = sampleDistinctIndexInRange(rng, firstIndex, 0U, size - 1U);
+  if (!secondIndex) {
+    return std::nullopt;
+  }
+  return std::pair<std::size_t, std::size_t>{firstIndex, *secondIndex};
+}
+
+auto transformPointToMap(const ad::types::Point &point, const ad::types::Pose &pose)
+    -> ad::types::Point {
+  const auto cosTheta = std::cos(pose.theta);
+  const auto sinTheta = std::sin(pose.theta);
+  return ad::types::Point{.x = pose.x + (cosTheta * point.x) - (sinTheta * point.y),
+                          .y = pose.y + (sinTheta * point.x) + (cosTheta * point.y)};
+}
+
+auto transformLineToMap(const ad::localization::observation_model::util::LineModel &line,
+                        const ad::types::Pose &pose)
+    -> ad::localization::observation_model::util::LineModel {
+  const auto alphaMap = ad::localization::util::normalizeAngle(line.alpha + pose.theta);
+  const auto normalX = std::cos(alphaMap);
+  const auto normalY = std::sin(alphaMap);
+  const auto rhoMap = line.rho + (normalX * pose.x) + (normalY * pose.y);
+  return ad::localization::observation_model::util::toLineModel(
+      ad::localization::observation_model::util::LineModel{.rho = rhoMap, .alpha = alphaMap});
+}
+
+auto buildScanPoints(const ad::types::LidarScan &scan) -> std::vector<ScanPoint> {
+  auto points = std::vector<ScanPoint>{};
+  points.reserve(scan.ranges.size());
+
+  for (std::size_t index = 0; index < scan.ranges.size(); ++index) {
+    const auto range = scan.ranges[index];
+    if (!(range > 0.0) || range > scan.maxRange) {
+      continue;
+    }
+
+    const auto angle = scan.minAngle + (scan.angleIncrement * static_cast<double>(index));
+    points.push_back(ScanPoint{
+        .point = ad::types::Point{.x = range * std::cos(angle), .y = range * std::sin(angle)},
+        .scanIndex = index});
+  }
+
+  return points;
+}
+
+auto sampleLineFromPoints(const ad::types::Point &first, const ad::types::Point &second)
+    -> std::optional<ad::localization::observation_model::util::LineModel> {
+  const auto deltaX = second.x - first.x;
+  const auto deltaY = second.y - first.y;
+  const auto length = std::hypot(deltaX, deltaY);
+  if (length < kEpsilon) {
+    return std::nullopt;
+  }
+
+  const auto directionX = deltaX / length;
+  const auto directionY = deltaY / length;
+  const auto normalX = -directionY;
+  const auto normalY = directionX;
+  const auto alpha = std::atan2(normalY, normalX);
+  const auto rho = (normalX * first.x) + (normalY * first.y);
+  return ad::localization::observation_model::util::toLineModel(
+      ad::localization::observation_model::util::LineModel{.rho = rho, .alpha = alpha});
+}
+
+auto makeExtractedLineCandidate(std::vector<std::size_t> inlierIndices,
+                                std::optional<ObservedLine> observedLine = std::nullopt)
+    -> ExtractedLineCandidate {
+  return ExtractedLineCandidate{.inlierIndices = std::move(inlierIndices),
+                                .observedLine = std::move(observedLine)};
+}
+
+auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
+                                const std::vector<bool> &activeMask,
+                                const ad::localization::observation_model::util::LineModel &model,
+                                const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<std::size_t> {
+  auto inlierCandidates = std::vector<std::size_t>{};
+  inlierCandidates.reserve(points.size());
+  const auto normalX = std::cos(model.alpha);
+  const auto normalY = std::sin(model.alpha);
+
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    if (!activeMask[index]) {
+      continue;
+    }
+
+    const auto &point = points[index].point;
+    const auto distance = std::abs((normalX * point.x) + (normalY * point.y) - model.rho);
+    if (distance > config.pointDistanceThreshold) {
+      continue;
+    }
+
+    inlierCandidates.push_back(index);
+  }
+
+  if (inlierCandidates.empty()) {
+    return {};
+  }
+
+  const auto continuityGap = static_cast<std::size_t>(std::max(1, config.maxContinuityGap));
+  const auto maxNeighborDistance =
+      std::max(kEpsilon, config.pointDistanceThreshold * kClusterSplitDistanceMultiplier);
+  std::size_t bestStart = 0U;
+  std::size_t bestLength = 1U;
+  std::size_t runStart = 0U;
+  std::size_t runLength = 1U;
+
+  for (std::size_t index = 1U; index < inlierCandidates.size(); ++index) {
+    const auto previousScanIndex = points[inlierCandidates[index - 1U]].scanIndex;
+    const auto currentScanIndex = points[inlierCandidates[index]].scanIndex;
+    const auto &previousPoint = points[inlierCandidates[index - 1U]].point;
+    const auto &currentPoint = points[inlierCandidates[index]].point;
+    const auto euclideanGap =
+        std::hypot(currentPoint.x - previousPoint.x, currentPoint.y - previousPoint.y);
+
+    if ((currentScanIndex - previousScanIndex) <= continuityGap &&
+        euclideanGap <= maxNeighborDistance) {
+      ++runLength;
+    } else {
+      if (runLength > bestLength) {
+        bestLength = runLength;
+        bestStart = runStart;
+      }
+      runStart = index;
+      runLength = 1U;
+    }
+  }
+  if (runLength > bestLength) {
+    bestLength = runLength;
+    bestStart = runStart;
+  }
+
+  auto contiguousInliers = std::vector<std::size_t>{};
+  contiguousInliers.reserve(bestLength);
+  for (std::size_t index = bestStart; index < (bestStart + bestLength); ++index) {
+    contiguousInliers.push_back(inlierCandidates[index]);
+  }
+
+  return contiguousInliers;
+}
+
+auto buildObservedLine(const std::vector<ad::types::Point> &supportPoints,
+                       const ad::localization::observation_model::util::LineModel &model,
+                       const double minSegmentLength) -> std::optional<ObservedLine> {
+  if (supportPoints.size() < 2U) {
+    return std::nullopt;
+  }
+
+  const auto directionX = -std::sin(model.alpha);
+  const auto directionY = std::cos(model.alpha);
+  const auto normalX = std::cos(model.alpha);
+  const auto normalY = std::sin(model.alpha);
+  const auto baseX = normalX * model.rho;
+  const auto baseY = normalY * model.rho;
+
+  auto minProjection = std::numeric_limits<double>::infinity();
+  auto maxProjection = -std::numeric_limits<double>::infinity();
+  double mse = 0.0;
+  for (const auto &point : supportPoints) {
+    const auto projection = (directionX * point.x) + (directionY * point.y);
+    minProjection = std::min(minProjection, projection);
+    maxProjection = std::max(maxProjection, projection);
+
+    const auto distance = (normalX * point.x) + (normalY * point.y) - model.rho;
+    mse += distance * distance;
+  }
+  mse /= static_cast<double>(supportPoints.size());
+
+  if (!std::isfinite(minProjection) || !std::isfinite(maxProjection) ||
+      (maxProjection - minProjection) < minSegmentLength) {
+    return std::nullopt;
+  }
+
+  const auto start = ad::types::Point{.x = baseX + (directionX * minProjection),
+                                      .y = baseY + (directionY * minProjection)};
+  const auto end = ad::types::Point{.x = baseX + (directionX * maxProjection),
+                                    .y = baseY + (directionY * maxProjection)};
+
+  return ObservedLine{.model = model,
+                      .segment = ad::types::LineSegment{.start = start, .end = end},
+                      .supportPointCount = supportPoints.size(),
+                      .mse = mse};
+}
+
+auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
+                             const std::vector<bool> &activeMask,
+                             const std::vector<std::size_t> &activeIndices, std::mt19937 &rng,
+                             const ad::localization::RansacLineAssociationModelConfig &config,
+                             const int maxIterations) -> ExtractedLineCandidate {
+  auto bestInliers = std::vector<std::size_t>{};
+  bestInliers.reserve(activeIndices.size());
+
+  const auto bestInlierSet =
+      ad::localization::observation_model::util::RansacEngine<std::vector<std::size_t>>::run(
+          maxIterations,
+          [&]() -> std::optional<std::pair<std::size_t, std::size_t>> {
+            return sampleDistinctIndices(rng, activeIndices.size());
+          },
+          [&](const std::pair<std::size_t, std::size_t> &sample)
+              -> std::optional<std::vector<std::size_t>> {
+            const auto [firstPosition, secondPosition] = sample;
+            const auto firstIndex = activeIndices[firstPosition];
+            const auto secondIndex = activeIndices[secondPosition];
+            const auto candidate =
+                sampleLineFromPoints(points[firstIndex].point, points[secondIndex].point);
+            if (!candidate) {
+              return std::nullopt;
+            }
+            return collectHybridInlierIndices(points, activeMask, *candidate, config);
+          },
+          [](const std::vector<std::size_t> &candidate, const std::vector<std::size_t> &best) {
+            return candidate.size() > best.size();
+          });
+
+  if (bestInlierSet) {
+    bestInliers = std::move(*bestInlierSet);
+  }
+
+  if (bestInliers.size() < config.minInlierPoints) {
+    return makeExtractedLineCandidate(std::move(bestInliers));
+  }
+
+  auto supportPoints = std::vector<ad::types::Point>{};
+  supportPoints.reserve(bestInliers.size());
+  for (const auto index : bestInliers) {
+    supportPoints.push_back(points[index].point);
+  }
+
+  const auto refined =
+      ad::localization::observation_model::util::fitLineModelFromPoints(supportPoints);
+  if (!refined) {
+    return makeExtractedLineCandidate(std::move(bestInliers));
+  }
+
+  return makeExtractedLineCandidate(
+      std::move(bestInliers),
+      buildObservedLine(supportPoints, *refined, config.minExtractedSegmentLength));
+}
+
+auto deactivateInliersAndCompact(const std::vector<std::size_t> &inlierIndices,
+                                 std::vector<bool> &activeMask,
+                                 std::vector<std::size_t> &activeIndices,
+                                 std::size_t &remainingCount) -> std::size_t {
+  std::size_t removedCount = 0U;
+  for (const auto index : inlierIndices) {
+    if (!activeMask[index]) {
+      continue;
+    }
+    activeMask[index] = false;
+    ++removedCount;
+    --remainingCount;
+  }
+
+  activeIndices.erase(std::remove_if(activeIndices.begin(), activeIndices.end(),
+                                     [&](const std::size_t index) { return !activeMask[index]; }),
+                      activeIndices.end());
+  return removedCount;
+}
+
+auto extractObservedLinesRansac(const ad::types::LidarScan &scan,
+                                const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<ObservedLine> {
+  const auto points = buildScanPoints(scan);
+  auto extracted = std::vector<ObservedLine>{};
+  extracted.reserve(static_cast<std::size_t>(std::max(1, config.maxExtractedScanLines)));
+  if (points.size() < 2U) {
+    return extracted;
+  }
+
+  auto activeMask = std::vector<bool>(points.size(), true);
+  auto activeIndices = std::vector<std::size_t>(points.size());
+  std::iota(activeIndices.begin(), activeIndices.end(), 0U);
+  auto remainingCount = points.size();
+
+  auto rng = std::mt19937{static_cast<std::uint32_t>(points.size()) + kPointRansacSeedBias};
+  const auto maxIterations = std::max(1, config.pointRansacMaxIterations);
+  const auto maxScanLines = static_cast<std::size_t>(std::max(1, config.maxExtractedScanLines));
+  const auto minRemaining = std::max<std::size_t>(config.minRemainingPoints, 2U);
+
+  while (remainingCount >= minRemaining && extracted.size() < maxScanLines) {
+    const auto candidate =
+        extractOneLineCandidate(points, activeMask, activeIndices, rng, config, maxIterations);
+    if (candidate.inlierIndices.size() < config.minInlierPoints) {
+      break;
+    }
+
+    const auto removedCount = deactivateInliersAndCompact(candidate.inlierIndices, activeMask,
+                                                          activeIndices, remainingCount);
+
+    if (removedCount == 0U) {
+      break;
+    }
+
+    if (candidate.observedLine) {
+      extracted.push_back(*candidate.observedLine);
+    }
+  }
+
+  return extracted;
+}
+
+auto segmentOverlapsInMap(const ObservedLine &observed, const ad::types::Pose &pose,
+                          const ad::localization::observation_model::util::MapLine &mapLine,
+                          const double margin) -> bool {
+  const auto startMap = transformPointToMap(observed.segment.start, pose);
+  const auto endMap = transformPointToMap(observed.segment.end, pose);
+  const auto startProjection =
+      (mapLine.directionX * startMap.x) + (mapLine.directionY * startMap.y);
+  const auto endProjection = (mapLine.directionX * endMap.x) + (mapLine.directionY * endMap.y);
+  const auto observedMin = std::min(startProjection, endProjection);
+  const auto observedMax = std::max(startProjection, endProjection);
+  return observedMax >= (mapLine.minProjection - margin) &&
+         observedMin <= (mapLine.maxProjection + margin);
+}
+
+auto computeMahalanobisDistanceSquared(const ad::types::Pose &observedPose,
+                                       const ad::types::Pose &predictedPose,
+                                       const ad::localization::CovarianceMatrix &covariance)
+    -> std::optional<double> {
+  const auto inverse = covariance.inverse();
+  if (!inverse.allFinite()) {
+    return std::nullopt;
+  }
+
+  Eigen::Vector3d delta;
+  delta << observedPose.x - predictedPose.x, observedPose.y - predictedPose.y,
+      ad::localization::util::normalizeAngle(observedPose.theta - predictedPose.theta);
+  const auto distance = delta.transpose() * inverse * delta;
+  if (!std::isfinite(distance)) {
+    return std::nullopt;
+  }
+  return distance;
+}
+
+auto solvePoseFromLinePairs(const ObservedLine &observedFirst, const ObservedLine &observedSecond,
+                            const ad::localization::observation_model::util::MapLine &mapFirst,
+                            const ad::localization::observation_model::util::MapLine &mapSecond,
+                            const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::optional<ad::types::Pose> {
+  const auto thetaFirst =
+      ad::localization::util::normalizeAngle(mapFirst.model.alpha - observedFirst.model.alpha);
+  const auto thetaSecond =
+      ad::localization::util::normalizeAngle(mapSecond.model.alpha - observedSecond.model.alpha);
+
+  const auto thetaDiff = ad::localization::util::normalizeAngle(thetaSecond - thetaFirst);
+  if (std::abs(thetaDiff) > config.lineAngleThreshold) {
+    return std::nullopt;
+  }
+
+  const auto theta = ad::localization::util::normalizeAngle(thetaFirst + (0.5 * thetaDiff));
+
+  const auto n1x = std::cos(mapFirst.model.alpha);
+  const auto n1y = std::sin(mapFirst.model.alpha);
+  const auto n2x = std::cos(mapSecond.model.alpha);
+  const auto n2y = std::sin(mapSecond.model.alpha);
+  const auto determinant = (n1x * n2y) - (n1y * n2x);
+  if (std::abs(determinant) < std::max(kEpsilon, config.parallelRejectThreshold)) {
+    return std::nullopt;
+  }
+
+  const auto rhsFirst = mapFirst.model.rho - observedFirst.model.rho;
+  const auto rhsSecond = mapSecond.model.rho - observedSecond.model.rho;
+  const auto x = ((rhsFirst * n2y) - (n1y * rhsSecond)) / determinant;
+  const auto y = ((n1x * rhsSecond) - (rhsFirst * n2x)) / determinant;
+
+  return ad::types::Pose{.x = x, .y = y, .theta = theta};
+}
+
+auto evaluatePoseMatches(
+    const ad::types::Pose &pose, const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<std::pair<std::size_t, std::size_t>> {
+  struct Candidate {
+    std::size_t observedIndex;
+    std::size_t mapIndex;
+    double cost;
+  };
+
+  auto rawCandidates = std::vector<Candidate>{};
+  rawCandidates.reserve(observedLines.size());
+
+  for (std::size_t observedIndex = 0; observedIndex < observedLines.size(); ++observedIndex) {
+    const auto transformed = transformLineToMap(observedLines[observedIndex].model, pose);
+
+    auto bestMapIndex = mapLines.size();
+    auto bestCost = std::numeric_limits<double>::infinity();
+    for (std::size_t mapIndex = 0; mapIndex < mapLines.size(); ++mapIndex) {
+      const auto &mapLine = mapLines[mapIndex];
+      const auto angleDiff =
+          std::abs(ad::localization::util::normalizeAngle(transformed.alpha - mapLine.model.alpha));
+      if (angleDiff > config.lineAngleThreshold) {
+        continue;
+      }
+
+      const auto rhoDiff = std::abs(transformed.rho - mapLine.model.rho);
+      if (rhoDiff > config.lineRhoThreshold) {
+        continue;
+      }
+
+      if (!segmentOverlapsInMap(observedLines[observedIndex], pose, mapLine,
+                                config.segmentMargin)) {
+        continue;
+      }
+
+      const auto cost = (angleDiff / std::max(kEpsilon, config.lineAngleThreshold)) +
+                        (rhoDiff / std::max(kEpsilon, config.lineRhoThreshold));
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestMapIndex = mapIndex;
+      }
+    }
+
+    if (bestMapIndex < mapLines.size()) {
+      rawCandidates.push_back(
+          Candidate{.observedIndex = observedIndex, .mapIndex = bestMapIndex, .cost = bestCost});
+    }
+  }
+
+  std::sort(rawCandidates.begin(), rawCandidates.end(),
+            [](const Candidate &left, const Candidate &right) { return left.cost < right.cost; });
+
+  auto matches = std::vector<std::pair<std::size_t, std::size_t>>{};
+  matches.reserve(rawCandidates.size());
+  auto mapUsed = std::vector<bool>(mapLines.size(), false);
+  for (const auto &candidate : rawCandidates) {
+    if (mapUsed[candidate.mapIndex]) {
+      continue;
+    }
+    mapUsed[candidate.mapIndex] = true;
+    matches.emplace_back(candidate.observedIndex, candidate.mapIndex);
+  }
+
+  return matches;
+}
+
+auto evaluateAssociationHypothesis(
+    const std::pair<std::size_t, std::size_t> &observedSample,
+    const std::pair<std::size_t, std::size_t> &mapSample,
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::types::Pose &predictedPose,
+    const ad::localization::CovarianceMatrix &predictedCovariance,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::optional<PoseMatchResult> {
+  const auto [observedFirstIndex, observedSecondIndex] = observedSample;
+  const auto [mapFirstIndex, mapSecondIndex] = mapSample;
+
+  const auto pose =
+      solvePoseFromLinePairs(observedLines[observedFirstIndex], observedLines[observedSecondIndex],
+                             mapLines[mapFirstIndex], mapLines[mapSecondIndex], config);
+  if (!pose) {
+    return std::nullopt;
+  }
+
+  const auto maha = computeMahalanobisDistanceSquared(*pose, predictedPose, predictedCovariance);
+  if (!maha || *maha > config.contextGateThreshold) {
+    return std::nullopt;
+  }
+
+  auto pairs = evaluatePoseMatches(*pose, observedLines, mapLines, config);
+  if (pairs.size() < config.minPoseInliers) {
+    return std::nullopt;
+  }
+
+  return PoseMatchResult{
+      .pose = *pose, .pairs = std::move(pairs), .mahalanobisDistanceSquared = *maha};
+}
+
+auto runAssociationRansac(
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::types::Pose &predictedPose,
+    const ad::localization::CovarianceMatrix &predictedCovariance,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::optional<PoseMatchResult> {
+  if (observedLines.size() < 2U || mapLines.size() < 2U) {
+    return std::nullopt;
+  }
+
+  auto rng = std::mt19937{};
+
+  return ad::localization::observation_model::util::RansacEngine<PoseMatchResult>::run(
+      config.translationRansacMaxIterations,
+      [&]() -> std::optional<AssociationSample> {
+        const auto observedSample = sampleDistinctIndices(rng, observedLines.size());
+        if (!observedSample) {
+          return std::nullopt;
+        }
+        const auto mapSample = sampleDistinctIndices(rng, mapLines.size());
+        if (!mapSample) {
+          return std::nullopt;
+        }
+        return AssociationSample{.observed = *observedSample, .map = *mapSample};
+      },
+      [&](const AssociationSample &sample) -> std::optional<PoseMatchResult> {
+        return evaluateAssociationHypothesis(sample.observed, sample.map, observedLines, mapLines,
+                                             predictedPose, predictedCovariance, config);
+      },
+      [](const PoseMatchResult &candidate, const PoseMatchResult &best) {
+        return candidate.pairs.size() > best.pairs.size() ||
+               (candidate.pairs.size() == best.pairs.size() &&
+                candidate.mahalanobisDistanceSquared < best.mahalanobisDistanceSquared);
+      });
+}
+
+auto buildEkfUpdateFromPairs(
+    const std::vector<std::pair<std::size_t, std::size_t>> &pairs,
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::types::Pose &predictedPose,
+    const ad::localization::CovarianceMatrix &predictedCovariance,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::optional<ad::localization::ObservationUpdateInput> {
+  auto observations = std::vector<ad::localization::observation_model::util::LineObservation>{};
+  observations.reserve(pairs.size());
+
+  std::size_t gatePassed = 0U;
+  for (const auto &[observedIndex, mapIndex] : pairs) {
+    auto observation = ad::localization::observation_model::util::makeExpectedLine(
+        mapLines[mapIndex].model, predictedPose);
+    observation.observed = observedLines[observedIndex].model;
+
+    ad::localization::observation_model::util::applyObservationNoiseFromMse(
+        observation,
+        ad::localization::observation_model::util::ObservationNoiseConfig{
+            .measurementNoiseRange = config.measurementNoiseRange,
+            .measurementNoiseAngle = config.measurementNoiseAngle},
+        static_cast<double>(observedLines[observedIndex].supportPointCount),
+        observedLines[observedIndex].mse);
+
+    if (!ad::localization::observation_model::util::gateLineObservation(
+            observation,
+            ad::localization::observation_model::util::ObservationGateConfig{
+                .covariance = predictedCovariance, .threshold = config.gateThreshold})) {
+      continue;
+    }
+
+    ++gatePassed;
+    observations.push_back(observation);
+  }
+
+  if (observations.size() < config.minObservations) {
+    return std::nullopt;
+  }
+
+  const auto score =
+      !pairs.empty() ? static_cast<double>(gatePassed) / static_cast<double>(pairs.size()) : 0.0;
+  return ad::localization::observation_model::util::buildMeasurementData(observations, score);
+}
+
+} // namespace
+
+namespace ad::localization {
+
+RansacLineAssociationModel::RansacLineAssociationModel(
+    std::vector<observation_model::util::MapLine> mapLines,
+    observation_model::util::MapSignature signature, RansacLineAssociationModelConfig config)
+    : config_(std::move(config)), mapLines_(std::move(mapLines)),
+      mapSignature_(std::move(signature)) {}
+
+auto RansacLineAssociationModel::create(const types::MapData &map,
+                                        RansacLineAssociationModelConfig config)
+    -> Result<std::unique_ptr<RansacLineAssociationModel>> {
+  const auto signature = observation_model::util::mapSignatureFromMap(map);
+  if (!signature) {
+    return tl::make_unexpected(signature.error());
+  }
+
+  const auto mapLines = line_extractor::extractMapLinesFromMap(map, config.mapLineExtraction);
+  if (!mapLines) {
+    return tl::make_unexpected(mapLines.error());
+  }
+
+  auto model =
+      std::make_unique<RansacLineAssociationModel>(std::move(*mapLines), *signature, config);
+  return {std::move(model)};
+}
+
+auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
+                                                  const types::MapData &map,
+                                                  const types::Pose &predictedPose,
+                                                  const CovarianceMatrix &predictedCovariance) const
+    -> Result<std::optional<ObservationUpdateInput>> {
+  if (!observation_model::util::signatureMatches(mapSignature_, map)) {
+    return tl::make_unexpected(
+        Error{ErrorCode::InvalidInput, "Map does not match precomputed line features."});
+  }
+
+  if (scan.ranges.empty()) {
+    return tl::make_unexpected(Error{ErrorCode::EmptyCollection, "Scan has no ranges."});
+  }
+
+  const auto observedLines = extractObservedLinesRansac(scan, config_);
+
+  const auto bestMatch =
+      runAssociationRansac(observedLines, mapLines_, predictedPose, predictedCovariance, config_);
+
+  const auto update = buildEkfUpdateFromPairs(bestMatch->pairs, observedLines, mapLines_,
+                                              predictedPose, predictedCovariance, config_);
+
+  return {update};
+}
+
+} // namespace ad::localization

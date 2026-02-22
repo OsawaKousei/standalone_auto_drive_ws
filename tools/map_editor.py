@@ -3,48 +3,172 @@
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Any
 
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Button, TextBox
+from matplotlib.widgets import Button
 import numpy as np
+import yaml
 
 
 @dataclass(frozen=True)
 class MapMeta:
+    width: float
+    height: float
     resolution: float
-    origin: Tuple[float, float, float]
+    origin: tuple[float, float, float]
+
+
+DEFAULT_SCHEMA = """map:
+  width: 10.0
+  height: 10.0
+  resolution: 0.05
+  origin: [0.0, 0.0, 0.0]
+
+lines:
+  - start: [1.0, 1.0]
+    end: [9.0, 1.0]
+    thickness: 0.20
+  - start: [1.0, 1.0]
+    end: [1.0, 9.0]
+    thickness: 0.20
+"""
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="PGM map editor (matplotlib-based)")
-    parser.add_argument("--width", type=float, default=5.0, help="Map width in meters")
-    parser.add_argument("--height", type=float, default=5.0, help="Map height in meters")
-    parser.add_argument("--resolution", type=float, default=0.05, help="Meters per cell")
-    parser.add_argument(
-        "--origin",
-        type=float,
-        nargs=3,
-        default=[0.0, 0.0, 0.0],
-        metavar=("X", "Y", "THETA"),
-        help="Origin [x y theta] in meters/radians",
+    parser = argparse.ArgumentParser(
+        description="YAMLスキーマを監視してリアルタイムに地図をプレビューするツール"
     )
-    parser.add_argument("--output-dir", type=str, default="tools", help="Output directory")
-    parser.add_argument("--basename", type=str, default="map", help="Output base name")
+    parser.add_argument(
+        "--schema",
+        type=str,
+        default="tools/map_schema.yaml",
+        help="監視対象のYAMLスキーマ",
+    )
+    parser.add_argument("--output-dir", type=str, default="tools", help="出力先ディレクトリ")
+    parser.add_argument("--basename", type=str, default="map", help="出力ファイル名ベース")
+    parser.add_argument(
+        "--poll-interval-ms",
+        type=int,
+        default=300,
+        help="YAML変更監視間隔 (ms)",
+    )
     return parser.parse_args()
+
+
+def ensure_schema_file(schema_path: Path) -> None:
+    if schema_path.exists():
+        return
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    schema_path.write_text(DEFAULT_SCHEMA, encoding="utf-8")
+
+
+def parse_pair(value: Any, key_name: str) -> tuple[float, float]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError(f"{key_name} must be [x, y]")
+    return float(value[0]), float(value[1])
+
+
+def parse_origin(value: Any) -> tuple[float, float, float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError("map.origin must be [x, y, theta]")
+    return float(value[0]), float(value[1]), float(value[2])
+
+
+def load_schema(schema_path: Path) -> tuple[MapMeta, list[dict[str, float]]]:
+    raw = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("root must be a mapping")
+
+    map_raw = raw.get("map")
+    if not isinstance(map_raw, dict):
+        raise ValueError("map must be a mapping")
+
+    width = float(map_raw.get("width"))
+    height = float(map_raw.get("height"))
+    resolution = float(map_raw.get("resolution"))
+    origin = parse_origin(map_raw.get("origin"))
+
+    if width <= 0.0 or height <= 0.0:
+        raise ValueError("map.width and map.height must be positive")
+    if resolution <= 0.0:
+        raise ValueError("map.resolution must be positive")
+
+    lines_raw = raw.get("lines", [])
+    if not isinstance(lines_raw, list):
+        raise ValueError("lines must be a list")
+
+    lines: list[dict[str, float]] = []
+    for index, line in enumerate(lines_raw):
+        if not isinstance(line, dict):
+            raise ValueError(f"lines[{index}] must be a mapping")
+        start_x, start_y = parse_pair(line.get("start"), f"lines[{index}].start")
+        end_x, end_y = parse_pair(line.get("end"), f"lines[{index}].end")
+        thickness = float(line.get("thickness"))
+        if thickness <= 0.0:
+            raise ValueError(f"lines[{index}].thickness must be positive")
+        lines.append(
+            {
+                "start_x": start_x,
+                "start_y": start_y,
+                "end_x": end_x,
+                "end_y": end_y,
+                "thickness": thickness,
+            }
+        )
+
+    return MapMeta(width=width, height=height, resolution=resolution, origin=origin), lines
 
 
 def clamp(value: int, min_value: int, max_value: int) -> int:
     return max(min_value, min(max_value, value))
 
 
-def apply_brush(grid: np.ndarray, row: int, col: int, value: int, radius: int) -> None:
-    height, width = grid.shape
-    row_min = clamp(row - radius, 0, height - 1)
-    row_max = clamp(row + radius, 0, height - 1)
-    col_min = clamp(col - radius, 0, width - 1)
-    col_max = clamp(col + radius, 0, width - 1)
-    grid[row_min : row_max + 1, col_min : col_max + 1] = value
+def draw_line_on_grid(grid: np.ndarray, meta: MapMeta, line: dict[str, float]) -> None:
+    start = np.array([line["start_x"], line["start_y"]], dtype=float)
+    end = np.array([line["end_x"], line["end_y"]], dtype=float)
+    thickness = line["thickness"]
+    radius = thickness / 2.0
+
+    min_x = min(start[0], end[0]) - radius
+    max_x = max(start[0], end[0]) + radius
+    min_y = min(start[1], end[1]) - radius
+    max_y = max(start[1], end[1]) + radius
+
+    height_cells, width_cells = grid.shape
+    col_min = clamp(int(np.floor(min_x / meta.resolution)), 0, width_cells - 1)
+    col_max = clamp(int(np.ceil(max_x / meta.resolution)), 0, width_cells - 1)
+    row_min = clamp(int(np.floor(min_y / meta.resolution)), 0, height_cells - 1)
+    row_max = clamp(int(np.ceil(max_y / meta.resolution)), 0, height_cells - 1)
+
+    segment = end - start
+    segment_length_sq = float(np.dot(segment, segment))
+
+    for row in range(row_min, row_max + 1):
+        center_y = (row + 0.5) * meta.resolution
+        for col in range(col_min, col_max + 1):
+            center_x = (col + 0.5) * meta.resolution
+            point = np.array([center_x, center_y], dtype=float)
+
+            if segment_length_sq == 0.0:
+                closest = start
+            else:
+                t = float(np.dot(point - start, segment) / segment_length_sq)
+                t = max(0.0, min(1.0, t))
+                closest = start + t * segment
+
+            distance = float(np.linalg.norm(point - closest))
+            if distance <= radius:
+                grid[row, col] = 0
+
+
+def render_grid(meta: MapMeta, lines: list[dict[str, float]]) -> np.ndarray:
+    width_cells = max(1, int(round(meta.width / meta.resolution)))
+    height_cells = max(1, int(round(meta.height / meta.resolution)))
+    grid = np.full((height_cells, width_cells), 254, dtype=np.uint8)
+    for line in lines:
+        draw_line_on_grid(grid, meta, line)
+    return grid
 
 
 def save_pgm(path: Path, grid: np.ndarray) -> None:
@@ -52,7 +176,6 @@ def save_pgm(path: Path, grid: np.ndarray) -> None:
     header = f"P5\n{width} {height}\n255\n"
     with path.open("wb") as file:
         file.write(header.encode("ascii"))
-        # Flip vertically so the file matches ROS map_server expectations.
         file.write(np.flipud(grid).tobytes())
 
 
@@ -72,263 +195,106 @@ def save_yaml(path: Path, image_path: str, meta: MapMeta) -> None:
 
 def main() -> None:
     args = parse_args()
+    schema_path = Path(args.schema)
+    ensure_schema_file(schema_path)
 
-    if args.width <= 0.0 or args.height <= 0.0:
-        raise SystemExit("width and height must be positive")
-    if args.resolution <= 0.0:
-        raise SystemExit("resolution must be positive")
-
-    map_width_meters = args.width
-    map_height_meters = args.height
-    map_width_cells = max(1, int(round(map_width_meters / args.resolution)))
-    map_height_cells = max(1, int(round(map_height_meters / args.resolution)))
-    grid = np.full((map_height_cells, map_width_cells), 254, dtype=np.uint8)
-    map_width = map_width_cells
-    map_height = map_height_cells
-    state = {
-        "drawing": False,
-        "value": 0,
-        "resolution": args.resolution,
-        "brush_cells": 1,
-        "stroke_snapshot": None,
+    state: dict[str, Any] = {
+        "meta": None,
+        "grid": None,
+        "schema_mtime": None,
+        "status": "",
     }
-    undo_stack = []
-    redo_stack = []
 
-    def map_extent() -> tuple:
-        resolution = state["resolution"]
-        return map_width * resolution, map_height * resolution
+    fig, ax = plt.subplots(figsize=(8, 8))
+    fig.canvas.manager.set_window_title("YAML Map Schema Editor")
+    plt.subplots_adjust(right=0.78)
 
-    def brush_meters_from_cells(cells: int) -> float:
-        return cells * args.resolution
-
-    brush_radius = int(round((state["brush_cells"] - 1) / 2.0))
-
-    fig, ax = plt.subplots(figsize=(7, 7))
-    fig.canvas.manager.set_window_title("PGM Map Editor")
-    plt.subplots_adjust(left=0.05, right=0.75, bottom=0.05, top=0.95)
-
-    extent_width, extent_height = map_extent()
+    placeholder = np.full((10, 10), 254, dtype=np.uint8)
     image = ax.imshow(
-        grid,
+        placeholder,
         cmap="gray",
         origin="lower",
         vmin=0,
         vmax=255,
         interpolation="nearest",
-        extent=[0.0, extent_width, 0.0, extent_height],
+        extent=[0.0, 10.0, 0.0, 10.0],
     )
     ax.set_aspect("equal", adjustable="box")
-    ax.set_title("Left: obstacle, Right: free")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
 
-    panel_left = 0.78
-    panel_width = 0.2
-    row_height = 0.05
-    row_gap = 0.02
-    top = 0.92
+    status_text = fig.text(0.80, 0.80, "", fontsize=9)
+    fig.text(0.80, 0.90, f"schema:\n{schema_path}", fontsize=9)
 
-    fig.text(panel_left, top, f"resolution: {args.resolution}", fontsize=10)
-    fig.text(panel_left, top - 0.04, f"size: {map_width_meters} x {map_height_meters} m",
-             fontsize=9)
+    save_button = Button(plt.axes([0.80, 0.72, 0.16, 0.06]), "Save")
 
-    def row_axes(index: int) -> plt.Axes:
-        y = top - 0.20 - (index * (row_height + row_gap))
-        return plt.axes([panel_left, y, panel_width, row_height])
-
-    brush_label = fig.text(
-        panel_left,
-        top - 0.10,
-        f"brush: {brush_meters_from_cells(state['brush_cells']):.3f} m",
-        fontsize=9,
-    )
-    button_width = 0.09
-    minus_button = Button(plt.axes([panel_left, top - 0.15, button_width, row_height]), "-")
-    plus_button = Button(
-        plt.axes([panel_left + panel_width - button_width, top - 0.15, button_width, row_height]),
-        "+",
-    )
-
-    origin_x_box = TextBox(
-        row_axes(1),
-        "origin x",
-        initial=str(args.origin[0]),
-    )
-    origin_y_box = TextBox(
-        row_axes(2),
-        "origin y",
-        initial=str(args.origin[1]),
-    )
-    origin_t_box = TextBox(
-        row_axes(3),
-        "origin t",
-        initial=str(args.origin[2]),
-    )
-
-    button_height = 0.06
-    save_button = Button(plt.axes([panel_left, 0.2, panel_width, button_height]), "Save")
-    clear_button = Button(plt.axes([panel_left, 0.11, panel_width, button_height]), "Clear")
-    undo_button = Button(plt.axes([panel_left, 0.02, 0.095, button_height]), "Undo")
-    redo_button = Button(plt.axes([panel_left + panel_width - 0.095, 0.02, 0.095, button_height]),
-                         "Redo")
-
-    def parse_meta() -> MapMeta:
-        origin = (float(origin_x_box.text), float(origin_y_box.text), float(origin_t_box.text))
-        return MapMeta(resolution=args.resolution, origin=origin)
-
-    def update_brush_label() -> None:
-        brush_label.set_text(
-            f"brush: {brush_meters_from_cells(state['brush_cells']):.3f} m"
-        )
-        fig.canvas.draw_idle()
-
-    def adjust_brush(delta: int) -> None:
-        nonlocal brush_radius
-        state["brush_cells"] = max(1, state["brush_cells"] + delta)
-        brush_radius = int(round((state["brush_cells"] - 1) / 2.0))
-        update_brush_label()
-
-
-    def on_press(event) -> None:
-        if event.inaxes != ax or event.xdata is None or event.ydata is None:
+    def update_preview(force: bool = False) -> None:
+        try:
+            mtime = schema_path.stat().st_mtime
+        except FileNotFoundError:
+            state["status"] = f"schema not found: {schema_path}"
+            ax.set_title(state["status"])
+            status_text.set_text(state["status"])
+            fig.canvas.draw_idle()
             return
-        if event.button == 1:
-            state["value"] = 0
-        elif event.button == 3:
-            state["value"] = 254
-        else:
+
+        if not force and state["schema_mtime"] == mtime:
             return
-        state["drawing"] = True
-        state["stroke_snapshot"] = grid.copy()
-        resolution = state["resolution"]
-        row = clamp(int(event.ydata / resolution), 0, map_height - 1)
-        col = clamp(int(event.xdata / resolution), 0, map_width - 1)
-        apply_brush(grid, row, col, state["value"], brush_radius)
+
+        try:
+            meta, lines = load_schema(schema_path)
+            grid = render_grid(meta, lines)
+        except Exception as error:
+            state["status"] = f"schema error: {error}"
+            ax.set_title(state["status"])
+            status_text.set_text(state["status"])
+            fig.canvas.draw_idle()
+            return
+
+        state["meta"] = meta
+        state["grid"] = grid
+        state["schema_mtime"] = mtime
+        state["status"] = f"loaded lines: {len(lines)}"
+
         image.set_data(grid)
-        fig.canvas.draw_idle()
-
-    def on_release(event) -> None:
-        state["drawing"] = False
-        snapshot = state["stroke_snapshot"]
-        state["stroke_snapshot"] = None
-        if snapshot is None:
-            return
-        if np.array_equal(snapshot, grid):
-            return
-        undo_stack.append(snapshot)
-        redo_stack.clear()
-
-    def on_move(event) -> None:
-        if not state["drawing"] or event.inaxes != ax:
-            return
-        if event.xdata is None or event.ydata is None:
-            return
-        resolution = state["resolution"]
-        row = clamp(int(event.ydata / resolution), 0, map_height - 1)
-        col = clamp(int(event.xdata / resolution), 0, map_width - 1)
-        apply_brush(grid, row, col, state["value"], brush_radius)
-        image.set_data(grid)
+        image.set_extent([0.0, meta.width, 0.0, meta.height])
+        ax.set_xlim(0.0, meta.width)
+        ax.set_ylim(0.0, meta.height)
+        ax.set_title(state["status"])
+        status_text.set_text(state["status"])
         fig.canvas.draw_idle()
 
     def on_save(event) -> None:
+        if state["grid"] is None or state["meta"] is None:
+            state["status"] = "save failed: valid schema is not loaded"
+            ax.set_title(state["status"])
+            status_text.set_text(state["status"])
+            fig.canvas.draw_idle()
+            return
+
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         pgm_path = output_dir / f"{args.basename}.pgm"
         yaml_path = output_dir / f"{args.basename}.yaml"
-        meta = parse_meta()
-        save_pgm(pgm_path, grid)
-        save_yaml(yaml_path, pgm_path.name, meta)
-        ax.set_title(f"Saved to {pgm_path} and {yaml_path}")
+
+        save_pgm(pgm_path, state["grid"])
+        save_yaml(yaml_path, pgm_path.name, state["meta"])
+        state["status"] = f"saved: {pgm_path.name}, {yaml_path.name}"
+        ax.set_title(state["status"])
+        status_text.set_text(state["status"])
         fig.canvas.draw_idle()
 
-    def on_clear(event) -> None:
-        undo_stack.append(grid.copy())
-        redo_stack.clear()
-        grid[:, :] = 254
-        image.set_data(grid)
-        fig.canvas.draw_idle()
-
-    def on_undo(event) -> None:
-        if not undo_stack:
-            return
-        redo_stack.append(grid.copy())
-        restored = undo_stack.pop()
-        grid[:, :] = restored
-        image.set_data(grid)
-        fig.canvas.draw_idle()
-
-    def on_redo(event) -> None:
-        if not redo_stack:
-            return
-        undo_stack.append(grid.copy())
-        restored = redo_stack.pop()
-        grid[:, :] = restored
-        image.set_data(grid)
-        fig.canvas.draw_idle()
-
-    def clamp_view(value: float, min_value: float, max_value: float) -> float:
-        return max(min_value, min(max_value, value))
-
-    def clamp_window(center: float, span: float, min_value: float, max_value: float) -> tuple:
-        half = span / 2.0
-        min_edge = center - half
-        max_edge = center + half
-
-        if min_edge < min_value:
-            min_edge = min_value
-            max_edge = min_value + span
-        if max_edge > max_value:
-            max_edge = max_value
-            min_edge = max_value - span
-
-        min_edge = clamp_view(min_edge, min_value, max_value)
-        max_edge = clamp_view(max_edge, min_value, max_value)
-        return min_edge, max_edge
-
-    def on_scroll(event) -> None:
-        if event.inaxes != ax:
-            return
-        if event.button not in ("up", "down"):
-            return
-
-        zoom_factor = 0.9 if event.button == "up" else 1.1
-        current_xlim = ax.get_xlim()
-        current_ylim = ax.get_ylim()
-        center_x = event.xdata if event.xdata is not None else sum(current_xlim) / 2.0
-        center_y = event.ydata if event.ydata is not None else sum(current_ylim) / 2.0
-
-        x_span = (current_xlim[1] - current_xlim[0]) * zoom_factor
-        y_span = (current_ylim[1] - current_ylim[0]) * zoom_factor
-        span = max(x_span, y_span)
-        min_span = state["resolution"]
-
-        if span < min_span:
-            return
-
-        extent_width, extent_height = map_extent()
-        x_min, x_max = clamp_window(center_x, span, 0.0, extent_width)
-        y_min, y_max = clamp_window(center_y, span, 0.0, extent_height)
-
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
-        fig.canvas.draw_idle()
-
-    fig.canvas.mpl_connect("button_press_event", on_press)
-    fig.canvas.mpl_connect("button_release_event", on_release)
-    fig.canvas.mpl_connect("motion_notify_event", on_move)
-    fig.canvas.mpl_connect("scroll_event", on_scroll)
-    minus_button.on_clicked(lambda event: adjust_brush(-1))
-    plus_button.on_clicked(lambda event: adjust_brush(1))
     save_button.on_clicked(on_save)
-    clear_button.on_clicked(on_clear)
-    undo_button.on_clicked(on_undo)
-    redo_button.on_clicked(on_redo)
 
+    timer = fig.canvas.new_timer(interval=max(50, args.poll_interval_ms))
+    timer.add_callback(update_preview)
+    timer.start()
+
+    update_preview(force=True)
     plt.show()
 
 
 if __name__ == "__main__":
     main()
 
-# python3 tools/map_editor.py --width 10 --height 10 --resolution 0.05 --origin 0 0 0 --output-dir tools --basename map
+# uv run tools/map_editor.py 

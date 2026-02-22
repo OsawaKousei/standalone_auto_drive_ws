@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ビルドに必要な最小限のツールのみをインストール
+# 基本ツールのインストール
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -11,25 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     curl \
-    python3 \
-    python3-dev \
-    python3-tk \
+    wget \
+    gnupg \
+    lsb-release \
+    software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv and Python packages (system site-packages)
-ENV PATH="/root/.local/bin:${PATH}"
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# 3. uv のインストール (公式推奨のマルチステージビルド形式でクリーンに取得)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Create minimal pyproject and install Python deps via uv add in /opt (not shadowed by bind mounts)
-WORKDIR /opt/ad-viz
-RUN uv init && \
-    uv venv --python /usr/bin/python3 && \
-    uv add numpy matplotlib
-
-ENV VIRTUAL_ENV=/opt/ad-viz/.venv
-ENV PATH="/opt/ad-viz/.venv/bin:/root/.local/bin:${PATH}"
-ENV Python3_ROOT_DIR=/opt/ad-viz/.venv
-
+# ビルドには引き続き GCC 12 を使用
 ENV CC=gcc-12 \
     CXX=g++-12 \
     CXXFLAGS="-std=c++20"

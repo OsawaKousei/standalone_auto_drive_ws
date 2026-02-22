@@ -1,6 +1,11 @@
 {
   "name": "Modern C++ Dev Env",
-  "build": { "dockerfile": "../docker/Dockerfile" },
+  "build": { "dockerfile": "../docker/Dockerfile.dev" },
+  "remoteEnv": {
+    "UV_PROJECT_ENVIRONMENT": "/workspace/.venv_docker",
+    "VIRTUAL_ENV": "/workspace/.venv_docker",
+    "PATH": "/workspace/.venv_docker/bin:${containerEnv:PATH}"
+  },
   "customizations": {
     "vscode": {
       "extensions": [

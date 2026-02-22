@@ -3,13 +3,15 @@
 #include "../../shared/result.hpp"
 #include "../../shared/types.hpp"
 
-#include <array>
+#include <Eigen/Dense>
 
 namespace ad::localization {
 
+using CovarianceMatrix = Eigen::Matrix3d;
+
 struct LocalizerEstimate {
   const types::Pose pose;
-  const std::array<double, 9> covariance;
+  const CovarianceMatrix covariance;
   const double score;
 };
 
@@ -22,8 +24,8 @@ public:
   ILocalizer(ILocalizer &&) = delete;
   auto operator=(ILocalizer &&) -> ILocalizer & = delete;
   [[nodiscard]] virtual auto reset(const types::Pose &initialPose,
-                                   const std::array<double, 9> &initialCovariance) -> Status = 0;
-  [[nodiscard]] virtual auto predict(const types::Twist &control, double deltaT) -> Status = 0;
+                                   const CovarianceMatrix &initialCovariance) -> Status = 0;
+  [[nodiscard]] virtual auto predictOdometry(const types::OdometryDelta &delta) -> Status = 0;
   [[nodiscard]] virtual auto update(const types::LidarScan &scan, const types::MapData &map)
       -> Status = 0;
   [[nodiscard]] virtual auto estimate() const -> Result<LocalizerEstimate> = 0;

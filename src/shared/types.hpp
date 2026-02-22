@@ -18,6 +18,7 @@ struct Pose {
 
 struct Twist {
   const double v;
+  const double vy;
   const double w;
 };
 
@@ -42,6 +43,12 @@ struct LidarScan {
   const double minAngle;
   const double angleIncrement;
   const double maxRange;
+};
+
+struct OdometryDelta {
+  const double deltaForward;
+  const double deltaLateral;
+  const double deltaTheta;
 };
 
 using Path = std::vector<Point>;

@@ -1,0 +1,16 @@
+{
+  "rmse": 0.15730752464349468,
+  "max_deviation": 0.38538014,
+  "mean_speed": 2.0131924491719895,
+  "max_speed": 2.5372933011873706,
+  "max_angular_speed": 1.188067000000018,
+  "max_acceleration": 2.828531272902495,
+  "max_angular_acceleration": 1.2001000000169582,
+  "max_jerk": 565.6965154544322,
+  "curvature_fitness": 0.18854633523412925,
+  "curvature_rmse": 1.6684114920398312,
+  "oscillation_count": 5,
+  "heading_error_rmse": 0.8058129206551695,
+  "heading_error_max": 1.9749113933974574,
+  "goal_reach_time": 11.53
+}
