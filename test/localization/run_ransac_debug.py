@@ -410,6 +410,8 @@ def render_timeline(
     h, w = image.shape[:2]
     x0, y0 = map_origin
     extent = [x0, x0 + w * map_resolution, y0, y0 + h * map_resolution]
+    map_x_min, map_x_max = extent[0], extent[1]
+    map_y_min, map_y_max = extent[2], extent[3]
 
     frame_count = min(len(lidar_rows), len(diag_rows)) if diag_rows else len(lidar_rows)
     indices = list(range(0, frame_count, max(1, stride)))
@@ -437,7 +439,7 @@ def render_timeline(
         ]
 
         fig, ax = plt.subplots(figsize=(8, 8), dpi=120)
-        ax.imshow(image, cmap="gray", origin="upper", extent=extent)
+        ax.imshow(image, cmap="gray", origin="upper", extent=extent, interpolation="nearest")
 
         if scan_points_world:
             arr = np.asarray(scan_points_world, dtype=float)
@@ -466,12 +468,14 @@ def render_timeline(
         )
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
+        ax.set_xlim(map_x_min, map_x_max)
+        ax.set_ylim(map_y_min, map_y_max)
         ax.set_aspect("equal")
         ax.grid(alpha=0.2)
         ax.legend(loc="upper right")
 
         out_path = frames_dir / f"frame_{out_idx:04d}.png"
-        fig.tight_layout()
+        fig.subplots_adjust(left=0.08, right=0.98, bottom=0.08, top=0.90)
         fig.savefig(out_path)
         plt.close(fig)
         saved_frames.append(out_path)
