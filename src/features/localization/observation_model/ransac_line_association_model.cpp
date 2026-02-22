@@ -24,6 +24,7 @@ constexpr double kEpsilon = 1e-9;
 constexpr std::uint32_t kPointRansacSeedBias = 17U;
 constexpr std::uint32_t kPoseRansacSeedMultiplier = 31U;
 constexpr int kDistinctSampleRetryCount = 8;
+constexpr double kClusterSplitDistanceMultiplier = 3.0;
 
 struct ObservedLine {
   ad::localization::observation_model::util::LineModel model;
@@ -291,6 +292,8 @@ auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
   }
 
   const auto continuityGap = static_cast<std::size_t>(std::max(1, config.maxContinuityGap));
+  const auto maxNeighborDistance =
+      std::max(kEpsilon, config.pointDistanceThreshold * kClusterSplitDistanceMultiplier);
   std::size_t bestStart = 0U;
   std::size_t bestLength = 1U;
   std::size_t runStart = 0U;
@@ -299,7 +302,13 @@ auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
   for (std::size_t index = 1U; index < inlierCandidates.size(); ++index) {
     const auto previousScanIndex = points[inlierCandidates[index - 1U]].scanIndex;
     const auto currentScanIndex = points[inlierCandidates[index]].scanIndex;
-    if ((currentScanIndex - previousScanIndex) <= continuityGap) {
+    const auto &previousPoint = points[inlierCandidates[index - 1U]].point;
+    const auto &currentPoint = points[inlierCandidates[index]].point;
+    const auto euclideanGap =
+        std::hypot(currentPoint.x - previousPoint.x, currentPoint.y - previousPoint.y);
+
+    if ((currentScanIndex - previousScanIndex) <= continuityGap &&
+        euclideanGap <= maxNeighborDistance) {
       ++runLength;
     } else {
       if (runLength > bestLength) {

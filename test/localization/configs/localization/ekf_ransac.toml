@@ -15,7 +15,7 @@ tt = 0.2
 measurement_noise_range = 0.12
 measurement_noise_angle = 0.12
 gate_threshold = 4.5
-min_observations = 2
+min_observations = 1
 
 [localization.observation.line_based.map_line_extraction]
 max_lines = 40
