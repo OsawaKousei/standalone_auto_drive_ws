@@ -670,31 +670,13 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
   }
 
   const auto observedLines = extractObservedLinesRansac(scan, config_);
-  if (observedLines.size() < config_.minObservations) {
-    std::cerr << "[ransac_diag] stage=extract reject=min_observations extracted="
-              << observedLines.size() << "\n";
-    return {std::nullopt};
-  }
 
   const auto bestMatch =
       runAssociationRansac(observedLines, mapLines_, predictedPose, predictedCovariance, config_);
-  if (!bestMatch) {
-    std::cerr << "[ransac_diag] stage=associate reject=no_consensus extracted="
-              << observedLines.size() << "\n";
-    return {std::nullopt};
-  }
 
   const auto update = buildEkfUpdateFromPairs(bestMatch->pairs, observedLines, mapLines_,
                                               predictedPose, predictedCovariance, config_);
-  if (!update) {
-    std::cerr << "[ransac_diag] stage=ekf reject=insufficient_after_gate pairs="
-              << bestMatch->pairs.size() << "\n";
-    return {std::nullopt};
-  }
 
-  std::cerr << "[ransac_diag] accepted=1 extracted=" << observedLines.size()
-            << " pairs=" << bestMatch->pairs.size()
-            << " maha=" << bestMatch->mahalanobisDistanceSquared << "\n";
   return {update};
 }
 
