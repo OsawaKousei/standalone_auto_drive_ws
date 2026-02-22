@@ -38,16 +38,16 @@ config_path = "planning/astar.toml"
 
 [control]
 algorithm = "pure_pursuit"
-config_path = "pure_pursuit.toml"
+config_path = "control/pure_pursuit.toml"
 
 [lidar_sensor]
 algorithm = "lidar"
-config_path = "lidar.toml"
+config_path = "sensor/lidar.toml"
 
 [odometry_sensor]
 algorithm = "odometry"
-config_path = "odometry.toml"
+config_path = "sensor/odometry.toml"
 
 [physics]
 algorithm = "unicycle"
-config_path = "unicycle.toml"
+config_path = "physics/unicycle.toml"
