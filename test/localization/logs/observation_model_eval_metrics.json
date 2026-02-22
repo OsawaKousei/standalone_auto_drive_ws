@@ -1,43 +1,43 @@
 {
-  "frame_count": 94,
+  "frame_count": 79,
   "models": [
     {
       "label": "hough",
       "config_path": "test/localization/configs/localization/ekf_hough.toml",
-      "total_frames": 94,
-      "success_count": 94,
+      "total_frames": 79,
+      "success_count": 79,
       "no_update_count": 0,
       "error_count": 0,
       "success_rate": 1.00000000,
-      "mean_score": 0.93286610,
-      "mean_residual_rmse": 0.11386779,
-      "mean_nis": 2.97578396,
-      "mean_measurement_count": 14.06382979,
-      "mean_runtime_ms": 0.12434054,
-      "p95_runtime_ms": 0.23822200
+      "mean_score": 0.95494776,
+      "mean_residual_rmse": 0.09371341,
+      "mean_nis": 2.10157980,
+      "mean_measurement_count": 6.67088608,
+      "mean_runtime_ms": 0.04153956,
+      "p95_runtime_ms": 0.04856600
     },
     {
       "label": "hough_ransac",
       "config_path": "test/localization/configs/localization/ekf_hough_ransac.toml",
-      "total_frames": 94,
-      "success_count": 56,
-      "no_update_count": 38,
+      "total_frames": 79,
+      "success_count": 68,
+      "no_update_count": 11,
       "error_count": 0,
-      "success_rate": 0.59574468,
-      "mean_score": 0.99345238,
-      "mean_residual_rmse": 0.09127354,
-      "mean_nis": 2.79048630,
-      "mean_measurement_count": 3.66071429,
-      "mean_runtime_ms": 0.72347438,
-      "p95_runtime_ms": 1.00132900
+      "success_rate": 0.86075949,
+      "mean_score": 1.00000000,
+      "mean_residual_rmse": 0.04307311,
+      "mean_nis": 0.72737490,
+      "mean_measurement_count": 4.45588235,
+      "mean_runtime_ms": 0.70740042,
+      "p95_runtime_ms": 0.84281100
     }
   ],
   "comparison": {
-    "success_rate_delta": -0.40425532,
-    "mean_score_delta": 0.06058628,
-    "mean_residual_rmse_delta": -0.02259425,
-    "mean_nis_delta": -0.18529767,
-    "mean_measurement_count_delta": -10.40311550,
-    "mean_runtime_ms_delta": 0.59913384
+    "success_rate_delta": -0.13924051,
+    "mean_score_delta": 0.04505224,
+    "mean_residual_rmse_delta": -0.05064031,
+    "mean_nis_delta": -1.37420490,
+    "mean_measurement_count_delta": -2.21500372,
+    "mean_runtime_ms_delta": 0.66586086
   }
 }
