@@ -251,6 +251,20 @@ def as_int(rows: List[Dict[str, str]], key: str, default: int = 0) -> np.ndarray
             values.append(default)
     return np.asarray(values, dtype=int)
 
+def as_int_any(rows: List[Dict[str, str]], keys: List[str], default: int = 0) -> np.ndarray:
+    values = []
+    for row in rows:
+        raw = None
+        for key in keys:
+            if key in row:
+                raw = row.get(key)
+                break
+        try:
+            values.append(int(raw) if raw is not None else default)
+        except ValueError:
+            values.append(default)
+    return np.asarray(values, dtype=int)
+
 
 def save_timeseries(path: Path, title: str, y_label: str, values: np.ndarray) -> None:
     if values.size == 0:
@@ -346,7 +360,9 @@ def save_stage1_segment_grid(path: Path, diag_rows: List[Dict[str, str]], max_fr
 
 def build_diag_metrics(diag_rows: List[Dict[str, str]]) -> Dict:
     stage1 = as_int(diag_rows, "stage1_extracted")
-    stage2 = as_int(diag_rows, "stage2_matches")
+    phase2 = as_int_any(diag_rows, ["phase2_candidates", "stage2_matches"])
+    phase3 = as_int_any(diag_rows, ["phase3_refined"])
+    phase4 = as_int_any(diag_rows, ["phase4_gate_passed"])
     gate = as_int(diag_rows, "gate_passed")
     accepted = as_int(diag_rows, "accepted")
 
@@ -369,10 +385,20 @@ def build_diag_metrics(diag_rows: List[Dict[str, str]]) -> Dict:
             "median": float(np.median(stage1)) if stage1.size > 0 else 0.0,
             "distribution": {str(k): int(v) for k, v in sorted(Counter(stage1).items())},
         },
-        "stage2_matches": {
-            "mean": float(np.mean(stage2)) if stage2.size > 0 else 0.0,
-            "zero_rate": float(np.mean(stage2 == 0)) if stage2.size > 0 else 0.0,
-            "distribution": {str(k): int(v) for k, v in sorted(Counter(stage2).items())},
+        "phase2_candidates": {
+            "mean": float(np.mean(phase2)) if phase2.size > 0 else 0.0,
+            "zero_rate": float(np.mean(phase2 == 0)) if phase2.size > 0 else 0.0,
+            "distribution": {str(k): int(v) for k, v in sorted(Counter(phase2).items())},
+        },
+        "phase3_refined": {
+            "mean": float(np.mean(phase3)) if phase3.size > 0 else 0.0,
+            "zero_rate": float(np.mean(phase3 == 0)) if phase3.size > 0 else 0.0,
+            "distribution": {str(k): int(v) for k, v in sorted(Counter(phase3).items())},
+        },
+        "phase4_gate_passed": {
+            "mean": float(np.mean(phase4)) if phase4.size > 0 else 0.0,
+            "zero_rate": float(np.mean(phase4 == 0)) if phase4.size > 0 else 0.0,
+            "distribution": {str(k): int(v) for k, v in sorted(Counter(phase4).items())},
         },
         "gate_passed": {
             "mean": float(np.mean(gate)) if gate.size > 0 else 0.0,
@@ -456,15 +482,19 @@ def render_timeline(
         step = int(row["step"])
         time_s = float(row["time"])
         stage1 = diag.get("stage1_extracted", "?")
-        stage2 = diag.get("stage2_matches", "?")
+        phase2 = diag.get("phase2_candidates", diag.get("stage2_matches", "?"))
+        phase3 = diag.get("phase3_refined", "?")
+        phase4 = diag.get("phase4_gate_passed", "?")
         gate = diag.get("gate_passed", "?")
         accepted = diag.get("accepted", "?")
         reject = diag.get("reject", "-")
+        best_maha = diag.get("best_maha", "-")
 
         ax.set_title(
             "RANSAC debug timeline "
             f"step={step} time={time_s:.2f}s\n"
-            f"stage1={stage1} stage2={stage2} gate={gate} accepted={accepted} reject={reject}"
+            f"stage1={stage1} p2={phase2} p3={phase3} p4={phase4} gate={gate} "
+            f"accepted={accepted} maha={best_maha} reject={reject}"
         )
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
@@ -525,15 +555,38 @@ def main() -> int:
 
     if diag_rows:
         stage1 = as_int(diag_rows, "stage1_extracted")
-        stage2 = as_int(diag_rows, "stage2_matches")
+        phase2 = as_int_any(diag_rows, ["phase2_candidates", "stage2_matches"])
+        phase3 = as_int_any(diag_rows, ["phase3_refined"])
+        phase4 = as_int_any(diag_rows, ["phase4_gate_passed"])
         gate = as_int(diag_rows, "gate_passed")
         reject_counter = Counter(row.get("reject", "") for row in diag_rows if "reject" in row)
 
         save_timeseries(out_dir / "stage1_extracted_timeseries.png", "Stage1 extracted lines", "count", stage1)
-        save_timeseries(out_dir / "stage2_matches_timeseries.png", "Stage2 matches", "count", stage2)
+        save_timeseries(
+            out_dir / "phase2_candidates_timeseries.png", "Phase2 coarse candidates", "count", phase2
+        )
+        save_timeseries(
+            out_dir / "phase3_refined_timeseries.png", "Phase3 refined hypotheses", "count", phase3
+        )
+        save_timeseries(
+            out_dir / "phase4_gate_passed_timeseries.png",
+            "Phase4 context gate passed",
+            "count",
+            phase4,
+        )
         save_timeseries(out_dir / "gate_passed_timeseries.png", "Gate passed", "count", gate)
         save_histogram(out_dir / "stage1_extracted_histogram.png", "Stage1 extracted distribution", stage1)
-        save_histogram(out_dir / "stage2_matches_histogram.png", "Stage2 matches distribution", stage2)
+        save_histogram(
+            out_dir / "phase2_candidates_histogram.png", "Phase2 coarse candidates distribution", phase2
+        )
+        save_histogram(
+            out_dir / "phase3_refined_histogram.png", "Phase3 refined hypotheses distribution", phase3
+        )
+        save_histogram(
+            out_dir / "phase4_gate_passed_histogram.png",
+            "Phase4 context gate passed distribution",
+            phase4,
+        )
         save_reject_bar(out_dir / "reject_reasons.png", reject_counter)
         save_stage1_segment_grid(out_dir / "stage1_segments_grid.png", diag_rows)
 
