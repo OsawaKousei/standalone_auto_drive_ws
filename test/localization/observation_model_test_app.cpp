@@ -1,4 +1,5 @@
 #include "features/localization/i_observation_model.hpp"
+#include "features/localization/observation_model/ransac_line_association_model.hpp"
 #include "features/localization/observation_model/simple_line_association_model.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
@@ -170,6 +171,273 @@ struct EvalSummary {
       .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
+struct RansacStage1HybridSettings {
+  int localPcaWindowSize;
+  int sampleNeighborWindow;
+  double minDirectionAlignment;
+  double minLinearity;
+  int maxContinuityGap;
+};
+
+[[nodiscard]] auto parseRansacStage1HybridSettings(const config::TextConfig &cfg)
+    -> Result<RansacStage1HybridSettings> {
+  const auto section =
+      std::string_view{"localization.observation.models.ransac_line_association.stage1"};
+  const auto localPcaWindowSize = requiredInt(cfg, section, "local_pca_window_size");
+  if (!localPcaWindowSize) {
+    return tl::make_unexpected(localPcaWindowSize.error());
+  }
+  const auto sampleNeighborWindow = requiredInt(cfg, section, "sample_neighbor_window");
+  if (!sampleNeighborWindow) {
+    return tl::make_unexpected(sampleNeighborWindow.error());
+  }
+  const auto minDirectionAlignment = requiredDouble(cfg, section, "min_direction_alignment");
+  if (!minDirectionAlignment) {
+    return tl::make_unexpected(minDirectionAlignment.error());
+  }
+  const auto minLinearity = requiredDouble(cfg, section, "min_linearity");
+  if (!minLinearity) {
+    return tl::make_unexpected(minLinearity.error());
+  }
+  const auto maxContinuityGap = requiredInt(cfg, section, "max_continuity_gap");
+  if (!maxContinuityGap) {
+    return tl::make_unexpected(maxContinuityGap.error());
+  }
+
+  return RansacStage1HybridSettings{.localPcaWindowSize = *localPcaWindowSize,
+                                    .sampleNeighborWindow = *sampleNeighborWindow,
+                                    .minDirectionAlignment = *minDirectionAlignment,
+                                    .minLinearity = *minLinearity,
+                                    .maxContinuityGap = *maxContinuityGap};
+}
+
+[[nodiscard]] auto parseRansacLineAssociationConfig(const config::TextConfig &cfg)
+    -> Result<localization::RansacLineAssociationModelConfig> {
+  const auto maxLines =
+      requiredInt(cfg, "localization.observation.line_based.map_line_extraction", "max_lines");
+  if (!maxLines) {
+    return tl::make_unexpected(maxLines.error());
+  }
+  const auto mapMinSegmentLength = requiredDouble(
+      cfg, "localization.observation.line_based.map_line_extraction", "min_segment_length");
+  if (!mapMinSegmentLength) {
+    return tl::make_unexpected(mapMinSegmentLength.error());
+  }
+
+  const auto measurementNoiseRange =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_range");
+  if (!measurementNoiseRange) {
+    return tl::make_unexpected(measurementNoiseRange.error());
+  }
+  const auto measurementNoiseAngle =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_angle");
+  if (!measurementNoiseAngle) {
+    return tl::make_unexpected(measurementNoiseAngle.error());
+  }
+  const auto minObservations =
+      requiredInt(cfg, "localization.observation.line_based", "min_observations");
+  if (!minObservations) {
+    return tl::make_unexpected(minObservations.error());
+  }
+
+  const auto pointDistanceThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage1",
+                     "point_distance_threshold");
+  if (!pointDistanceThreshold) {
+    return tl::make_unexpected(pointDistanceThreshold.error());
+  }
+  const auto minInlierPoints = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage1", "min_inlier_points");
+  if (!minInlierPoints) {
+    return tl::make_unexpected(minInlierPoints.error());
+  }
+  const auto pointRansacIterations = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage1", "max_iterations");
+  if (!pointRansacIterations) {
+    return tl::make_unexpected(pointRansacIterations.error());
+  }
+  const auto maxExtractedScanLines =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage1",
+                  "max_extracted_scan_lines");
+  if (!maxExtractedScanLines) {
+    return tl::make_unexpected(maxExtractedScanLines.error());
+  }
+  const auto minExtractedSegmentLength = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.stage1", "min_segment_length");
+  if (!minExtractedSegmentLength) {
+    return tl::make_unexpected(minExtractedSegmentLength.error());
+  }
+  const auto minRemainingPoints =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage1",
+                  "min_remaining_points");
+  if (!minRemainingPoints) {
+    return tl::make_unexpected(minRemainingPoints.error());
+  }
+  const auto hybrid = parseRansacStage1HybridSettings(cfg);
+  if (!hybrid) {
+    return tl::make_unexpected(hybrid.error());
+  }
+
+  const auto orientationBinSize =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "orientation_bin_size");
+  if (!orientationBinSize) {
+    return tl::make_unexpected(orientationBinSize.error());
+  }
+  const auto maxOrientationCandidates =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
+                  "max_orientation_candidates");
+  if (!maxOrientationCandidates) {
+    return tl::make_unexpected(maxOrientationCandidates.error());
+  }
+  const auto orientationPeakMinVotes =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
+                  "orientation_peak_min_votes");
+  if (!orientationPeakMinVotes) {
+    return tl::make_unexpected(orientationPeakMinVotes.error());
+  }
+  const auto translationRansacIterations =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
+                  "translation_ransac_iterations");
+  if (!translationRansacIterations) {
+    return tl::make_unexpected(translationRansacIterations.error());
+  }
+  const auto lineAngleThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "line_angle_threshold");
+  if (!lineAngleThreshold) {
+    return tl::make_unexpected(lineAngleThreshold.error());
+  }
+  const auto lineRhoThreshold = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.stage2", "line_rho_threshold");
+  if (!lineRhoThreshold) {
+    return tl::make_unexpected(lineRhoThreshold.error());
+  }
+  const auto parallelRejectThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "parallel_reject_threshold");
+  if (!parallelRejectThreshold) {
+    return tl::make_unexpected(parallelRejectThreshold.error());
+  }
+  const auto clusterPositionThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "cluster_position_threshold");
+  if (!clusterPositionThreshold) {
+    return tl::make_unexpected(clusterPositionThreshold.error());
+  }
+  const auto clusterAngleThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "cluster_angle_threshold");
+  if (!clusterAngleThreshold) {
+    return tl::make_unexpected(clusterAngleThreshold.error());
+  }
+  const auto maxCoarseHypotheses =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
+                  "max_coarse_hypotheses");
+  if (!maxCoarseHypotheses) {
+    return tl::make_unexpected(maxCoarseHypotheses.error());
+  }
+  const auto minPoseInliers = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage2", "min_pose_inliers");
+  if (!minPoseInliers) {
+    return tl::make_unexpected(minPoseInliers.error());
+  }
+
+  const auto refinementMaxIterations =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage3",
+                  "gauss_newton_iterations");
+  if (!refinementMaxIterations) {
+    return tl::make_unexpected(refinementMaxIterations.error());
+  }
+  const auto refinementStepTolerance =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage3",
+                     "gauss_newton_step_tolerance");
+  if (!refinementStepTolerance) {
+    return tl::make_unexpected(refinementStepTolerance.error());
+  }
+  const auto refinementDamping =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage3",
+                     "gauss_newton_damping");
+  if (!refinementDamping) {
+    return tl::make_unexpected(refinementDamping.error());
+  }
+
+  const auto useContextGateRaw = requiredRaw(
+      cfg, "localization.observation.models.ransac_line_association.stage4", "use_context_gate");
+  if (!useContextGateRaw) {
+    return tl::make_unexpected(useContextGateRaw.error());
+  }
+  const auto useContextGate = config::parseBoolValue(*useContextGateRaw);
+  if (!useContextGate) {
+    return tl::make_unexpected(useContextGate.error());
+  }
+  const auto contextGateThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage4",
+                     "context_gate_threshold");
+  if (!contextGateThreshold) {
+    return tl::make_unexpected(contextGateThreshold.error());
+  }
+
+  const auto segmentMargin = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association", "segment_margin");
+  if (!segmentMargin) {
+    return tl::make_unexpected(segmentMargin.error());
+  }
+  const auto gateThreshold =
+      requiredDouble(cfg, "localization.observation.line_based", "gate_threshold");
+  if (!gateThreshold) {
+    return tl::make_unexpected(gateThreshold.error());
+  }
+
+  const auto useEkfGateRaw =
+      requiredRaw(cfg, "localization.observation.models.ransac_line_association", "use_ekf_gate");
+  if (!useEkfGateRaw) {
+    return tl::make_unexpected(useEkfGateRaw.error());
+  }
+  const auto useEkfGate = config::parseBoolValue(*useEkfGateRaw);
+  if (!useEkfGate) {
+    return tl::make_unexpected(useEkfGate.error());
+  }
+
+  return localization::RansacLineAssociationModelConfig{
+      .mapLineExtraction =
+          localization::line_extractor::MapLineExtractionConfig{
+              .maxLines = *maxLines, .minSegmentLength = *mapMinSegmentLength},
+      .measurementNoiseRange = *measurementNoiseRange,
+      .measurementNoiseAngle = *measurementNoiseAngle,
+      .minObservations = static_cast<std::size_t>(*minObservations),
+      .pointDistanceThreshold = *pointDistanceThreshold,
+      .minInlierPoints = static_cast<std::size_t>(*minInlierPoints),
+      .pointRansacMaxIterations = *pointRansacIterations,
+      .maxExtractedScanLines = *maxExtractedScanLines,
+      .minExtractedSegmentLength = *minExtractedSegmentLength,
+      .minRemainingPoints = static_cast<std::size_t>(*minRemainingPoints),
+      .localPcaWindowSize = hybrid->localPcaWindowSize,
+      .sampleNeighborWindow = hybrid->sampleNeighborWindow,
+      .minDirectionAlignment = hybrid->minDirectionAlignment,
+      .minLinearity = hybrid->minLinearity,
+      .maxContinuityGap = hybrid->maxContinuityGap,
+      .orientationBinSize = *orientationBinSize,
+      .maxOrientationCandidates = static_cast<std::size_t>(*maxOrientationCandidates),
+      .orientationPeakMinVotes = static_cast<std::size_t>(*orientationPeakMinVotes),
+      .translationRansacMaxIterations = *translationRansacIterations,
+      .lineAngleThreshold = *lineAngleThreshold,
+      .lineRhoThreshold = *lineRhoThreshold,
+      .parallelRejectThreshold = *parallelRejectThreshold,
+      .clusterPositionThreshold = *clusterPositionThreshold,
+      .clusterAngleThreshold = *clusterAngleThreshold,
+      .maxCoarseHypotheses = static_cast<std::size_t>(*maxCoarseHypotheses),
+      .minPoseInliers = static_cast<std::size_t>(*minPoseInliers),
+      .segmentMargin = *segmentMargin,
+      .refinementMaxIterations = *refinementMaxIterations,
+      .refinementStepTolerance = *refinementStepTolerance,
+      .refinementDamping = *refinementDamping,
+      .useContextGate = *useContextGate,
+      .contextGateThreshold = *contextGateThreshold,
+      .useEkfGate = *useEkfGate,
+      .gateThreshold = *gateThreshold};
+}
+
 [[nodiscard]] auto createObservationModel(const types::MapData &map, std::string_view configPath)
     -> Result<std::unique_ptr<localization::IObservationModel>> {
   const auto cfg = config::loadTextConfig(configPath);
@@ -190,23 +458,37 @@ struct EvalSummary {
     observationModelType = *parsed;
   }
 
-  const auto simpleConfig = parseSimpleLineAssociationConfig(*cfg);
-  if (!simpleConfig) {
-    return tl::make_unexpected(simpleConfig.error());
+  if (observationModelType == "simple_line_association") {
+    const auto simpleConfig = parseSimpleLineAssociationConfig(*cfg);
+    if (!simpleConfig) {
+      return tl::make_unexpected(simpleConfig.error());
+    }
+
+    auto model = localization::SimpleLineAssociationModel::create(map, *simpleConfig);
+    if (!model) {
+      return tl::make_unexpected(model.error());
+    }
+    std::unique_ptr<localization::IObservationModel> base = std::move(*model);
+    return base;
   }
 
-  if (observationModelType != "simple_line_association") {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "Unsupported observation model: " + observationModelType});
+  if (observationModelType == "ransac_line_association") {
+    const auto ransacConfig = parseRansacLineAssociationConfig(*cfg);
+    if (!ransacConfig) {
+      return tl::make_unexpected(ransacConfig.error());
+    }
+
+    auto model = localization::RansacLineAssociationModel::create(map, *ransacConfig);
+    if (!model) {
+      return tl::make_unexpected(model.error());
+    }
+    std::unique_ptr<localization::IObservationModel> base = std::move(*model);
+    return base;
   }
 
-  auto model = localization::SimpleLineAssociationModel::create(map, *simpleConfig);
-  if (!model) {
-    return tl::make_unexpected(model.error());
-  }
-  std::unique_ptr<localization::IObservationModel> base = std::move(*model);
-  return base;
+  return tl::make_unexpected(
+      Error{.code = ErrorCode::InvalidInput,
+            .message = "Unsupported observation model: " + observationModelType});
 }
 
 [[nodiscard]] auto split(std::string_view text, char delimiter) -> std::vector<std::string> {

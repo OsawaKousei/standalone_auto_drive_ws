@@ -1,36 +1,36 @@
 # Observation Model Evaluation Summary
 
-- frame_count: 79
+- frame_count: 99
 - label: simple_line_association
-- config_path: test/localization/configs/localization/ekf_hough_ransac.toml
-- total_frames: 79
-- success_count: 79
-- no_update_count: 0
+- config_path: test/localization/configs/localization/ekf_ransac.toml
+- total_frames: 99
+- success_count: 70
+- no_update_count: 29
 - error_count: 0
-- success_rate: 1.000000
-- mean_score: 0.957333
-- mean_residual_rmse: 0.079742
-- mean_nis: 1.169055
-- mean_measurement_count: 8.088608
-- mean_runtime_ms: 0.106319
-- p95_runtime_ms: 0.111529
+- success_rate: 0.707071
+- mean_score: 0.992857
+- mean_residual_rmse: 0.052257
+- mean_nis: 1.074526
+- mean_measurement_count: 4.714286
+- mean_runtime_ms: 9.950235
+- p95_runtime_ms: 13.161687
 
 ## Advanced metrics from CSV
 
-- rows: 79
+- rows: 99
 - frame_start: 0
-- frame_end: 78
-- success_rate_csv: 1.000000
-- no_update_rate_csv: 0.000000
+- frame_end: 98
+- success_rate_csv: 0.707071
+- no_update_rate_csv: 0.292929
 - error_rate_csv: 0.000000
 - score_median: 1.000000
 - score_p95: 1.000000
-- score_delta_improvement_rate: 0.179487
-- residual_median: 0.060772
-- residual_p95: 0.171986
-- residual_delta_improvement_rate: 0.435897
-- nis_median: 0.761681
-- nis_p95: 3.713389
-- nis_delta_improvement_rate: 0.448718
-- runtime_median_ms: 0.106204
-- runtime_p95_ms: 0.110981
+- score_delta_improvement_rate: 0.014493
+- residual_median: 0.045549
+- residual_p95: 0.124320
+- residual_delta_improvement_rate: 0.492754
+- nis_median: 0.608866
+- nis_p95: 3.838008
+- nis_delta_improvement_rate: 0.565217
+- runtime_median_ms: 9.745184
+- runtime_p95_ms: 12.982147
