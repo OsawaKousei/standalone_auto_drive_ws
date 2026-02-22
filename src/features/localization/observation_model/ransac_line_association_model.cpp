@@ -1,4 +1,5 @@
 #include "ransac_line_association_model.hpp"
+#include "ransac_engine.hpp"
 
 #include "../localizer_util.hpp"
 
@@ -46,6 +47,11 @@ struct PoseMatchResult {
   ad::types::Pose pose;
   std::vector<std::pair<std::size_t, std::size_t>> pairs;
   double mahalanobisDistanceSquared;
+};
+
+struct AssociationSample {
+  std::pair<std::size_t, std::size_t> observed;
+  std::pair<std::size_t, std::size_t> map;
 };
 
 auto sampleDistinctIndexInRange(std::mt19937 &rng, const std::size_t firstIndex,
@@ -305,25 +311,30 @@ auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
   auto bestInliers = std::vector<std::size_t>{};
   bestInliers.reserve(activeIndices.size());
 
-  for (int iteration = 0; iteration < maxIterations; ++iteration) {
-    const auto sampledPositions = sampleDistinctIndices(rng, activeIndices.size());
-    if (!sampledPositions) {
-      continue;
-    }
+  const auto bestInlierSet =
+      ad::localization::observation_model::util::RansacEngine<std::vector<std::size_t>>::run(
+          maxIterations,
+          [&]() -> std::optional<std::pair<std::size_t, std::size_t>> {
+            return sampleDistinctIndices(rng, activeIndices.size());
+          },
+          [&](const std::pair<std::size_t, std::size_t> &sample)
+              -> std::optional<std::vector<std::size_t>> {
+            const auto [firstPosition, secondPosition] = sample;
+            const auto firstIndex = activeIndices[firstPosition];
+            const auto secondIndex = activeIndices[secondPosition];
+            const auto candidate =
+                sampleLineFromPoints(points[firstIndex].point, points[secondIndex].point);
+            if (!candidate) {
+              return std::nullopt;
+            }
+            return collectHybridInlierIndices(points, activeMask, *candidate, config);
+          },
+          [](const std::vector<std::size_t> &candidate, const std::vector<std::size_t> &best) {
+            return candidate.size() > best.size();
+          });
 
-    const auto [firstPosition, secondPosition] = *sampledPositions;
-    const auto firstIndex = activeIndices[firstPosition];
-    const auto secondIndex = activeIndices[secondPosition];
-    const auto candidate =
-        sampleLineFromPoints(points[firstIndex].point, points[secondIndex].point);
-    if (!candidate) {
-      continue;
-    }
-
-    auto inliers = collectHybridInlierIndices(points, activeMask, *candidate, config);
-    if (inliers.size() > bestInliers.size()) {
-      bestInliers = std::move(inliers);
-    }
+  if (bestInlierSet) {
+    bestInliers = std::move(*bestInlierSet);
   }
 
   if (bestInliers.size() < config.minInlierPoints) {
@@ -588,31 +599,29 @@ auto runAssociationRansac(
   }
 
   auto rng = std::mt19937{};
-  const auto iterations = std::max(1, config.translationRansacMaxIterations);
 
-  auto best = std::optional<PoseMatchResult>{};
-  for (int iteration = 0; iteration < iterations; ++iteration) {
-    const auto observedSample = sampleDistinctIndices(rng, observedLines.size());
-    const auto mapSample = sampleDistinctIndices(rng, mapLines.size());
-    if (!observedSample || !mapSample) {
-      continue;
-    }
-
-    auto hypothesis =
-        evaluateAssociationHypothesis(*observedSample, *mapSample, observedLines, mapLines,
-                                      predictedPose, predictedCovariance, config);
-    if (!hypothesis) {
-      continue;
-    }
-
-    if (!best || hypothesis->pairs.size() > best->pairs.size() ||
-        (hypothesis->pairs.size() == best->pairs.size() &&
-         hypothesis->mahalanobisDistanceSquared < best->mahalanobisDistanceSquared)) {
-      best.emplace(std::move(*hypothesis));
-    }
-  }
-
-  return best;
+  return ad::localization::observation_model::util::RansacEngine<PoseMatchResult>::run(
+      config.translationRansacMaxIterations,
+      [&]() -> std::optional<AssociationSample> {
+        const auto observedSample = sampleDistinctIndices(rng, observedLines.size());
+        if (!observedSample) {
+          return std::nullopt;
+        }
+        const auto mapSample = sampleDistinctIndices(rng, mapLines.size());
+        if (!mapSample) {
+          return std::nullopt;
+        }
+        return AssociationSample{.observed = *observedSample, .map = *mapSample};
+      },
+      [&](const AssociationSample &sample) -> std::optional<PoseMatchResult> {
+        return evaluateAssociationHypothesis(sample.observed, sample.map, observedLines, mapLines,
+                                             predictedPose, predictedCovariance, config);
+      },
+      [](const PoseMatchResult &candidate, const PoseMatchResult &best) {
+        return candidate.pairs.size() > best.pairs.size() ||
+               (candidate.pairs.size() == best.pairs.size() &&
+                candidate.mahalanobisDistanceSquared < best.mahalanobisDistanceSquared);
+      });
 }
 
 auto buildEkfUpdateFromPairs(
