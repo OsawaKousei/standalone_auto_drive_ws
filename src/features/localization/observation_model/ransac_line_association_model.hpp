@@ -21,7 +21,6 @@ struct RansacLineAssociationModelConfig {
   const int maxExtractedScanLines;
   const double minExtractedSegmentLength;
   const std::size_t minRemainingPoints;
-  const int sampleNeighborWindow;
   const int maxContinuityGap;
 
   const int translationRansacMaxIterations;

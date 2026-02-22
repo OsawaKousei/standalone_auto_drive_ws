@@ -177,30 +177,6 @@ auto sampleLineFromPoints(const ad::types::Point &first, const ad::types::Point 
       ad::localization::observation_model::util::LineModel{.rho = rho, .alpha = alpha});
 }
 
-auto sampleLocalPairIndices(std::mt19937 &rng, const std::vector<std::size_t> &activeIndices,
-                            const int neighborWindow)
-    -> std::optional<std::pair<std::size_t, std::size_t>> {
-  if (activeIndices.size() < 2U) {
-    return std::nullopt;
-  }
-
-  auto fullDistribution = std::uniform_int_distribution<std::size_t>{0, activeIndices.size() - 1U};
-  const auto firstPos = fullDistribution(rng);
-  const auto window = static_cast<std::size_t>(std::max(1, neighborWindow));
-  const auto start = firstPos > window ? firstPos - window : 0U;
-  const auto end = std::min(activeIndices.size() - 1U, firstPos + window);
-  if (start == end) {
-    return std::nullopt;
-  }
-
-  const auto secondPos = sampleDistinctIndexInRange(rng, firstPos, start, end);
-  if (!secondPos) {
-    return std::nullopt;
-  }
-
-  return std::pair<std::size_t, std::size_t>{activeIndices[firstPos], activeIndices[*secondPos]};
-}
-
 auto makeExtractedLineCandidate(std::vector<std::size_t> inlierIndices,
                                 std::optional<ObservedLine> observedLine = std::nullopt)
     -> ExtractedLineCandidate {
@@ -330,12 +306,14 @@ auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
   bestInliers.reserve(activeIndices.size());
 
   for (int iteration = 0; iteration < maxIterations; ++iteration) {
-    const auto sampled = sampleLocalPairIndices(rng, activeIndices, config.sampleNeighborWindow);
-    if (!sampled) {
+    const auto sampledPositions = sampleDistinctIndices(rng, activeIndices.size());
+    if (!sampledPositions) {
       continue;
     }
 
-    const auto [firstIndex, secondIndex] = *sampled;
+    const auto [firstPosition, secondPosition] = *sampledPositions;
+    const auto firstIndex = activeIndices[firstPosition];
+    const auto secondIndex = activeIndices[secondPosition];
     const auto candidate =
         sampleLineFromPoints(points[firstIndex].point, points[secondIndex].point);
     if (!candidate) {

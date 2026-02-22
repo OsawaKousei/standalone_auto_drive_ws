@@ -172,7 +172,6 @@ struct EvalSummary {
 }
 
 struct RansacStage1HybridSettings {
-  int sampleNeighborWindow;
   int maxContinuityGap;
 };
 
@@ -180,17 +179,12 @@ struct RansacStage1HybridSettings {
     -> Result<RansacStage1HybridSettings> {
   const auto section =
       std::string_view{"localization.observation.models.ransac_line_association.stage1"};
-  const auto sampleNeighborWindow = requiredInt(cfg, section, "sample_neighbor_window");
-  if (!sampleNeighborWindow) {
-    return tl::make_unexpected(sampleNeighborWindow.error());
-  }
   const auto maxContinuityGap = requiredInt(cfg, section, "max_continuity_gap");
   if (!maxContinuityGap) {
     return tl::make_unexpected(maxContinuityGap.error());
   }
 
-  return RansacStage1HybridSettings{.sampleNeighborWindow = *sampleNeighborWindow,
-                                    .maxContinuityGap = *maxContinuityGap};
+  return RansacStage1HybridSettings{.maxContinuityGap = *maxContinuityGap};
 }
 
 [[nodiscard]] auto parseRansacLineAssociationConfig(const config::TextConfig &cfg)
@@ -329,7 +323,6 @@ struct RansacStage1HybridSettings {
       .maxExtractedScanLines = *maxExtractedScanLines,
       .minExtractedSegmentLength = *minExtractedSegmentLength,
       .minRemainingPoints = static_cast<std::size_t>(*minRemainingPoints),
-      .sampleNeighborWindow = hybrid->sampleNeighborWindow,
       .maxContinuityGap = hybrid->maxContinuityGap,
       .translationRansacMaxIterations = *translationRansacIterations,
       .lineAngleThreshold = *lineAngleThreshold,
