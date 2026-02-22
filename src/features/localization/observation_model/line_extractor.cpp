@@ -42,7 +42,7 @@ auto pointDistance(const ad::types::Point &a, const ad::types::Point &b) -> doub
 
 auto buildMapLineFromSegment(const ad::types::Point &start, const ad::types::Point &end,
                              double minSegmentLength)
-    -> std::optional<ad::localization::util::MapLine> {
+    -> std::optional<ad::localization::observation_model::util::MapLine> {
   const auto dx = end.x - start.x;
   const auto dy = end.y - start.y;
   const auto length = std::hypot(dx, dy);
@@ -57,18 +57,18 @@ auto buildMapLineFromSegment(const ad::types::Point &start, const ad::types::Poi
   const auto alpha = std::atan2(normalY, normalX);
   const auto rho = (normalX * start.x) + (normalY * start.y);
 
-  const auto model = ad::localization::util::toLineModel(
-      ad::localization::util::LineModel{.rho = rho, .alpha = alpha});
+  const auto model = ad::localization::observation_model::util::toLineModel(
+      ad::localization::observation_model::util::LineModel{.rho = rho, .alpha = alpha});
   const auto projectionStart = (directionX * start.x) + (directionY * start.y);
   const auto projectionEnd = (directionX * end.x) + (directionY * end.y);
 
-  return ad::localization::util::MapLine{.segment =
-                                             ad::types::LineSegment{.start = start, .end = end},
-                                         .model = model,
-                                         .directionX = directionX,
-                                         .directionY = directionY,
-                                         .minProjection = std::min(projectionStart, projectionEnd),
-                                         .maxProjection = std::max(projectionStart, projectionEnd)};
+  return ad::localization::observation_model::util::MapLine{
+      .segment = ad::types::LineSegment{.start = start, .end = end},
+      .model = model,
+      .directionX = directionX,
+      .directionY = directionY,
+      .minProjection = std::min(projectionStart, projectionEnd),
+      .maxProjection = std::max(projectionStart, projectionEnd)};
 }
 
 auto isOccupied(const ad::types::MapData &map, int row, int col) -> bool {
@@ -190,8 +190,8 @@ auto mergeBoundaryEdges(const std::vector<BoundaryEdge> &edges) -> std::vector<B
 namespace ad::localization::line_extractor {
 
 auto extractMapLinesFromMap(const types::MapData &map, const MapLineExtractionConfig &config)
-    -> Result<std::vector<util::MapLine>> {
-  if (!util::mapHasConsistentGrid(map)) {
+    -> Result<std::vector<observation_model::util::MapLine>> {
+  if (!observation_model::util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
   }
@@ -221,7 +221,7 @@ auto extractMapLinesFromMap(const types::MapData &map, const MapLineExtractionCo
     return leftLength > rightLength;
   });
 
-  auto lines = std::vector<util::MapLine>{};
+  auto lines = std::vector<observation_model::util::MapLine>{};
   const auto maxExtractedLines = std::max(1, config.maxLines);
   const auto minSegmentLength = std::max(kEpsilon, config.minSegmentLength);
 
@@ -253,7 +253,8 @@ auto extractMapLinesFromMap(const types::MapData &map, const MapLineExtractionCo
   return lines;
 }
 
-auto extractMapLinesFromMap(const types::MapData &map) -> Result<std::vector<util::MapLine>> {
+auto extractMapLinesFromMap(const types::MapData &map)
+    -> Result<std::vector<observation_model::util::MapLine>> {
   return extractMapLinesFromMap(
       map, MapLineExtractionConfig{.maxLines = kDefaultMaxExtractedLines,
                                    .minSegmentLength = kDefaultMinSegmentLength});

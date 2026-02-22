@@ -81,6 +81,7 @@ add_library(ad_core
   src/features/localization/localizer/ekf_localizer.cpp
   src/features/localization/observation_model/line_extractor.cpp
   src/features/localization/observation_model/simple_line_association_model.cpp
+  src/features/localization/observation_model/line_observation_util.cpp
   src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker/collision_checker.cpp

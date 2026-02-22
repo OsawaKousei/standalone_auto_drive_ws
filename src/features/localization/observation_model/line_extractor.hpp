@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../localizer_util.hpp"
+#include "line_observation_util.hpp"
 
 #include "../../../shared/result.hpp"
 #include "../../../shared/types.hpp"
@@ -16,9 +16,9 @@ struct MapLineExtractionConfig {
 
 [[nodiscard]] auto extractMapLinesFromMap(const types::MapData &map,
                                           const MapLineExtractionConfig &config)
-    -> Result<std::vector<util::MapLine>>;
+    -> Result<std::vector<observation_model::util::MapLine>>;
 
 [[nodiscard]] auto extractMapLinesFromMap(const types::MapData &map)
-    -> Result<std::vector<util::MapLine>>;
+    -> Result<std::vector<observation_model::util::MapLine>>;
 
 } // namespace ad::localization::line_extractor

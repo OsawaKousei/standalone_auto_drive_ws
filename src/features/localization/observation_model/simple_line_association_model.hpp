@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../i_observation_model.hpp"
-#include "../localizer_util.hpp"
 #include "line_extractor.hpp"
+#include "line_observation_util.hpp"
 
 #include <memory>
 #include <vector>
@@ -25,7 +25,8 @@ public:
                                    SimpleLineAssociationModelConfig config)
       -> Result<std::unique_ptr<SimpleLineAssociationModel>>;
 
-  SimpleLineAssociationModel(std::vector<util::MapLine> mapLines, util::MapSignature signature,
+  SimpleLineAssociationModel(std::vector<observation_model::util::MapLine> mapLines,
+                             observation_model::util::MapSignature signature,
                              SimpleLineAssociationModelConfig config);
 
   [[nodiscard]] auto buildUpdateInput(const types::LidarScan &scan, const types::MapData &map,
@@ -35,8 +36,8 @@ public:
 
 private:
   SimpleLineAssociationModelConfig config_;
-  std::vector<util::MapLine> mapLines_{};
-  util::MapSignature mapSignature_;
+  std::vector<observation_model::util::MapLine> mapLines_{};
+  observation_model::util::MapSignature mapSignature_;
 };
 
 } // namespace ad::localization
