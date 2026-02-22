@@ -1,0 +1,497 @@
+[
+  {
+    "trial": 0,
+    "status": "ok",
+    "objective": 0.19143067098109348,
+    "ate": 0.19143067098109348,
+    "result": "success",
+    "update_count": 97,
+    "params": {
+      "hough.min_votes": 18.0,
+      "hough.max_lines": 69.0,
+      "hough.min_segment_length": 0.7525966679962728,
+      "hough.merge_rho": 0.18381218778758512,
+      "hough.merge_theta": 0.0493611184265462,
+      "association.max_association_distance": 0.24027928764370635,
+      "association.gate_threshold": 4.1452090304204985,
+      "ransac.max_iterations": 131.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.3416145155592091
+    }
+  },
+  {
+    "trial": 1,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 14.0,
+      "hough.max_lines": 70.0,
+      "hough.min_segment_length": 0.807843452440232,
+      "hough.merge_rho": 0.12972747549495867,
+      "hough.merge_theta": 0.05090949803242604,
+      "association.max_association_distance": 0.2438425862809464,
+      "association.gate_threshold": 4.760605607398844,
+      "ransac.max_iterations": 107.0,
+      "ransac.min_inliers": 4.0,
+      "ransac.min_inlier_ratio": 0.2582458280396084
+    }
+  },
+  {
+    "trial": 2,
+    "status": "ok",
+    "objective": 0.20534089178265014,
+    "ate": 0.20534089178265014,
+    "result": "success",
+    "update_count": 104,
+    "params": {
+      "hough.min_votes": 20.0,
+      "hough.max_lines": 44.0,
+      "hough.min_segment_length": 0.51067955669437,
+      "hough.merge_rho": 0.15129065806111683,
+      "hough.merge_theta": 0.06736419905302216,
+      "association.max_association_distance": 0.3220728749810917,
+      "association.gate_threshold": 4.499184455395899,
+      "ransac.max_iterations": 106.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.20929008254399956
+    }
+  },
+  {
+    "trial": 3,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 20.0,
+      "hough.max_lines": 45.0,
+      "hough.min_segment_length": 0.3857783761419037,
+      "hough.merge_rho": 0.23284397521546665,
+      "hough.merge_theta": 0.09793792198447357,
+      "association.max_association_distance": 0.32509165525513994,
+      "association.gate_threshold": 4.761534422933426,
+      "ransac.max_iterations": 76.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.2880304987479203
+    }
+  },
+  {
+    "trial": 4,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 15.0,
+      "hough.max_lines": 55.0,
+      "hough.min_segment_length": 0.3689136866133701,
+      "hough.merge_rho": 0.22730485629102948,
+      "hough.merge_theta": 0.05552679889600102,
+      "association.max_association_distance": 0.3061278969660176,
+      "association.gate_threshold": 4.779277690223528,
+      "ransac.max_iterations": 106.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.2369708911051054
+    }
+  },
+  {
+    "trial": 5,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 24.0,
+      "hough.max_lines": 64.0,
+      "hough.min_segment_length": 0.8667244178603041,
+      "hough.merge_rho": 0.22527582905987084,
+      "hough.merge_theta": 0.07587399872866511,
+      "association.max_association_distance": 0.33984365055300514,
+      "association.gate_threshold": 4.221231255129799,
+      "ransac.max_iterations": 83.0,
+      "ransac.min_inliers": 3.0,
+      "ransac.min_inlier_ratio": 0.2650660661526529
+    }
+  },
+  {
+    "trial": 6,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 18.0,
+      "hough.max_lines": 48.0,
+      "hough.min_segment_length": 0.8058056300335612,
+      "hough.merge_rho": 0.1499454657371025,
+      "hough.merge_theta": 0.05685607058124285,
+      "association.max_association_distance": 0.29055049081057227,
+      "association.gate_threshold": 4.352310562436907,
+      "ransac.max_iterations": 126.0,
+      "ransac.min_inliers": 3.0,
+      "ransac.min_inlier_ratio": 0.39737738732010347
+    }
+  },
+  {
+    "trial": 7,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 22.0,
+      "hough.max_lines": 46.0,
+      "hough.min_segment_length": 0.3530371644179813,
+      "hough.merge_rho": 0.21416459998367676,
+      "hough.merge_theta": 0.08241144063085704,
+      "association.max_association_distance": 0.31477093184532834,
+      "association.gate_threshold": 5.928175866714865,
+      "ransac.max_iterations": 75.0,
+      "ransac.min_inliers": 4.0,
+      "ransac.min_inlier_ratio": 0.22317381190502594
+    }
+  },
+  {
+    "trial": 8,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 23.0,
+      "hough.max_lines": 59.0,
+      "hough.min_segment_length": 0.5319939136689571,
+      "hough.merge_rho": 0.10889816904004332,
+      "hough.merge_theta": 0.058658939302939736,
+      "association.max_association_distance": 0.2622738318634771,
+      "association.gate_threshold": 5.82401544584516,
+      "ransac.max_iterations": 115.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.29444298503238986
+    }
+  },
+  {
+    "trial": 9,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 15.0,
+      "hough.max_lines": 62.0,
+      "hough.min_segment_length": 0.7684317767392936,
+      "hough.merge_rho": 0.17857880765972947,
+      "hough.merge_theta": 0.08625803079727366,
+      "association.max_association_distance": 0.28419342752737076,
+      "association.gate_threshold": 5.306832073454985,
+      "ransac.max_iterations": 100.0,
+      "ransac.min_inliers": 3.0,
+      "ransac.min_inlier_ratio": 0.2215782853986609
+    }
+  },
+  {
+    "trial": 10,
+    "status": "ok",
+    "objective": 0.1837743400307377,
+    "ate": 0.1837743400307377,
+    "result": "success",
+    "update_count": 97,
+    "params": {
+      "hough.min_votes": 17.0,
+      "hough.max_lines": 68.0,
+      "hough.min_segment_length": 0.67580040448336,
+      "hough.merge_rho": 0.1915837028316732,
+      "hough.merge_theta": 0.04092206423968626,
+      "association.max_association_distance": 0.2250342759949538,
+      "association.gate_threshold": 6.39942686486355,
+      "ransac.max_iterations": 139.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.3476811089450042
+    }
+  },
+  {
+    "trial": 11,
+    "status": "ok",
+    "objective": 0.16722125370293967,
+    "ate": 0.16722125370293967,
+    "result": "success",
+    "update_count": 96,
+    "params": {
+      "hough.min_votes": 17.0,
+      "hough.max_lines": 69.0,
+      "hough.min_segment_length": 0.6858482276540154,
+      "hough.merge_rho": 0.19054007554225058,
+      "hough.merge_theta": 0.04102252336970776,
+      "association.max_association_distance": 0.22154722227986937,
+      "association.gate_threshold": 6.477375802277794,
+      "ransac.max_iterations": 140.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.3561615631144289
+    }
+  },
+  {
+    "trial": 12,
+    "status": "ok",
+    "objective": 0.13359593833762223,
+    "ate": 0.13359593833762223,
+    "result": "success",
+    "update_count": 97,
+    "params": {
+      "hough.min_votes": 17.0,
+      "hough.max_lines": 66.0,
+      "hough.min_segment_length": 0.6499110062584299,
+      "hough.merge_rho": 0.19475452813338612,
+      "hough.merge_theta": 0.04163879796747685,
+      "association.max_association_distance": 0.22436616504148138,
+      "association.gate_threshold": 6.4800924271076275,
+      "ransac.max_iterations": 140.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.34301129811575626
+    }
+  },
+  {
+    "trial": 13,
+    "status": "ok",
+    "objective": 0.17320951293995857,
+    "ate": 0.17320951293995857,
+    "result": "success",
+    "update_count": 96,
+    "params": {
+      "hough.min_votes": 16.0,
+      "hough.max_lines": 55.0,
+      "hough.min_segment_length": 0.6306129711327118,
+      "hough.merge_rho": 0.20256034602510803,
+      "hough.merge_theta": 0.04160474633735295,
+      "association.max_association_distance": 0.22245964809893373,
+      "association.gate_threshold": 6.467529010003421,
+      "ransac.max_iterations": 138.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.34761966842524655
+    }
+  },
+  {
+    "trial": 14,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 19.0,
+      "hough.max_lines": 65.0,
+      "hough.min_segment_length": 0.5502160685061366,
+      "hough.merge_rho": 0.16336671004168818,
+      "hough.merge_theta": 0.06713957877265651,
+      "association.max_association_distance": 0.2573945791507103,
+      "association.gate_threshold": 5.993566835905296,
+      "ransac.max_iterations": 123.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.3851324949897921
+    }
+  },
+  {
+    "trial": 15,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 17.0,
+      "hough.max_lines": 59.0,
+      "hough.min_segment_length": 0.6850929759157819,
+      "hough.merge_rho": 0.20218823504562117,
+      "hough.merge_theta": 0.04569836216702565,
+      "association.max_association_distance": 0.23869401152906033,
+      "association.gate_threshold": 6.173023157600317,
+      "ransac.max_iterations": 93.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.32606425772429204
+    }
+  },
+  {
+    "trial": 16,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 21.0,
+      "hough.max_lines": 40.0,
+      "hough.min_segment_length": 0.6032077585669028,
+      "hough.merge_rho": 0.17013053418405,
+      "hough.merge_theta": 0.040298061476305054,
+      "association.max_association_distance": 0.264924913220113,
+      "association.gate_threshold": 5.498099596495617,
+      "ransac.max_iterations": 118.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.37072053357636564
+    }
+  },
+  {
+    "trial": 17,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 16.0,
+      "hough.max_lines": 65.0,
+      "hough.min_segment_length": 0.462525580043083,
+      "hough.merge_rho": 0.19349094294177296,
+      "hough.merge_theta": 0.0626197582459827,
+      "association.max_association_distance": 0.2200276536391796,
+      "association.gate_threshold": 5.530657218692729,
+      "ransac.max_iterations": 133.0,
+      "ransac.min_inliers": 4.0,
+      "ransac.min_inlier_ratio": 0.3178741451993963
+    }
+  },
+  {
+    "trial": 18,
+    "status": "ok",
+    "objective": 0.20090124015010352,
+    "ate": 0.20090124015010352,
+    "result": "success",
+    "update_count": 96,
+    "params": {
+      "hough.min_votes": 18.0,
+      "hough.max_lines": 51.0,
+      "hough.min_segment_length": 0.7052971098197489,
+      "hough.merge_rho": 0.21431493752147518,
+      "hough.merge_theta": 0.049991340147633484,
+      "association.max_association_distance": 0.2789391357098776,
+      "association.gate_threshold": 6.172479000904761,
+      "ransac.max_iterations": 131.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.3669960987962362
+    }
+  },
+  {
+    "trial": 19,
+    "status": "ok",
+    "objective": 0.17823323381168177,
+    "ate": 0.17823323381168177,
+    "result": "success",
+    "update_count": 99,
+    "params": {
+      "hough.min_votes": 14.0,
+      "hough.max_lines": 61.0,
+      "hough.min_segment_length": 0.6142098259289868,
+      "hough.merge_rho": 0.15639850014481924,
+      "hough.merge_theta": 0.07480333897765343,
+      "association.max_association_distance": 0.24936823329642147,
+      "association.gate_threshold": 5.745241600013503,
+      "ransac.max_iterations": 116.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.314030657887154
+    }
+  },
+  {
+    "trial": 20,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 19.0,
+      "hough.max_lines": 67.0,
+      "hough.min_segment_length": 0.8772299949028437,
+      "hough.merge_rho": 0.12995026355653058,
+      "hough.merge_theta": 0.09697773528487584,
+      "association.max_association_distance": 0.23010129227546794,
+      "association.gate_threshold": 6.278098250429888,
+      "ransac.max_iterations": 140.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.3665780380855641
+    }
+  },
+  {
+    "trial": 21,
+    "status": "ok",
+    "objective": 0.709571133024948,
+    "ate": 0.709571133024948,
+    "result": "success",
+    "update_count": 96,
+    "params": {
+      "hough.min_votes": 16.0,
+      "hough.max_lines": 55.0,
+      "hough.min_segment_length": 0.64042271573089,
+      "hough.merge_rho": 0.2056103184405889,
+      "hough.merge_theta": 0.044322671667937914,
+      "association.max_association_distance": 0.23190646088631306,
+      "association.gate_threshold": 6.425949512254513,
+      "ransac.max_iterations": 140.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.34484010278270905
+    }
+  },
+  {
+    "trial": 22,
+    "status": "ok",
+    "objective": 0.16259459387179487,
+    "ate": 0.16259459387179487,
+    "result": "success",
+    "update_count": 97,
+    "params": {
+      "hough.min_votes": 16.0,
+      "hough.max_lines": 55.0,
+      "hough.min_segment_length": 0.5932275417242521,
+      "hough.merge_rho": 0.17789878933065195,
+      "hough.merge_theta": 0.04512778915224526,
+      "association.max_association_distance": 0.22318280927434556,
+      "association.gate_threshold": 6.477700034093981,
+      "ransac.max_iterations": 134.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.3370810779489184
+    }
+  },
+  {
+    "trial": 23,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 17.0,
+      "hough.max_lines": 52.0,
+      "hough.min_segment_length": 0.5721875731487784,
+      "hough.merge_rho": 0.17308871522331112,
+      "hough.merge_theta": 0.04907764588583914,
+      "association.max_association_distance": 0.2530418763151257,
+      "association.gate_threshold": 6.129275717338943,
+      "ransac.max_iterations": 126.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.3303245083870008
+    }
+  },
+  {
+    "trial": 24,
+    "status": "localization_app_failed",
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 15.0,
+      "hough.max_lines": 67.0,
+      "hough.min_segment_length": 0.71886339641386,
+      "hough.merge_rho": 0.18763200911261177,
+      "hough.merge_theta": 0.054746016963831565,
+      "association.max_association_distance": 0.27284278283248253,
+      "association.gate_threshold": 6.45627809662841,
+      "ransac.max_iterations": 133.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.30553222222103615
+    }
+  },
+  {
+    "trial": 25,
+    "status": "ok",
+    "objective": 0.2077527909758657,
+    "ate": 0.2077527909758657,
+    "result": "success",
+    "update_count": 95,
+    "params": {
+      "hough.min_votes": 17.0,
+      "hough.max_lines": 58.0,
+      "hough.min_segment_length": 0.47274986003684266,
+      "hough.merge_rho": 0.14135531387291178,
+      "hough.merge_theta": 0.045220180309043054,
+      "association.max_association_distance": 0.23460695508112792,
+      "association.gate_threshold": 5.625286846140976,
+      "ransac.max_iterations": 121.0,
+      "ransac.min_inliers": 5.0,
+      "ransac.min_inlier_ratio": 0.35963351909522245
+    }
+  },
+  {
+    "trial": 26,
+    "status": "ok",
+    "objective": 0.21583054586870679,
+    "ate": 0.21583054586870679,
+    "result": "success",
+    "update_count": 101,
+    "params": {
+      "hough.min_votes": 16.0,
+      "hough.max_lines": 63.0,
+      "hough.min_segment_length": 0.6585211789412767,
+      "hough.merge_rho": 0.16433312304653283,
+      "hough.merge_theta": 0.0615974005836296,
+      "association.max_association_distance": 0.24684057487266103,
+      "association.gate_threshold": 5.056552484017732,
+      "ransac.max_iterations": 134.0,
+      "ransac.min_inliers": 6.0,
+      "ransac.min_inlier_ratio": 0.3817228023580329
+    }
+  }
+]

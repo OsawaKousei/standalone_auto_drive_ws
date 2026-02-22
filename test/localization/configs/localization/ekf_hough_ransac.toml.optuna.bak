@@ -3,12 +3,12 @@ observation_model = "hough_ransac_line"
 [hough]
 theta_bins = 180
 rho_bins = 200
-min_votes = 21
-max_lines = 47
+min_votes = 17
+max_lines = 66
 inlier_distance = 0.12
-min_segment_length = 0.792524768639
-merge_rho = 0.157336882671
-merge_theta = 0.0526988220168
+min_segment_length = 0.649911006258
+merge_rho = 0.194754528133
+merge_theta = 0.0416387979675
 
 [ekf]
 process_noise_translation = 0.05
@@ -17,15 +17,15 @@ measurement_noise_range = 0.12
 measurement_noise_angle = 0.12
 
 [association]
-max_association_distance = 0.239145058717
+max_association_distance = 0.224366165041
 segment_margin = 0.3
-gate_threshold = 4.79151896748
+gate_threshold = 6.48009242711
 min_observations = 3
 
 [ransac]
-max_iterations = 130
-min_inliers = 3
-min_inlier_ratio = 0.201856635559
+max_iterations = 140
+min_inliers = 6
+min_inlier_ratio = 0.343011298116
 
 [initial_covariance]
 xx = 0.5
