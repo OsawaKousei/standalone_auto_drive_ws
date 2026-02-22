@@ -21,12 +21,8 @@ min_observations = 3
 max_lines = 40
 min_segment_length = 0.8
 
-[localization.observation.models.simple_line_association]
-max_association_distance = 0.3
-segment_margin = 0.3
-
 [localization.observation.models.ransac_line_association]
-use_ekf_gate = false
+use_ekf_gate = true
 segment_margin = 0.3
 
 [localization.observation.models.ransac_line_association.stage1]
