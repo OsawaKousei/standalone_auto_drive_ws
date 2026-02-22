@@ -1,6 +1,6 @@
 [localization]
 localizer = "ekf"
-observation_model = "simple_line_association"
+observation_model = "ransac_line_association"
 
 [localization.localizer.ekf]
 process_noise_translation = 0.05

@@ -24,3 +24,22 @@ min_segment_length = 0.8
 [localization.observation.models.simple_line_association]
 max_association_distance = 0.3
 segment_margin = 0.3
+
+[localization.observation.models.ransac_line_association]
+use_ekf_gate = false
+segment_margin = 0.3
+
+[localization.observation.models.ransac_line_association.stage1]
+point_distance_threshold = 0.08
+min_inlier_points = 12
+max_iterations = 80
+max_extracted_scan_lines = 12
+min_segment_length = 0.5
+min_remaining_points = 30
+
+[localization.observation.models.ransac_line_association.stage2]
+max_iterations = 120
+line_angle_threshold = 0.15
+line_rho_threshold = 0.3
+parallel_reject_threshold = 0.05
+min_pose_inliers = 3

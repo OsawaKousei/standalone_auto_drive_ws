@@ -2,6 +2,7 @@
 
 #include "i_observation_model.hpp"
 #include "localizer/ekf_localizer.hpp"
+#include "observation_model/ransac_line_association_model.hpp"
 #include "observation_model/simple_line_association_model.hpp"
 
 #include <cstddef>
@@ -148,6 +149,149 @@ parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
+[[nodiscard]] auto
+parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<RansacLineAssociationModelConfig> {
+  if (!configDoc.has_value()) {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Localization config is required for ransac_line_association."});
+  }
+
+  const auto &cfg = *configDoc;
+  const auto maxLines =
+      requiredInt(cfg, "localization.observation.line_based.map_line_extraction", "max_lines");
+  if (!maxLines) {
+    return tl::make_unexpected(maxLines.error());
+  }
+  const auto mapMinSegmentLength = requiredDouble(
+      cfg, "localization.observation.line_based.map_line_extraction", "min_segment_length");
+  if (!mapMinSegmentLength) {
+    return tl::make_unexpected(mapMinSegmentLength.error());
+  }
+
+  const auto measurementNoiseRange =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_range");
+  if (!measurementNoiseRange) {
+    return tl::make_unexpected(measurementNoiseRange.error());
+  }
+  const auto measurementNoiseAngle =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_angle");
+  if (!measurementNoiseAngle) {
+    return tl::make_unexpected(measurementNoiseAngle.error());
+  }
+  const auto minObservations =
+      requiredInt(cfg, "localization.observation.line_based", "min_observations");
+  if (!minObservations) {
+    return tl::make_unexpected(minObservations.error());
+  }
+
+  const auto pointDistanceThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage1",
+                     "point_distance_threshold");
+  if (!pointDistanceThreshold) {
+    return tl::make_unexpected(pointDistanceThreshold.error());
+  }
+  const auto minInlierPoints = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage1", "min_inlier_points");
+  if (!minInlierPoints) {
+    return tl::make_unexpected(minInlierPoints.error());
+  }
+  const auto pointRansacIterations = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage1", "max_iterations");
+  if (!pointRansacIterations) {
+    return tl::make_unexpected(pointRansacIterations.error());
+  }
+  const auto maxExtractedScanLines =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage1",
+                  "max_extracted_scan_lines");
+  if (!maxExtractedScanLines) {
+    return tl::make_unexpected(maxExtractedScanLines.error());
+  }
+  const auto minExtractedSegmentLength = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.stage1", "min_segment_length");
+  if (!minExtractedSegmentLength) {
+    return tl::make_unexpected(minExtractedSegmentLength.error());
+  }
+  const auto minRemainingPoints =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage1",
+                  "min_remaining_points");
+  if (!minRemainingPoints) {
+    return tl::make_unexpected(minRemainingPoints.error());
+  }
+
+  const auto poseRansacIterations = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage2", "max_iterations");
+  if (!poseRansacIterations) {
+    return tl::make_unexpected(poseRansacIterations.error());
+  }
+  const auto lineAngleThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "line_angle_threshold");
+  if (!lineAngleThreshold) {
+    return tl::make_unexpected(lineAngleThreshold.error());
+  }
+  const auto lineRhoThreshold = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.stage2", "line_rho_threshold");
+  if (!lineRhoThreshold) {
+    return tl::make_unexpected(lineRhoThreshold.error());
+  }
+  const auto parallelRejectThreshold =
+      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
+                     "parallel_reject_threshold");
+  if (!parallelRejectThreshold) {
+    return tl::make_unexpected(parallelRejectThreshold.error());
+  }
+  const auto minPoseInliers = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.stage2", "min_pose_inliers");
+  if (!minPoseInliers) {
+    return tl::make_unexpected(minPoseInliers.error());
+  }
+
+  const auto segmentMargin = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association", "segment_margin");
+  if (!segmentMargin) {
+    return tl::make_unexpected(segmentMargin.error());
+  }
+  const auto gateThreshold =
+      requiredDouble(cfg, "localization.observation.line_based", "gate_threshold");
+  if (!gateThreshold) {
+    return tl::make_unexpected(gateThreshold.error());
+  }
+
+  const auto useEkfGateRaw =
+      requiredRaw(cfg, "localization.observation.models.ransac_line_association", "use_ekf_gate");
+  if (!useEkfGateRaw) {
+    return tl::make_unexpected(useEkfGateRaw.error());
+  }
+  const auto useEkfGate = ::ad::config::parseBoolValue(*useEkfGateRaw);
+  if (!useEkfGate) {
+    return tl::make_unexpected(useEkfGate.error());
+  }
+
+  return RansacLineAssociationModelConfig{
+      .mapLineExtraction =
+          line_extractor::MapLineExtractionConfig{.maxLines = *maxLines,
+                                                  .minSegmentLength = *mapMinSegmentLength},
+      .measurementNoiseRange = *measurementNoiseRange,
+      .measurementNoiseAngle = *measurementNoiseAngle,
+      .minObservations = static_cast<std::size_t>(*minObservations),
+      .pointDistanceThreshold = *pointDistanceThreshold,
+      .minInlierPoints = static_cast<std::size_t>(*minInlierPoints),
+      .pointRansacMaxIterations = *pointRansacIterations,
+      .maxExtractedScanLines = *maxExtractedScanLines,
+      .minExtractedSegmentLength = *minExtractedSegmentLength,
+      .minRemainingPoints = static_cast<std::size_t>(*minRemainingPoints),
+      .poseRansacMaxIterations = *poseRansacIterations,
+      .lineAngleThreshold = *lineAngleThreshold,
+      .lineRhoThreshold = *lineRhoThreshold,
+      .parallelRejectThreshold = *parallelRejectThreshold,
+      .minPoseInliers = static_cast<std::size_t>(*minPoseInliers),
+      .segmentMargin = *segmentMargin,
+      .useEkfGate = *useEkfGate,
+      .gateThreshold = *gateThreshold};
+}
+
 } // namespace
 
 auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -210,22 +354,34 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
     return tl::make_unexpected(observationModelType.error());
   }
 
-  if (*observationModelType != "simple_line_association") {
+  auto observationModel = std::unique_ptr<IObservationModel>{};
+  if (*observationModelType == "simple_line_association") {
+    const auto modelConfig = parseSimpleLineAssociationModelConfig(configDoc);
+    if (!modelConfig) {
+      return tl::make_unexpected(modelConfig.error());
+    }
+
+    auto model = SimpleLineAssociationModel::create(map, *modelConfig);
+    if (!model) {
+      return tl::make_unexpected(model.error());
+    }
+    observationModel = std::move(*model);
+  } else if (*observationModelType == "ransac_line_association") {
+    const auto modelConfig = parseRansacLineAssociationModelConfig(configDoc);
+    if (!modelConfig) {
+      return tl::make_unexpected(modelConfig.error());
+    }
+
+    auto model = RansacLineAssociationModel::create(map, *modelConfig);
+    if (!model) {
+      return tl::make_unexpected(model.error());
+    }
+    observationModel = std::move(*model);
+  } else {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "Unsupported observation model: " + *observationModelType});
   }
-
-  const auto modelConfig = parseSimpleLineAssociationModelConfig(configDoc);
-  if (!modelConfig) {
-    return tl::make_unexpected(modelConfig.error());
-  }
-
-  auto model = SimpleLineAssociationModel::create(map, *modelConfig);
-  if (!model) {
-    return tl::make_unexpected(model.error());
-  }
-  std::unique_ptr<IObservationModel> observationModel = std::move(*model);
 
   auto localizer = EkfLocalizer::create(*configValue, std::move(observationModel));
   if (!localizer) {
