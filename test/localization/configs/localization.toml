@@ -34,20 +34,20 @@ config_path = "localization/ekf_ransac.toml"
 
 [planning]
 algorithm = "astar"
-config_path = "../../../configs/defaults/planning/astar.toml"
+config_path = "planning/astar.toml"
 
 [control]
 algorithm = "pure_pursuit"
-config_path = "../../../configs/defaults/control/pure_pursuit.toml"
+config_path = "pure_pursuit.toml"
 
 [lidar_sensor]
 algorithm = "lidar"
-config_path = "../../../configs/defaults/sensor/lidar.toml"
+config_path = "lidar.toml"
 
 [odometry_sensor]
 algorithm = "odometry"
-config_path = "../../../configs/defaults/sensor/odometry.toml"
+config_path = "odometry.toml"
 
 [physics]
 algorithm = "unicycle"
-config_path = "../../../configs/defaults/physics/unicycle.toml"
+config_path = "unicycle.toml"
