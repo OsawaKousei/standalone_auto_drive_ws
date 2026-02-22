@@ -79,7 +79,7 @@ add_library(ad_core
   src/features/control/controller/pid.cpp
   src/features/control/controller_factory.cpp
   src/features/localization/localizer/ekf_localizer.cpp
-  src/features/localization/observation_model/hough_line_extractor.cpp
+  src/features/localization/observation_model/line_extractor.cpp
   src/features/localization/observation_model/hough_observation_model.cpp
   src/features/localization/observation_model/observation_model_common.cpp
   src/features/localization/observation_model/ransac_core.cpp

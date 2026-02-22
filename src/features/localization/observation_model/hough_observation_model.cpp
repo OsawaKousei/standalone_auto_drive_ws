@@ -1,6 +1,6 @@
 #include "hough_observation_model.hpp"
 
-#include "hough_line_extractor.hpp"
+#include "line_extractor.hpp"
 #include "observation_model_common.hpp"
 
 #include <algorithm>
@@ -127,7 +127,7 @@ auto HoughObservationModel::create(const types::MapData &map, HoughObservationMo
     return tl::make_unexpected(signature.error());
   }
 
-  const auto mapLines = hough::extractMapLinesFromMap(map, config.hough);
+  const auto mapLines = line_extractor::extractMapLinesFromMap(map, config.hough);
   if (!mapLines) {
     return tl::make_unexpected(mapLines.error());
   }
