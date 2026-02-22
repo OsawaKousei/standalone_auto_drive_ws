@@ -266,6 +266,21 @@ def as_int_any(rows: List[Dict[str, str]], keys: List[str], default: int = 0) ->
     return np.asarray(values, dtype=int)
 
 
+def as_float_any(rows: List[Dict[str, str]], keys: List[str], default: float = np.nan) -> np.ndarray:
+    values = []
+    for row in rows:
+        raw = None
+        for key in keys:
+            if key in row:
+                raw = row.get(key)
+                break
+        try:
+            values.append(float(raw) if raw is not None else default)
+        except ValueError:
+            values.append(default)
+    return np.asarray(values, dtype=float)
+
+
 def save_timeseries(path: Path, title: str, y_label: str, values: np.ndarray) -> None:
     if values.size == 0:
         return
@@ -365,6 +380,8 @@ def build_diag_metrics(diag_rows: List[Dict[str, str]]) -> Dict:
     phase4 = as_int_any(diag_rows, ["phase4_gate_passed"])
     gate = as_int(diag_rows, "gate_passed")
     accepted = as_int(diag_rows, "accepted")
+    pre_gate_min_maha = as_float_any(diag_rows, ["min_pre_gate_maha"])
+    best_maha = as_float_any(diag_rows, ["best_maha"])
 
     reject_counter = Counter(row.get("reject", "") for row in diag_rows if "reject" in row)
     segment_counts = np.asarray(
@@ -375,6 +392,8 @@ def build_diag_metrics(diag_rows: List[Dict[str, str]]) -> Dict:
         for x1, y1, x2, y2 in parse_segments(row.get("stage1_segments", "")):
             segment_lengths.append(float(np.hypot(x2 - x1, y2 - y1)))
     seg_len = np.asarray(segment_lengths, dtype=float)
+    valid_pre = pre_gate_min_maha[np.isfinite(pre_gate_min_maha)]
+    valid_best = best_maha[np.isfinite(best_maha)]
 
     return {
         "frames": int(len(diag_rows)),
@@ -404,6 +423,16 @@ def build_diag_metrics(diag_rows: List[Dict[str, str]]) -> Dict:
             "mean": float(np.mean(gate)) if gate.size > 0 else 0.0,
             "zero_rate": float(np.mean(gate == 0)) if gate.size > 0 else 0.0,
             "distribution": {str(k): int(v) for k, v in sorted(Counter(gate).items())},
+        },
+        "min_pre_gate_maha": {
+            "mean": float(np.mean(valid_pre)) if valid_pre.size > 0 else 0.0,
+            "median": float(np.median(valid_pre)) if valid_pre.size > 0 else 0.0,
+            "p90": float(np.percentile(valid_pre, 90.0)) if valid_pre.size > 0 else 0.0,
+        },
+        "best_maha": {
+            "mean": float(np.mean(valid_best)) if valid_best.size > 0 else 0.0,
+            "median": float(np.median(valid_best)) if valid_best.size > 0 else 0.0,
+            "p90": float(np.percentile(valid_best, 90.0)) if valid_best.size > 0 else 0.0,
         },
         "reject_reasons": dict(reject_counter),
         "stage1_segments": {
@@ -489,12 +518,13 @@ def render_timeline(
         accepted = diag.get("accepted", "?")
         reject = diag.get("reject", "-")
         best_maha = diag.get("best_maha", "-")
+        pre_gate_min_maha = diag.get("min_pre_gate_maha", "-")
 
         ax.set_title(
             "RANSAC debug timeline "
             f"step={step} time={time_s:.2f}s\n"
             f"stage1={stage1} p2={phase2} p3={phase3} p4={phase4} gate={gate} "
-            f"accepted={accepted} maha={best_maha} reject={reject}"
+            f"accepted={accepted} min_pre_maha={pre_gate_min_maha} maha={best_maha} reject={reject}"
         )
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
@@ -559,7 +589,11 @@ def main() -> int:
         phase3 = as_int_any(diag_rows, ["phase3_refined"])
         phase4 = as_int_any(diag_rows, ["phase4_gate_passed"])
         gate = as_int(diag_rows, "gate_passed")
+        pre_gate_min_maha = as_float_any(diag_rows, ["min_pre_gate_maha"])
+        best_maha = as_float_any(diag_rows, ["best_maha"])
         reject_counter = Counter(row.get("reject", "") for row in diag_rows if "reject" in row)
+        valid_pre_gate_min_maha = pre_gate_min_maha[np.isfinite(pre_gate_min_maha)]
+        valid_best_maha = best_maha[np.isfinite(best_maha)]
 
         save_timeseries(out_dir / "stage1_extracted_timeseries.png", "Stage1 extracted lines", "count", stage1)
         save_timeseries(
@@ -574,6 +608,30 @@ def main() -> int:
             "count",
             phase4,
         )
+        if valid_pre_gate_min_maha.size > 0:
+            save_timeseries(
+                out_dir / "min_pre_gate_maha_timeseries.png",
+                "Phase4 pre-gate minimum Mahalanobis",
+                "D^2",
+                valid_pre_gate_min_maha,
+            )
+            save_histogram(
+                out_dir / "min_pre_gate_maha_histogram.png",
+                "Phase4 pre-gate minimum Mahalanobis distribution",
+                valid_pre_gate_min_maha,
+            )
+        if valid_best_maha.size > 0:
+            save_timeseries(
+                out_dir / "best_maha_timeseries.png",
+                "Phase4 selected Mahalanobis",
+                "D^2",
+                valid_best_maha,
+            )
+            save_histogram(
+                out_dir / "best_maha_histogram.png",
+                "Phase4 selected Mahalanobis distribution",
+                valid_best_maha,
+            )
         save_timeseries(out_dir / "gate_passed_timeseries.png", "Gate passed", "count", gate)
         save_histogram(out_dir / "stage1_extracted_histogram.png", "Stage1 extracted distribution", stage1)
         save_histogram(
