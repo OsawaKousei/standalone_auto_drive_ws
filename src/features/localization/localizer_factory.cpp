@@ -264,24 +264,6 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
     return tl::make_unexpected(hybrid.error());
   }
 
-  const auto orientationBinSize =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
-                     "orientation_bin_size");
-  if (!orientationBinSize) {
-    return tl::make_unexpected(orientationBinSize.error());
-  }
-  const auto maxOrientationCandidates =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
-                  "max_orientation_candidates");
-  if (!maxOrientationCandidates) {
-    return tl::make_unexpected(maxOrientationCandidates.error());
-  }
-  const auto orientationPeakMinVotes =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
-                  "orientation_peak_min_votes");
-  if (!orientationPeakMinVotes) {
-    return tl::make_unexpected(orientationPeakMinVotes.error());
-  }
   const auto translationRansacIterations =
       requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
                   "translation_ransac_iterations");
@@ -305,57 +287,10 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
   if (!parallelRejectThreshold) {
     return tl::make_unexpected(parallelRejectThreshold.error());
   }
-  const auto clusterPositionThreshold =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
-                     "cluster_position_threshold");
-  if (!clusterPositionThreshold) {
-    return tl::make_unexpected(clusterPositionThreshold.error());
-  }
-  const auto clusterAngleThreshold =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
-                     "cluster_angle_threshold");
-  if (!clusterAngleThreshold) {
-    return tl::make_unexpected(clusterAngleThreshold.error());
-  }
-  const auto maxCoarseHypotheses =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
-                  "max_coarse_hypotheses");
-  if (!maxCoarseHypotheses) {
-    return tl::make_unexpected(maxCoarseHypotheses.error());
-  }
   const auto minPoseInliers = requiredInt(
       cfg, "localization.observation.models.ransac_line_association.stage2", "min_pose_inliers");
   if (!minPoseInliers) {
     return tl::make_unexpected(minPoseInliers.error());
-  }
-
-  const auto refinementMaxIterations =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage3",
-                  "gauss_newton_iterations");
-  if (!refinementMaxIterations) {
-    return tl::make_unexpected(refinementMaxIterations.error());
-  }
-  const auto refinementStepTolerance =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage3",
-                     "gauss_newton_step_tolerance");
-  if (!refinementStepTolerance) {
-    return tl::make_unexpected(refinementStepTolerance.error());
-  }
-  const auto refinementDamping =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage3",
-                     "gauss_newton_damping");
-  if (!refinementDamping) {
-    return tl::make_unexpected(refinementDamping.error());
-  }
-
-  const auto useContextGateRaw = requiredRaw(
-      cfg, "localization.observation.models.ransac_line_association.stage4", "use_context_gate");
-  if (!useContextGateRaw) {
-    return tl::make_unexpected(useContextGateRaw.error());
-  }
-  const auto useContextGate = ::ad::config::parseBoolValue(*useContextGateRaw);
-  if (!useContextGate) {
-    return tl::make_unexpected(useContextGate.error());
   }
   const auto contextGateThreshold =
       requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage4",
@@ -403,22 +338,12 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       .minDirectionAlignment = hybrid->minDirectionAlignment,
       .minLinearity = hybrid->minLinearity,
       .maxContinuityGap = hybrid->maxContinuityGap,
-      .orientationBinSize = *orientationBinSize,
-      .maxOrientationCandidates = static_cast<std::size_t>(*maxOrientationCandidates),
-      .orientationPeakMinVotes = static_cast<std::size_t>(*orientationPeakMinVotes),
       .translationRansacMaxIterations = *translationRansacIterations,
       .lineAngleThreshold = *lineAngleThreshold,
       .lineRhoThreshold = *lineRhoThreshold,
       .parallelRejectThreshold = *parallelRejectThreshold,
-      .clusterPositionThreshold = *clusterPositionThreshold,
-      .clusterAngleThreshold = *clusterAngleThreshold,
-      .maxCoarseHypotheses = static_cast<std::size_t>(*maxCoarseHypotheses),
       .minPoseInliers = static_cast<std::size_t>(*minPoseInliers),
       .segmentMargin = *segmentMargin,
-      .refinementMaxIterations = *refinementMaxIterations,
-      .refinementStepTolerance = *refinementStepTolerance,
-      .refinementDamping = *refinementDamping,
-      .useContextGate = *useContextGate,
       .contextGateThreshold = *contextGateThreshold,
       .useEkfGate = *useEkfGate,
       .gateThreshold = *gateThreshold};
