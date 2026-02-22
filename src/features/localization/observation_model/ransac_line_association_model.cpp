@@ -42,12 +42,6 @@ struct ScanPoint {
   std::size_t scanIndex;
 };
 
-struct LocalPointFeature {
-  double directionX;
-  double directionY;
-  double linearity;
-};
-
 struct PoseMatchResult {
   ad::types::Pose pose;
   std::vector<std::pair<std::size_t, std::size_t>> pairs;
@@ -120,66 +114,6 @@ auto buildScanPoints(const ad::types::LidarScan &scan) -> std::vector<ScanPoint>
   }
 
   return points;
-}
-
-auto buildLocalPointFeatures(const std::vector<ScanPoint> &points,
-                             const ad::localization::RansacLineAssociationModelConfig &config)
-    -> std::vector<LocalPointFeature> {
-  auto features = std::vector<LocalPointFeature>(
-      points.size(), LocalPointFeature{.directionX = 1.0, .directionY = 0.0, .linearity = 0.0});
-  if (points.size() < 2U) {
-    return features;
-  }
-
-  const auto windowRadius = static_cast<std::size_t>(std::max(1, config.localPcaWindowSize));
-  for (std::size_t index = 0; index < points.size(); ++index) {
-    const auto start = index > windowRadius ? index - windowRadius : 0U;
-    const auto end = std::min(points.size() - 1U, index + windowRadius);
-    if ((end - start + 1U) < 2U) {
-      continue;
-    }
-
-    double meanX = 0.0;
-    double meanY = 0.0;
-    for (std::size_t local = start; local <= end; ++local) {
-      meanX += points[local].point.x;
-      meanY += points[local].point.y;
-    }
-    const auto count = static_cast<double>(end - start + 1U);
-    meanX /= count;
-    meanY /= count;
-
-    double sxx = 0.0;
-    double sxy = 0.0;
-    double syy = 0.0;
-    for (std::size_t local = start; local <= end; ++local) {
-      const auto deltaX = points[local].point.x - meanX;
-      const auto deltaY = points[local].point.y - meanY;
-      sxx += deltaX * deltaX;
-      sxy += deltaX * deltaY;
-      syy += deltaY * deltaY;
-    }
-
-    const auto trace = sxx + syy;
-    if (trace < kEpsilon) {
-      continue;
-    }
-
-    const auto direction = 0.5 * std::atan2(2.0 * sxy, sxx - syy);
-    const auto directionX = std::cos(direction);
-    const auto directionY = std::sin(direction);
-    const auto determinant = (sxx * syy) - (sxy * sxy);
-    const auto discriminant = std::max(0.0, (trace * trace) - (4.0 * determinant));
-    const auto root = std::sqrt(discriminant);
-    const auto lambda1 = 0.5 * (trace + root);
-    const auto lambda2 = 0.5 * (trace - root);
-    const auto linearity = std::clamp((lambda1 - lambda2) / std::max(kEpsilon, trace), 0.0, 1.0);
-
-    features[index] = LocalPointFeature{
-        .directionX = directionX, .directionY = directionY, .linearity = linearity};
-  }
-
-  return features;
 }
 
 auto fitLineFromPoints(const std::vector<ad::types::Point> &points)
@@ -275,7 +209,6 @@ auto makeExtractedLineCandidate(std::vector<std::size_t> inlierIndices,
 }
 
 auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
-                                const std::vector<LocalPointFeature> &features,
                                 const std::vector<bool> &activeMask,
                                 const ad::localization::observation_model::util::LineModel &model,
                                 const ad::localization::RansacLineAssociationModelConfig &config)
@@ -284,8 +217,6 @@ auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
   inlierCandidates.reserve(points.size());
   const auto normalX = std::cos(model.alpha);
   const auto normalY = std::sin(model.alpha);
-  const auto lineDirectionX = -std::sin(model.alpha);
-  const auto lineDirectionY = std::cos(model.alpha);
 
   for (std::size_t index = 0; index < points.size(); ++index) {
     if (!activeMask[index]) {
@@ -295,16 +226,6 @@ auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
     const auto &point = points[index].point;
     const auto distance = std::abs((normalX * point.x) + (normalY * point.y) - model.rho);
     if (distance > config.pointDistanceThreshold) {
-      continue;
-    }
-
-    if (features[index].linearity < config.minLinearity) {
-      continue;
-    }
-
-    const auto alignment = std::abs((lineDirectionX * features[index].directionX) +
-                                    (lineDirectionY * features[index].directionY));
-    if (alignment < config.minDirectionAlignment) {
       continue;
     }
 
@@ -401,7 +322,6 @@ auto buildObservedLine(const std::vector<ad::types::Point> &supportPoints,
 }
 
 auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
-                             const std::vector<LocalPointFeature> &features,
                              const std::vector<bool> &activeMask,
                              const std::vector<std::size_t> &activeIndices, std::mt19937 &rng,
                              const ad::localization::RansacLineAssociationModelConfig &config,
@@ -422,7 +342,7 @@ auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
       continue;
     }
 
-    auto inliers = collectHybridInlierIndices(points, features, activeMask, *candidate, config);
+    auto inliers = collectHybridInlierIndices(points, activeMask, *candidate, config);
     if (inliers.size() > bestInliers.size()) {
       bestInliers = std::move(inliers);
     }
@@ -472,7 +392,6 @@ auto extractObservedLinesRansac(const ad::types::LidarScan &scan,
                                 const ad::localization::RansacLineAssociationModelConfig &config)
     -> std::vector<ObservedLine> {
   const auto points = buildScanPoints(scan);
-  const auto features = buildLocalPointFeatures(points, config);
   auto extracted = std::vector<ObservedLine>{};
   extracted.reserve(static_cast<std::size_t>(std::max(1, config.maxExtractedScanLines)));
   if (points.size() < 2U) {
@@ -490,8 +409,8 @@ auto extractObservedLinesRansac(const ad::types::LidarScan &scan,
   const auto minRemaining = std::max<std::size_t>(config.minRemainingPoints, 2U);
 
   while (remainingCount >= minRemaining && extracted.size() < maxScanLines) {
-    const auto candidate = extractOneLineCandidate(points, features, activeMask, activeIndices, rng,
-                                                   config, maxIterations);
+    const auto candidate =
+        extractOneLineCandidate(points, activeMask, activeIndices, rng, config, maxIterations);
     if (candidate.inlierIndices.size() < config.minInlierPoints) {
       break;
     }
