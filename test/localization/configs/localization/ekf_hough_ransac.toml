@@ -3,8 +3,8 @@ observation_model = "hough_ransac_line"
 [hough]
 theta_bins = 180
 rho_bins = 200
-min_votes = 15
-max_lines = 60
+min_votes = 18
+max_lines = 50
 inlier_distance = 0.12
 min_segment_length = 0.5
 merge_rho = 0.15
@@ -17,15 +17,15 @@ measurement_noise_range = 0.12
 measurement_noise_angle = 0.12
 
 [association]
-max_association_distance = 0.3
+max_association_distance = 0.28
 segment_margin = 0.3
-gate_threshold = 6.0
+gate_threshold = 5.0
 min_observations = 3
 
 [ransac]
-max_iterations = 80
-min_inliers = 3
-min_inlier_ratio = 0.25
+max_iterations = 100
+min_inliers = 4
+min_inlier_ratio = 0.30
 
 [initial_covariance]
 xx = 0.5
