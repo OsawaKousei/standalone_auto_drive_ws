@@ -53,6 +53,8 @@ struct ObservationNoiseConfig {
 
 [[nodiscard]] auto mapHasConsistentGrid(const types::MapData &map) -> bool;
 [[nodiscard]] auto toLineModel(LineModel raw) -> LineModel;
+[[nodiscard]] auto fitLineModelFromPoints(const std::vector<types::Point> &points)
+    -> std::optional<LineModel>;
 [[nodiscard]] auto makeExpectedLine(const LineModel &mapLine, const types::Pose &pose)
     -> LineObservation;
 [[nodiscard]] auto gateLineObservation(const LineObservation &observation,

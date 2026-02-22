@@ -2,15 +2,11 @@
 
 #include "line_extractor.hpp"
 
-#include <array>
 #include <cmath>
-#include <numbers>
 #include <optional>
 #include <vector>
 
 namespace {
-
-constexpr double kEpsilon = 1e-9;
 
 struct LineFit {
   ad::localization::observation_model::util::LineModel model;
@@ -25,56 +21,23 @@ struct ObservationSummary {
 };
 
 auto fitLine(const std::vector<ad::types::Point> &points) -> std::optional<LineFit> {
-  if (points.size() < 2U) {
+  const auto model = ad::localization::observation_model::util::fitLineModelFromPoints(points);
+  if (!model) {
     return std::nullopt;
   }
 
-  double meanX = 0.0;
-  double meanY = 0.0;
-  for (const auto &point : points) {
-    meanX += point.x;
-    meanY += point.y;
-  }
   const auto count = static_cast<double>(points.size());
-  meanX /= count;
-  meanY /= count;
 
-  auto momentSums = std::array<double, 3>{0.0, 0.0, 0.0};
-  for (const auto &point : points) {
-    const auto deltaX = point.x - meanX;
-    const auto deltaY = point.y - meanY;
-    momentSums[0] += deltaX * deltaX;
-    momentSums[1] += deltaX * deltaY;
-    momentSums[2] += deltaY * deltaY;
-  }
-
-  const auto sxx = momentSums[0];
-  const auto sxy = momentSums[1];
-  const auto syy = momentSums[2];
-
-  if (sxx + syy < kEpsilon) {
-    return std::nullopt;
-  }
-
-  const auto direction = 0.5 * std::atan2(2.0 * sxy, sxx - syy);
-  const auto normal = direction + (0.5 * std::numbers::pi);
-  const auto normalX = std::cos(normal);
-  const auto normalY = std::sin(normal);
-  const auto rho = ((normalX * meanX) + (normalY * meanY));
-
-  auto model = ad::localization::observation_model::util::toLineModel(
-      ad::localization::observation_model::util::LineModel{.rho = rho, .alpha = normal});
-
-  const auto lineNormalX = std::cos(model.alpha);
-  const auto lineNormalY = std::sin(model.alpha);
+  const auto lineNormalX = std::cos(model->alpha);
+  const auto lineNormalY = std::sin(model->alpha);
   double mse = 0.0;
   for (const auto &point : points) {
-    const auto distance = ((lineNormalX * point.x) + (lineNormalY * point.y)) - model.rho;
+    const auto distance = ((lineNormalX * point.x) + (lineNormalY * point.y)) - model->rho;
     mse += distance * distance;
   }
   mse /= count;
 
-  return LineFit{.model = model, .pointCount = points.size(), .mse = mse};
+  return LineFit{.model = *model, .pointCount = points.size(), .mse = mse};
 }
 
 auto buildBuckets(const ad::types::LidarScan &scan,

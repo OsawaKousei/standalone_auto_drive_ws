@@ -5,14 +5,17 @@
 #include <Eigen/Dense>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numbers>
+#include <optional>
 
 namespace ad::localization::observation_model::util {
 
 namespace {
 
 constexpr double kGateEpsilon = 1e-12;
+constexpr double kLineFitEpsilon = 1e-9;
 constexpr double kReferencePoints = 40.0;
 constexpr double kMinRangeVarianceFactor = 0.25;
 constexpr double kMinAngleVarianceFactor = 0.25;
@@ -34,6 +37,46 @@ auto toLineModel(LineModel raw) -> LineModel {
     normalizedAlpha = ad::localization::util::normalizeAngle(normalizedAlpha + std::numbers::pi);
   }
   return LineModel{.rho = normalizedRho, .alpha = normalizedAlpha};
+}
+
+auto fitLineModelFromPoints(const std::vector<types::Point> &points) -> std::optional<LineModel> {
+  if (points.size() < 2U) {
+    return std::nullopt;
+  }
+
+  double meanX = 0.0;
+  double meanY = 0.0;
+  for (const auto &point : points) {
+    meanX += point.x;
+    meanY += point.y;
+  }
+  const auto count = static_cast<double>(points.size());
+  meanX /= count;
+  meanY /= count;
+
+  auto momentSums = std::array<double, 3>{0.0, 0.0, 0.0};
+  for (const auto &point : points) {
+    const auto deltaX = point.x - meanX;
+    const auto deltaY = point.y - meanY;
+    momentSums[0] += deltaX * deltaX;
+    momentSums[1] += deltaX * deltaY;
+    momentSums[2] += deltaY * deltaY;
+  }
+
+  const auto sxx = momentSums[0];
+  const auto sxy = momentSums[1];
+  const auto syy = momentSums[2];
+  if (sxx + syy < kLineFitEpsilon) {
+    return std::nullopt;
+  }
+
+  const auto direction = 0.5 * std::atan2(2.0 * sxy, sxx - syy);
+  const auto normal = direction + (0.5 * std::numbers::pi);
+  const auto normalX = std::cos(normal);
+  const auto normalY = std::sin(normal);
+  const auto rho = (normalX * meanX) + (normalY * meanY);
+
+  return toLineModel(LineModel{.rho = rho, .alpha = normal});
 }
 
 auto makeExpectedLine(const LineModel &mapLine, const types::Pose &pose) -> LineObservation {
