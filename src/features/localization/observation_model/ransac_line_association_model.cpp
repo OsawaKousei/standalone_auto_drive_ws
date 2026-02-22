@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <numbers>
 #include <optional>
@@ -518,17 +519,25 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
   }
 
   const auto observedLines = extractObservedLinesRansac(scan, config_);
+  const auto stage1ExtractedCount = observedLines.size();
   if (observedLines.size() < config_.minObservations) {
+    std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
+              << " stage2_matches=0 gate_passed=0 accepted=0 reject=stage1_min_observations\n";
     return {std::nullopt};
   }
 
   const auto bestHypothesis = runPoseRansac(observedLines, mapLines_, config_);
   if (!bestHypothesis || bestHypothesis->matches.size() < config_.minObservations) {
+    const auto stage2MatchCount = bestHypothesis ? bestHypothesis->matches.size() : 0U;
+    std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
+              << " stage2_matches=" << stage2MatchCount
+              << " gate_passed=0 accepted=0 reject=stage2_min_observations\n";
     return {std::nullopt};
   }
 
   auto observations = std::vector<observation_model::util::LineObservation>{};
   observations.reserve(bestHypothesis->matches.size());
+  const auto stage2MatchCount = bestHypothesis->matches.size();
   std::size_t gatePassed = 0;
 
   for (const auto &[observedIndex, mapIndex] : bestHypothesis->matches) {
@@ -556,6 +565,9 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
   }
 
   if (observations.size() < config_.minObservations) {
+    std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
+              << " stage2_matches=" << stage2MatchCount << " gate_passed=" << gatePassed
+              << " accepted=0 reject=gate_min_observations\n";
     return {std::nullopt};
   }
 
@@ -563,6 +575,9 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
       !bestHypothesis->matches.empty()
           ? static_cast<double>(gatePassed) / static_cast<double>(bestHypothesis->matches.size())
           : 0.0;
+  std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
+            << " stage2_matches=" << stage2MatchCount << " gate_passed=" << gatePassed
+            << " accepted=1 score=" << score << "\n";
   return {observation_model::util::buildMeasurementData(observations, score)};
 }
 

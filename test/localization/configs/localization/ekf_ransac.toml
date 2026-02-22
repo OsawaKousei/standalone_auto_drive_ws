@@ -14,8 +14,8 @@ tt = 0.2
 [localization.observation.line_based]
 measurement_noise_range = 0.12
 measurement_noise_angle = 0.12
-gate_threshold = 6.0
-min_observations = 3
+gate_threshold = 4.5
+min_observations = 2
 
 [localization.observation.line_based.map_line_extraction]
 max_lines = 40
@@ -27,7 +27,7 @@ segment_margin = 0.3
 
 [localization.observation.models.ransac_line_association.stage1]
 point_distance_threshold = 0.08
-min_inlier_points = 12
+min_inlier_points = 16
 max_iterations = 80
 max_extracted_scan_lines = 12
 min_segment_length = 0.5
@@ -35,7 +35,7 @@ min_remaining_points = 30
 
 [localization.observation.models.ransac_line_association.stage2]
 max_iterations = 120
-line_angle_threshold = 0.15
-line_rho_threshold = 0.3
+line_angle_threshold = 0.1
+line_rho_threshold = 0.2
 parallel_reject_threshold = 0.05
-min_pose_inliers = 3
+min_pose_inliers = 2
