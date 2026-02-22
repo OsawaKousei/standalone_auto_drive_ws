@@ -26,8 +26,6 @@ max_association_distance = 0.3
 segment_margin = 0.3
 
 [localization.observation.models.ransac_line_association]
-use_ekf_gate = false
-segment_margin = 0.3
 
 [localization.observation.models.ransac_line_association.scan_line_extraction]
 point_distance_threshold = 0.08
@@ -43,6 +41,7 @@ min_linearity = 0.4
 max_continuity_gap = 2
 
 [localization.observation.models.ransac_line_association.line_association]
+segment_margin = 0.3
 translation_ransac_iterations = 180
 line_angle_threshold = 0.15
 line_rho_threshold = 0.3

@@ -32,7 +32,6 @@ struct RansacLineAssociationModelConfig {
 
   const double contextGateThreshold;
 
-  const bool useEkfGate;
   const double gateThreshold;
 };
 

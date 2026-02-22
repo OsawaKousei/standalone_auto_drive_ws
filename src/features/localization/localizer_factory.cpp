@@ -281,7 +281,8 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
   }
 
   const auto segmentMargin = requiredDouble(
-      cfg, "localization.observation.models.ransac_line_association", "segment_margin");
+      cfg, "localization.observation.models.ransac_line_association.line_association",
+      "segment_margin");
   if (!segmentMargin) {
     return tl::make_unexpected(segmentMargin.error());
   }
@@ -289,16 +290,6 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       requiredDouble(cfg, "localization.observation.line_based", "gate_threshold");
   if (!gateThreshold) {
     return tl::make_unexpected(gateThreshold.error());
-  }
-
-  const auto useEkfGateRaw =
-      requiredRaw(cfg, "localization.observation.models.ransac_line_association", "use_ekf_gate");
-  if (!useEkfGateRaw) {
-    return tl::make_unexpected(useEkfGateRaw.error());
-  }
-  const auto useEkfGate = ::ad::config::parseBoolValue(*useEkfGateRaw);
-  if (!useEkfGate) {
-    return tl::make_unexpected(useEkfGate.error());
   }
 
   return RansacLineAssociationModelConfig{
@@ -322,7 +313,6 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       .minPoseInliers = static_cast<std::size_t>(*minPoseInliers),
       .segmentMargin = *segmentMargin,
       .contextGateThreshold = *contextGateThreshold,
-      .useEkfGate = *useEkfGate,
       .gateThreshold = *gateThreshold};
 }
 

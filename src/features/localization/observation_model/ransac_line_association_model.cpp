@@ -640,8 +640,7 @@ auto buildEkfUpdateFromPairs(
         static_cast<double>(observedLines[observedIndex].supportPointCount),
         observedLines[observedIndex].mse);
 
-    if (config.useEkfGate &&
-        !ad::localization::observation_model::util::gateLineObservation(
+    if (!ad::localization::observation_model::util::gateLineObservation(
             observation,
             ad::localization::observation_model::util::ObservationGateConfig{
                 .covariance = predictedCovariance, .threshold = config.gateThreshold})) {
