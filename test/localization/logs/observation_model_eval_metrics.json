@@ -13,31 +13,31 @@
       "mean_residual_rmse": 0.11386779,
       "mean_nis": 2.97578396,
       "mean_measurement_count": 14.06382979,
-      "mean_runtime_ms": 0.11016549,
-      "p95_runtime_ms": 0.12491000
+      "mean_runtime_ms": 0.12434054,
+      "p95_runtime_ms": 0.23822200
     },
     {
       "label": "hough_ransac",
       "config_path": "test/localization/configs/localization/ekf_hough_ransac.toml",
       "total_frames": 94,
-      "success_count": 77,
-      "no_update_count": 17,
+      "success_count": 56,
+      "no_update_count": 38,
       "error_count": 0,
-      "success_rate": 0.81914894,
-      "mean_score": 0.96116142,
-      "mean_residual_rmse": 0.11036147,
-      "mean_nis": 9.54496778,
-      "mean_measurement_count": 7.23376623,
-      "mean_runtime_ms": 1.02824141,
-      "p95_runtime_ms": 1.29134300
+      "success_rate": 0.59574468,
+      "mean_score": 0.99345238,
+      "mean_residual_rmse": 0.09127354,
+      "mean_nis": 2.79048630,
+      "mean_measurement_count": 3.66071429,
+      "mean_runtime_ms": 0.72347438,
+      "p95_runtime_ms": 1.00132900
     }
   ],
   "comparison": {
-    "success_rate_delta": -0.18085106,
-    "mean_score_delta": 0.02829532,
-    "mean_residual_rmse_delta": -0.00350632,
-    "mean_nis_delta": 6.56918382,
-    "mean_measurement_count_delta": -6.83006355,
-    "mean_runtime_ms_delta": 0.91807593
+    "success_rate_delta": -0.40425532,
+    "mean_score_delta": 0.06058628,
+    "mean_residual_rmse_delta": -0.02259425,
+    "mean_nis_delta": -0.18529767,
+    "mean_measurement_count_delta": -10.40311550,
+    "mean_runtime_ms_delta": 0.59913384
   }
 }
