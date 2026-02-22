@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../localizer_util.hpp"
-#include "ransac_config.hpp"
 
 #include "../../../shared/types.hpp"
 
@@ -10,18 +9,24 @@
 #include <optional>
 #include <vector>
 
+namespace ad::localization {
+
+struct RansacConfig {
+  const int maxIterations;
+  const std::size_t minInliers;
+  const double minInlierRatio;
+};
+
+} // namespace ad::localization
+
 namespace ad::localization::ransac {
 
 struct GenericRansacConfig {
-  int maxIterations;
+  RansacConfig ransac;
   std::size_t sampleSize;
-  std::size_t minInliers;
-  double minInlierRatio;
 };
 
-struct GenericRansacResult {
-  std::vector<std::size_t> inlierIndices;
-};
+using GenericRansacResult = std::vector<std::size_t>;
 
 using InlierIndexSelector = std::function<std::optional<std::vector<std::size_t>>(
     const std::vector<types::Point> &points, const std::vector<std::size_t> &sampleIndices)>;

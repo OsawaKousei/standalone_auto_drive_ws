@@ -1,10 +1,11 @@
 #include "line_extractor.hpp"
 
+#include "line_geometry.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <numbers>
 #include <optional>
 #include <ranges>
 #include <unordered_map>
@@ -155,38 +156,6 @@ auto mergeBoundaryEdges(const std::vector<BoundaryEdge> &edges) -> std::vector<B
   return mergedEdges;
 }
 
-auto buildMapLine(const ad::types::Point &start, const ad::types::Point &end)
-    -> std::optional<ad::localization::util::MapLine> {
-  const auto dx = end.x - start.x;
-  const auto dy = end.y - start.y;
-  const auto length = std::hypot(dx, dy);
-  if (length < kEpsilon) {
-    return std::nullopt;
-  }
-
-  const auto directionX = dx / length;
-  const auto directionY = dy / length;
-  const auto alphaRaw = std::atan2(dy, dx) + (0.5 * std::numbers::pi);
-  const auto normalX = std::cos(alphaRaw);
-  const auto normalY = std::sin(alphaRaw);
-  const auto rhoRaw = (normalX * start.x) + (normalY * start.y);
-  const auto model = ad::localization::util::toLineModel(
-      ad::localization::util::LineModel{.rho = rhoRaw, .alpha = alphaRaw});
-
-  auto minProjection = (directionX * start.x) + (directionY * start.y);
-  auto maxProjection = (directionX * end.x) + (directionY * end.y);
-  if (minProjection > maxProjection) {
-    std::swap(minProjection, maxProjection);
-  }
-
-  return ad::localization::util::MapLine{ad::types::LineSegment{.start = start, .end = end},
-                                         model,
-                                         directionX,
-                                         directionY,
-                                         minProjection,
-                                         maxProjection};
-}
-
 } // namespace
 
 namespace ad::localization::line_extractor {
@@ -239,7 +208,7 @@ auto extractMapLinesFromMap(const types::MapData &map, const MapLineExtractionCo
       continue;
     }
 
-    const auto candidate = buildMapLine(start, end);
+    const auto candidate = line_geometry::buildMapLineFromSegment(start, end, minSegmentLength);
     if (!candidate) {
       continue;
     }

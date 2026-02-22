@@ -1,5 +1,7 @@
 #include "ransac_core.hpp"
 
+#include "line_geometry.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -89,10 +91,7 @@ auto drawUniqueSample(std::mt19937 &generator, std::size_t pointCount, std::size
 
 auto transformScanLineToMap(const ad::localization::util::LineModel &scanLine,
                             const ad::types::Pose &pose) -> ad::localization::util::LineModel {
-  const auto alphaMap = ad::localization::util::normalizeAngle(scanLine.alpha + pose.theta);
-  const auto rhoMap = scanLine.rho + (pose.x * std::cos(alphaMap)) + (pose.y * std::sin(alphaMap));
-  return ad::localization::util::toLineModel(
-      ad::localization::util::LineModel{.rho = rhoMap, .alpha = alphaMap});
+  return ad::localization::line_geometry::transformLineModelLocalToMap(scanLine, pose);
 }
 
 auto sampleTwoDistinct(std::mt19937 &generator, std::size_t count)
@@ -270,9 +269,9 @@ namespace ad::localization::ransac {
 auto runGenericPointRansac(const std::vector<types::Point> &points,
                            const GenericRansacConfig &config, const InlierIndexSelector &selector,
                            std::uint32_t randomSeed) -> std::optional<GenericRansacResult> {
-  if (points.size() < config.sampleSize || config.maxIterations <= 0 || config.sampleSize < 2U ||
-      config.minInliers < config.sampleSize || config.minInlierRatio <= 0.0 ||
-      config.minInlierRatio > 1.0 || !selector) {
+  if (points.size() < config.sampleSize || config.ransac.maxIterations <= 0 ||
+      config.sampleSize < 2U || config.ransac.minInliers < config.sampleSize ||
+      config.ransac.minInlierRatio <= 0.0 || config.ransac.minInlierRatio > 1.0 || !selector) {
     return std::nullopt;
   }
 
@@ -281,25 +280,25 @@ auto runGenericPointRansac(const std::vector<types::Point> &points,
   std::mt19937 generator(seed);
 
   auto bestResult = std::optional<GenericRansacResult>{};
-  for (int iteration = 0; iteration < config.maxIterations; ++iteration) {
+  for (int iteration = 0; iteration < config.ransac.maxIterations; ++iteration) {
     const auto sampleIndices = drawUniqueSample(generator, points.size(), config.sampleSize);
     const auto inlierIndices = selector(points, sampleIndices);
     if (!inlierIndices) {
       continue;
     }
 
-    if (inlierIndices->size() < config.minInliers) {
+    if (inlierIndices->size() < config.ransac.minInliers) {
       continue;
     }
 
     const auto inlierRatio =
         static_cast<double>(inlierIndices->size()) / static_cast<double>(points.size());
-    if (inlierRatio < config.minInlierRatio) {
+    if (inlierRatio < config.ransac.minInlierRatio) {
       continue;
     }
 
-    if (!bestResult || inlierIndices->size() > bestResult->inlierIndices.size()) {
-      bestResult = GenericRansacResult{.inlierIndices = *inlierIndices};
+    if (!bestResult || inlierIndices->size() > bestResult->size()) {
+      bestResult = *inlierIndices;
     }
   }
 
@@ -316,10 +315,10 @@ auto fitLineToPoints(const std::vector<types::Point> &points, const PointLineRan
 
   const auto genericResult = runGenericPointRansac(
       points,
-      GenericRansacConfig{.maxIterations = config.maxIterations,
-                          .sampleSize = 2U,
-                          .minInliers = config.minInliers,
-                          .minInlierRatio = config.minInlierRatio},
+      GenericRansacConfig{.ransac = RansacConfig{.maxIterations = config.maxIterations,
+                                                 .minInliers = config.minInliers,
+                                                 .minInlierRatio = config.minInlierRatio},
+                          .sampleSize = 2U},
       [&](const std::vector<types::Point> &allPoints, const std::vector<std::size_t> &sampleIndices)
           -> std::optional<std::vector<std::size_t>> {
         if (sampleIndices.size() != 2U) {
@@ -344,7 +343,7 @@ auto fitLineToPoints(const std::vector<types::Point> &points, const PointLineRan
   }
 
   auto bestFit = std::optional<RansacLineFitResult>{};
-  const auto &indices = genericResult->inlierIndices;
+  const auto &indices = *genericResult;
   if (indices.empty()) {
     return std::nullopt;
   }

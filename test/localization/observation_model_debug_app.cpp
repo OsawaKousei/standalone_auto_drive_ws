@@ -1,6 +1,6 @@
 #include "features/localization/i_observation_model.hpp"
 #include "features/localization/localization_config.hpp"
-#include "features/localization/observation_model/ransac_config.hpp"
+#include "features/localization/observation_model/ransac_core.hpp"
 #include "features/localization/observation_model/ransac_line_association_model.hpp"
 #include "features/localization/observation_model/simple_line_association_model.hpp"
 #include "shared/map_loader.hpp"

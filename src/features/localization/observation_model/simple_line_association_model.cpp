@@ -1,6 +1,7 @@
 #include "simple_line_association_model.hpp"
 
 #include "line_extractor.hpp"
+#include "line_observation_builder.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -89,25 +90,23 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
       continue;
     }
 
-    auto observation = ad::localization::util::makeExpectedLine(
-        mapLines[lineIndex].model, ad::types::Pose{.x = pose.x, .y = pose.y, .theta = pose.theta});
-    observation.observed = fit->model;
-    ad::localization::util::applyObservationNoiseFromMse(
-        observation,
-        ad::localization::util::ObservationNoiseConfig{
-            .measurementNoiseRange = config.measurementNoiseRange,
-            .measurementNoiseAngle = config.measurementNoiseAngle},
-        static_cast<double>(fit->pointCount), fit->mse);
     ++summary.candidates;
 
-    if (!ad::localization::util::gateLineObservation(
-            observation, ad::localization::util::ObservationGateConfig{
-                             .covariance = covariance, .threshold = config.gateThreshold})) {
+    const auto observation =
+        ad::localization::line_observation_builder::buildGatedObservationFromFit(
+            mapLines[lineIndex].model, fit->model, pose, static_cast<double>(fit->pointCount),
+            fit->mse,
+            ad::localization::line_observation_builder::ObservationBuildConfig{
+                .measurementNoiseRange = config.measurementNoiseRange,
+                .measurementNoiseAngle = config.measurementNoiseAngle,
+                .gateThreshold = config.gateThreshold},
+            covariance);
+    if (!observation) {
       continue;
     }
 
     ++summary.gatePassed;
-    summary.observations.push_back(observation);
+    summary.observations.push_back(*observation);
   }
 
   return summary;

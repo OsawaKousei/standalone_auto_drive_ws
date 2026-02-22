@@ -2,7 +2,7 @@
 
 #include "../i_observation_model.hpp"
 #include "../localizer_util.hpp"
-#include "ransac_config.hpp"
+#include "ransac_core.hpp"
 #include "simple_line_association_model.hpp"
 
 #include <memory>
