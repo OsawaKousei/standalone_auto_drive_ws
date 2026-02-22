@@ -1,6 +1,5 @@
 #include "ransac_line_association_model.hpp"
 
-#include "observation_model_common.hpp"
 #include "ransac_core.hpp"
 
 #include <algorithm>
@@ -343,9 +342,9 @@ auto buildObservations(const std::vector<ad::localization::ransac::LinePairMatch
 
     auto observation = ad::localization::util::makeExpectedLine(mapLine.model, predictedPose);
     observation.observed = scanLine.model;
-    ad::localization::observation_model_common::applyObservationNoiseFromResidual(
+    ad::localization::util::applyObservationNoiseFromResidual(
         observation,
-        ad::localization::observation_model_common::ObservationNoiseConfig{
+        ad::localization::util::ObservationNoiseConfig{
             .measurementNoiseRange = config.baseObservation.measurementNoiseRange,
             .measurementNoiseAngle = config.baseObservation.measurementNoiseAngle},
         pair.angleResidual, pair.rhoResidual);
@@ -494,8 +493,7 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
                                             : 0.0;
   debugRecord.reason = "success";
   appendUpdateDebugCsv(debugRecord);
-  return {ad::localization::observation_model_common::buildMeasurementData(summary.observations,
-                                                                           score)};
+  return {ad::localization::util::buildMeasurementData(summary.observations, score)};
 }
 
 } // namespace ad::localization

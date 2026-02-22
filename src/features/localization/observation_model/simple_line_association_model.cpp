@@ -1,7 +1,6 @@
 #include "simple_line_association_model.hpp"
 
 #include "line_extractor.hpp"
-#include "observation_model_common.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -93,9 +92,9 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
     auto observation = ad::localization::util::makeExpectedLine(
         mapLines[lineIndex].model, ad::types::Pose{.x = pose.x, .y = pose.y, .theta = pose.theta});
     observation.observed = fit->model;
-    ad::localization::observation_model_common::applyObservationNoiseFromMse(
+    ad::localization::util::applyObservationNoiseFromMse(
         observation,
-        ad::localization::observation_model_common::ObservationNoiseConfig{
+        ad::localization::util::ObservationNoiseConfig{
             .measurementNoiseRange = config.measurementNoiseRange,
             .measurementNoiseAngle = config.measurementNoiseAngle},
         static_cast<double>(fit->pointCount), fit->mse);
@@ -167,8 +166,7 @@ auto SimpleLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
   const auto score = summary.candidates > 0 ? static_cast<double>(summary.gatePassed) /
                                                   static_cast<double>(summary.candidates)
                                             : 0.0;
-  return {ad::localization::observation_model_common::buildMeasurementData(summary.observations,
-                                                                           score)};
+  return {ad::localization::util::buildMeasurementData(summary.observations, score)};
 }
 
 } // namespace ad::localization

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "i_observation_model.hpp"
 #include "localization_config.hpp"
 #include "shared/result.hpp"
 #include "shared/types.hpp"
@@ -53,6 +54,11 @@ struct ObservationGateConfig {
   double threshold;
 };
 
+struct ObservationNoiseConfig {
+  double measurementNoiseRange;
+  double measurementNoiseAngle;
+};
+
 [[nodiscard]] auto normalizeAngle(double angle) -> double;
 [[nodiscard]] auto mapHasConsistentGrid(const types::MapData &map) -> bool;
 [[nodiscard]] auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Point>;
@@ -62,6 +68,14 @@ struct ObservationGateConfig {
     -> LineObservation;
 [[nodiscard]] auto gateLineObservation(const LineObservation &observation,
                                        const ObservationGateConfig &gateConfig) -> bool;
+auto applyObservationNoiseFromMse(LineObservation &observation,
+                                  const ObservationNoiseConfig &config, double supportPointCount,
+                                  double mse) -> void;
+auto applyObservationNoiseFromResidual(LineObservation &observation,
+                                       const ObservationNoiseConfig &config, double angleResidual,
+                                       double rhoResidual) -> void;
+auto buildMeasurementData(const std::vector<LineObservation> &observations, double score)
+    -> ObservationUpdateInput;
 [[nodiscard]] auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;
 [[nodiscard]] auto signatureMatches(const MapSignature &signature, const types::MapData &map)
     -> bool;
