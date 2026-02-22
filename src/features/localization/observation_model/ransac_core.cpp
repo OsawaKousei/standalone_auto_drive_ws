@@ -222,6 +222,47 @@ auto collectLinePairInliers(
   return selected;
 }
 
+auto meanMatchScore(const std::vector<ad::localization::ransac::LinePairMatch> &inliers) -> double {
+  if (inliers.empty()) {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  auto sum = 0.0;
+  for (const auto &inlier : inliers) {
+    sum += inlier.score;
+  }
+  return sum / static_cast<double>(inliers.size());
+}
+
+auto passesPosePrior(const ad::types::Pose &hypothesis,
+                     const ad::localization::ransac::LinePairRansacConfig &config) -> bool {
+  if (!config.usePosePrior) {
+    return true;
+  }
+
+  const auto dx = hypothesis.x - config.priorPoseX;
+  const auto dy = hypothesis.y - config.priorPoseY;
+  const auto translationDelta = std::hypot(dx, dy);
+  if (translationDelta > config.maxTranslationDelta) {
+    return false;
+  }
+
+  const auto rotationDelta =
+      std::abs(ad::localization::util::normalizeAngle(hypothesis.theta - config.priorPoseTheta));
+  return rotationDelta <= config.maxRotationDelta;
+}
+
+auto isBetterHypothesis(
+    const std::vector<ad::localization::ransac::LinePairMatch> &candidateInliers,
+    double candidateMeanScore,
+    const std::vector<ad::localization::ransac::LinePairMatch> &bestInliers, double bestMeanScore)
+    -> bool {
+  if (candidateInliers.size() != bestInliers.size()) {
+    return candidateInliers.size() > bestInliers.size();
+  }
+  return candidateMeanScore < bestMeanScore;
+}
+
 } // namespace
 
 namespace ad::localization::ransac {
@@ -335,7 +376,8 @@ auto runLinePairRansacWithDiagnostics(const std::vector<LinePairCandidate> &cand
 
   if (config.maxIterations <= 0 || config.minInliers < 2U || config.minInlierRatio <= 0.0 ||
       config.minInlierRatio > 1.0 || config.inlierAngleThreshold <= 0.0 ||
-      config.inlierRhoThreshold <= 0.0) {
+      config.inlierRhoThreshold <= 0.0 || config.maxTranslationDelta < 0.0 ||
+      config.maxRotationDelta < 0.0 || config.maxMeanResidual <= 0.0) {
     result.diagnostics.configurationValid = false;
     return result;
   }
@@ -347,6 +389,7 @@ auto runLinePairRansacWithDiagnostics(const std::vector<LinePairCandidate> &cand
   const auto seed =
       randomSeed == 0U ? static_cast<std::uint32_t>(candidates.size() * 2654435761U) : randomSeed;
   auto generator = std::mt19937(seed);
+  auto bestMeanScore = std::numeric_limits<double>::infinity();
 
   for (int iteration = 0; iteration < config.maxIterations; ++iteration) {
     const auto sample = sampleTwoDistinct(generator, candidates.size());
@@ -359,6 +402,11 @@ auto runLinePairRansacWithDiagnostics(const std::vector<LinePairCandidate> &cand
         estimatePoseFromTwoPairs(candidates[sample->first], candidates[sample->second]);
     if (!poseHypothesis) {
       ++result.diagnostics.hypothesisRejects;
+      continue;
+    }
+
+    if (!passesPosePrior(*poseHypothesis, config)) {
+      ++result.diagnostics.posePriorRejects;
       continue;
     }
 
@@ -375,9 +423,16 @@ auto runLinePairRansacWithDiagnostics(const std::vector<LinePairCandidate> &cand
       continue;
     }
 
+    const auto currentMeanScore = meanMatchScore(inliers);
+    if (currentMeanScore > config.maxMeanResidual) {
+      ++result.diagnostics.residualRejects;
+      continue;
+    }
+
     ++result.diagnostics.acceptedHypotheses;
 
-    if (inliers.size() > result.inliers.size()) {
+    if (isBetterHypothesis(inliers, currentMeanScore, result.inliers, bestMeanScore)) {
+      bestMeanScore = currentMeanScore;
       result.inliers = std::move(inliers);
     }
   }

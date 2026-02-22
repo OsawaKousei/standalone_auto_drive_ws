@@ -17,9 +17,9 @@
 
 namespace {
 
-constexpr double kCandidateAngleGateMin = 0.2;
-constexpr double kCandidateRhoGateMin = 0.4;
-constexpr double kInlierAngleThresholdMin = 0.16;
+constexpr double kCandidateAngleGateMin = 0.08;
+constexpr double kCandidateRhoGateMin = 0.2;
+constexpr double kInlierAngleThresholdMin = 0.08;
 
 using Mat3 = ad::localization::CovarianceMatrix;
 
@@ -61,7 +61,8 @@ auto appendUpdateDebugCsv(const UpdateDebugRecord &record) -> void {
               "obs_candidates,obs_gate_passed,final_observation_count,min_observations,"
               "reason,ransac_config_valid,ransac_iterations_requested,"
               "ransac_duplicate_sample_rejects,ransac_hypothesis_rejects,"
-              "ransac_min_inlier_rejects,ransac_ratio_rejects,ransac_accepted_hypotheses,"
+              "ransac_min_inlier_rejects,ransac_ratio_rejects,ransac_pose_prior_rejects,"
+              "ransac_residual_rejects,ransac_accepted_hypotheses,"
               "ransac_best_inlier_count\n";
   }
 
@@ -75,6 +76,8 @@ auto appendUpdateDebugCsv(const UpdateDebugRecord &record) -> void {
          << record.ransacDiagnostics.hypothesisRejects << ','
          << record.ransacDiagnostics.minInlierRejects << ','
          << record.ransacDiagnostics.ratioRejects << ','
+         << record.ransacDiagnostics.posePriorRejects << ','
+         << record.ransacDiagnostics.residualRejects << ','
          << record.ransacDiagnostics.acceptedHypotheses << ','
          << record.ransacDiagnostics.bestInlierCount << '\n';
 }
@@ -124,6 +127,16 @@ auto buildCandidatePairs(const std::vector<ad::localization::util::MapLine> &sca
   for (std::size_t scanIndex = 0; scanIndex < scanLines.size(); ++scanIndex) {
     const auto predictedMapLine =
         transformLocalLineToMap(scanLines[scanIndex].model, predictedPose);
+    const auto scanStart = scanLines[scanIndex].segment.start;
+    const auto scanEnd = scanLines[scanIndex].segment.end;
+    const auto cosTheta = std::cos(predictedPose.theta);
+    const auto sinTheta = std::sin(predictedPose.theta);
+    const auto scanStartMap = ad::types::Point{
+        .x = predictedPose.x + (cosTheta * scanStart.x) - (sinTheta * scanStart.y),
+        .y = predictedPose.y + (sinTheta * scanStart.x) + (cosTheta * scanStart.y)};
+    const auto scanEndMap =
+        ad::types::Point{.x = predictedPose.x + (cosTheta * scanEnd.x) - (sinTheta * scanEnd.y),
+                         .y = predictedPose.y + (sinTheta * scanEnd.x) + (cosTheta * scanEnd.y)};
 
     for (std::size_t mapIndex = 0; mapIndex < mapLines.size(); ++mapIndex) {
       const auto angleResidual = std::abs(ad::localization::util::normalizeAngle(
@@ -134,6 +147,22 @@ auto buildCandidatePairs(const std::vector<ad::localization::util::MapLine> &sca
 
       const auto rhoResidual = std::abs(predictedMapLine.rho - mapLines[mapIndex].model.rho);
       if (rhoResidual > rhoGate) {
+        continue;
+      }
+
+      const auto scanProjection0 = (mapLines[mapIndex].directionX * scanStartMap.x) +
+                                   (mapLines[mapIndex].directionY * scanStartMap.y);
+      const auto scanProjection1 = (mapLines[mapIndex].directionX * scanEndMap.x) +
+                                   (mapLines[mapIndex].directionY * scanEndMap.y);
+      const auto scanProjectionMin = std::min(scanProjection0, scanProjection1);
+      const auto scanProjectionMax = std::max(scanProjection0, scanProjection1);
+      const auto mapProjectionMin =
+          mapLines[mapIndex].minProjection - config.houghObservation.segmentMargin;
+      const auto mapProjectionMax =
+          mapLines[mapIndex].maxProjection + config.houghObservation.segmentMargin;
+      const auto overlapMin = std::max(scanProjectionMin, mapProjectionMin);
+      const auto overlapMax = std::min(scanProjectionMax, mapProjectionMax);
+      if (overlapMax < overlapMin) {
         continue;
       }
 
@@ -178,6 +207,18 @@ auto buildObservations(const std::vector<ad::localization::ransac::LinePairMatch
   }
 
   return summary;
+}
+
+auto countDistinctScanLines(
+    const std::vector<ad::localization::ransac::LinePairCandidate> &candidates) -> std::size_t {
+  auto scanIndices = std::vector<std::size_t>{};
+  scanIndices.reserve(candidates.size());
+  for (const auto &candidate : candidates) {
+    scanIndices.push_back(candidate.scanLineIndex);
+  }
+  std::sort(scanIndices.begin(), scanIndices.end());
+  const auto uniqueEnd = std::unique(scanIndices.begin(), scanIndices.end());
+  return static_cast<std::size_t>(std::distance(scanIndices.begin(), uniqueEnd));
 }
 
 } // namespace
@@ -243,6 +284,7 @@ auto HoughRansacObservationModel::buildUpdateInput(
 
   const auto candidates = buildCandidatePairs(*scanLines, mapLines_, predictedPose, config_);
   debugRecord.candidatePairCount = candidates.size();
+  const auto ratioLineCount = std::max<std::size_t>(1U, countDistinctScanLines(candidates));
 
   const auto ransacResult = ad::localization::ransac::runLinePairRansacWithDiagnostics(
       candidates,
@@ -253,7 +295,16 @@ auto HoughRansacObservationModel::buildUpdateInput(
           .inlierAngleThreshold =
               std::max(kInlierAngleThresholdMin, config_.houghObservation.hough.mergeTheta * 2.0),
           .inlierRhoThreshold = std::max(config_.houghObservation.maxAssociationDistance, 1e-6),
-          .lineCountForRatio = scanLines->size()},
+          .lineCountForRatio = ratioLineCount,
+          .usePosePrior = true,
+          .priorPoseX = predictedPose.x,
+          .priorPoseY = predictedPose.y,
+          .priorPoseTheta = predictedPose.theta,
+          .maxTranslationDelta = std::max(
+              1.8, 8.0 * std::sqrt(std::max(predictedCovariance(0, 0), predictedCovariance(1, 1)))),
+          .maxRotationDelta =
+              std::max(1.0, 8.0 * std::sqrt(std::max(predictedCovariance(2, 2), 1e-9))),
+          .maxMeanResidual = 1.2},
       buildRansacSeed(predictedPose, candidates.size()));
 
   debugRecord.ransacDiagnostics = ransacResult.diagnostics;

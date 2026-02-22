@@ -73,6 +73,13 @@ struct LinePairRansacConfig {
   double inlierAngleThreshold;
   double inlierRhoThreshold;
   std::size_t lineCountForRatio;
+  bool usePosePrior;
+  double priorPoseX;
+  double priorPoseY;
+  double priorPoseTheta;
+  double maxTranslationDelta;
+  double maxRotationDelta;
+  double maxMeanResidual;
 };
 
 struct LinePairRansacDiagnostics {
@@ -82,6 +89,8 @@ struct LinePairRansacDiagnostics {
   int hypothesisRejects = 0;
   int minInlierRejects = 0;
   int ratioRejects = 0;
+  int posePriorRejects = 0;
+  int residualRejects = 0;
   int acceptedHypotheses = 0;
   std::size_t bestInlierCount = 0U;
 };
