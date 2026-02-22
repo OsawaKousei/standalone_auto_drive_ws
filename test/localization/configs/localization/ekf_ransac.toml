@@ -26,7 +26,7 @@ min_segment_length = 0.8
 [localization.observation.models.ransac_line_association.scan_line_extraction]
 point_distance_threshold = 0.5
 min_inlier_points = 5
-max_iterations = 400
+max_iterations = 200
 max_extracted_scan_lines = 10
 min_segment_length = 0.2
 min_remaining_points = 1
@@ -38,7 +38,7 @@ max_continuity_gap = 3
 
 [localization.observation.models.ransac_line_association.line_association]
 segment_margin = 0.7
-translation_ransac_iterations = 1000
+translation_ransac_iterations = 400
 line_angle_threshold = 0.314
 line_rho_threshold = 0.5
 parallel_reject_threshold = 0.05
