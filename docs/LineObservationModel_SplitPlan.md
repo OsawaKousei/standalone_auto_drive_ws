@@ -65,17 +65,57 @@
 責務: 線分ベース観測で共有される汎用処理
 
 - 線モデル正規化（rho/alpha 規約）
-- 点群の線フィット
 - 期待観測生成（pose 依存）
 - ゲーティング（Mahalanobis 判定）
 - 観測ノイズ反映
 - `ObservationUpdateInput` への変換
 - map 整合性/署名チェック
-- （追加推奨）線への投影値・点線距離など幾何ヘルパ
 
 責務外:
 
 - どの候補を採用するかという戦略判断
+- 特定モデル専用の抽出・対応付けアルゴリズム
+
+### 3.2 util 配置の判定原則（厳格版）
+
+原則:
+
+- 「純粋関数かどうか」ではなく、「複数モデルでの再利用が確実かどうか」で判断する
+- 現時点で `simple` と「線分検出RANSAC + 対応付けRANSAC（2段）」の双方で共有が見込める処理のみ util に置く
+- 片方でしか使わない処理は、たとえ計算処理でも各モデル内に置く
+
+採用条件（すべて満たすこと）:
+
+1. 入出力がモデル戦略に依存しない（閾値意味・探索順・候補選択規則を含まない）
+2. `simple` と 2段RANSAC の双方で同一数式・同一意味で利用できる
+3. 近い将来に最低2実装で利用される具体シナリオを説明できる
+
+除外条件（いずれかに該当したら util 化しない）:
+
+- 候補生成、対応付け、インライア選別など「戦略の核」に触れる
+- しきい値の意味がモデル固有（例: RANSAC反復・インライア率）
+- 現状単一実装でしか呼ばれていない
+
+### 3.3 simple と 2段RANSAC を前提にした配置マトリクス
+
+新 util に置く（共有確度が高い）:
+
+- `toLineModel`（rho/alpha 正規化）
+- `makeExpectedLine`（地図線分 + pose から期待観測）
+- `gateLineObservation`（共通ゲーティング）
+- `applyObservationNoiseFromMse`（共通ノイズ反映）
+- `buildMeasurementData`（EKF更新入力への変換）
+- `mapHasConsistentGrid` / `mapSignatureFromMap` / `signatureMatches`
+
+モデル側に残す（戦略依存）:
+
+- `simple`: scan点のバケット割当、最近傍 line 選択、採否判定フロー
+- 2段RANSAC: scan線分抽出のサンプリング戦略、線分マッチングのRANSAC反復、インライア選抜
+
+要再評価（現時点では util 化しない）:
+
+- `fitLine`（2段RANSACで最終線推定に使う可能性はあるが、用途と統計モデルが一致するまで保留）
+- 線方向投影や点線距離の低レベルヘルパ（現状は呼び出し統一より可読性低下リスクが高い）
 
 ---
 
@@ -118,10 +158,11 @@
    - map 署名一致を util で検証
    - scan 各点を map 座標へ変換
    - 戦略ロジックで候補 line へバケット分配
-   - 各バケットを util の線フィットへ投入
-   - util で期待観測生成・ノイズ設定・ゲート判定
-   - 観測数が閾値未満なら no update
-   - util で `ObservationUpdateInput` に変換して返却
+
+- 各バケットをモデル内の線推定処理へ投入（`fitLine` は共有実績が固まるまでモデル側）
+- util で期待観測生成・ノイズ設定・ゲート判定
+- 観測数が閾値未満なら no update
+- util で `ObservationUpdateInput` に変換して返却
 
 ### フロー図
 
@@ -135,7 +176,7 @@ flowchart TD
   D --> E[buildUpdateInput(scan, map, pose, P)]
   E --> F[util: signature check]
   F --> G[bucket assignment by strategy]
-  G --> H[util: fitLine]
+  G --> H[model: line fitting/estimation]
   H --> I[util: makeExpectedLine]
   I --> J[util: applyObservationNoise]
   J --> K[util: gateLineObservation]
@@ -163,7 +204,6 @@ flowchart TD
 
 逆にコアではない（汎用化対象）:
 
-- 線フィット数式
 - 線観測の期待値生成
 - Mahalanobis ゲート計算
 - EKF 入力行列の組み立て
@@ -174,12 +214,16 @@ flowchart TD
 
 ## 8. 重複解消の具体ポイント
 
-### 8.1 util へ寄せる優先候補
+### 8.1 util へ寄せる優先候補（厳格版）
 
-- 線法線計算（`alpha -> nx, ny`）
-- 点と線モデルの距離計算
-- 線方向投影計算
-- 線分から `MapLine` 生成（規約統一）
+- `toLineModel`
+- `makeExpectedLine`
+- `gateLineObservation`
+- `applyObservationNoiseFromMse`
+- `buildMeasurementData`
+- map 整合性 / 署名チェック
+
+※ 低レベル幾何ヘルパは「2実装以上で同一シグネチャ利用」が確認できるまでモデル内に留める。
 
 ### 8.2 期待効果
 
@@ -194,13 +238,13 @@ flowchart TD
 ### Phase 1: util 新設（挙動不変）
 
 - `line_observation_util` を追加
-- `localizer_util` 内の観測専用処理を移設
+- `localizer_util` 内の観測専用処理から、共有確度が高いもののみ移設
 - 既存呼び出しを差し替え
 
 ### Phase 2: line_extractor 側の幾何重複吸収
 
-- `buildMapLineFromSegment` 周辺を util ヘルパ利用へ変更
-- 数式重複を削減
+- `line_extractor` と `simple` で実際に重複している式を棚卸し
+- 2段RANSAC導入時も共有できると判断できたものだけ util へ昇格
 
 ### Phase 3: localizer_util 最小化
 
