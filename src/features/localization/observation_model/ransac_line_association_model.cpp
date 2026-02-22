@@ -2,12 +2,15 @@
 
 #include "../localizer_util.hpp"
 
+#include <Eigen/Dense>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <numbers>
 #include <numeric>
@@ -25,6 +28,7 @@ constexpr std::uint32_t kPointRansacSeedBias = 17U;
 constexpr std::uint32_t kPoseRansacSeedMultiplier = 31U;
 constexpr int kDistinctSampleRetryCount = 8;
 constexpr double kClusterSplitDistanceMultiplier = 3.0;
+constexpr double kMahaPenalty = 1e9;
 
 struct ObservedLine {
   ad::localization::observation_model::util::LineModel model;
@@ -34,8 +38,19 @@ struct ObservedLine {
 };
 
 struct PoseHypothesis {
-  ad::types::Pose pose;
+  double x;
+  double y;
+  double theta;
   std::vector<std::pair<std::size_t, std::size_t>> matches;
+  double coarseScore;
+  double refinementCost;
+  double mahalanobisDistanceSquared;
+};
+
+struct TranslationConstraint {
+  std::size_t observedIndex;
+  std::size_t mapIndex;
+  double rhs;
 };
 
 struct ExtractedLineCandidate {
@@ -490,42 +505,6 @@ auto transformLineToMap(const ad::localization::observation_model::util::LineMod
       ad::localization::observation_model::util::LineModel{.rho = rhoMap, .alpha = alphaMap});
 }
 
-auto estimatePoseFromPairs(const ObservedLine &obsFirst,
-                           const ad::localization::observation_model::util::MapLine &mapFirst,
-                           const ObservedLine &obsSecond,
-                           const ad::localization::observation_model::util::MapLine &mapSecond,
-                           const ad::localization::RansacLineAssociationModelConfig &config)
-    -> std::optional<ad::types::Pose> {
-  const auto thetaFirst =
-      ad::localization::util::normalizeAngle(mapFirst.model.alpha - obsFirst.model.alpha);
-  const auto thetaSecond =
-      ad::localization::util::normalizeAngle(mapSecond.model.alpha - obsSecond.model.alpha);
-  const auto thetaDiff = std::abs(ad::localization::util::normalizeAngle(thetaFirst - thetaSecond));
-  if (thetaDiff > config.lineAngleThreshold) {
-    return std::nullopt;
-  }
-
-  const auto theta = std::atan2(std::sin(thetaFirst) + std::sin(thetaSecond),
-                                std::cos(thetaFirst) + std::cos(thetaSecond));
-
-  const auto n1x = std::cos(mapFirst.model.alpha);
-  const auto n1y = std::sin(mapFirst.model.alpha);
-  const auto n2x = std::cos(mapSecond.model.alpha);
-  const auto n2y = std::sin(mapSecond.model.alpha);
-  const auto determinant = (n1x * n2y) - (n1y * n2x);
-  if (std::abs(determinant) < std::max(kEpsilon, config.parallelRejectThreshold)) {
-    return std::nullopt;
-  }
-
-  const auto rhsFirst = mapFirst.model.rho - obsFirst.model.rho;
-  const auto rhsSecond = mapSecond.model.rho - obsSecond.model.rho;
-  const auto poseX = ((rhsFirst * n2y) - (n1y * rhsSecond)) / determinant;
-  const auto poseY = ((n1x * rhsSecond) - (rhsFirst * n2x)) / determinant;
-
-  return ad::types::Pose{
-      .x = poseX, .y = poseY, .theta = ad::localization::util::normalizeAngle(theta)};
-}
-
 auto segmentOverlapsInMap(const ObservedLine &observed, const ad::types::Pose &pose,
                           const ad::localization::observation_model::util::MapLine &mapLine,
                           const double margin) -> bool {
@@ -600,74 +579,377 @@ auto evaluatePoseHypothesis(
   return matches;
 }
 
-auto runPoseRansac(const std::vector<ObservedLine> &observedLines,
-                   const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
-                   const ad::localization::RansacLineAssociationModelConfig &config)
-    -> std::optional<PoseHypothesis> {
-  if (observedLines.size() < 2U || mapLines.size() < 2U) {
+auto toPose(const PoseHypothesis &hypothesis) -> ad::types::Pose {
+  return ad::types::Pose{.x = hypothesis.x, .y = hypothesis.y, .theta = hypothesis.theta};
+}
+
+auto buildOrientationCandidates(
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config) -> std::vector<double> {
+  const auto binSize = std::max(kEpsilon, config.orientationBinSize);
+  const auto binCount =
+      static_cast<std::size_t>(std::max(8.0, std::ceil((2.0 * std::numbers::pi) / binSize)));
+  auto bins = std::vector<std::size_t>(binCount, 0U);
+
+  for (const auto &observed : observedLines) {
+    for (const auto &mapLine : mapLines) {
+      const auto theta =
+          ad::localization::util::normalizeAngle(mapLine.model.alpha - observed.model.alpha);
+      const auto shifted = theta + std::numbers::pi;
+      const auto rawIndex = static_cast<std::size_t>(
+          std::clamp(std::floor(shifted / binSize), 0.0, static_cast<double>(binCount - 1U)));
+      ++bins[rawIndex];
+    }
+  }
+
+  struct Peak {
+    std::size_t index;
+    std::size_t votes;
+  };
+  auto peaks = std::vector<Peak>{};
+  peaks.reserve(binCount);
+  for (std::size_t index = 0; index < binCount; ++index) {
+    const auto prev = index == 0U ? binCount - 1U : index - 1U;
+    const auto next = (index + 1U) % binCount;
+    if (bins[index] < config.orientationPeakMinVotes) {
+      continue;
+    }
+    if (bins[index] >= bins[prev] && bins[index] >= bins[next]) {
+      peaks.push_back(Peak{.index = index, .votes = bins[index]});
+    }
+  }
+  std::sort(peaks.begin(), peaks.end(),
+            [](const Peak &left, const Peak &right) { return left.votes > right.votes; });
+
+  auto orientations = std::vector<double>{};
+  orientations.reserve(std::min(config.maxOrientationCandidates, peaks.size()));
+  for (std::size_t idx = 0;
+       idx < peaks.size() && orientations.size() < config.maxOrientationCandidates; ++idx) {
+    const auto theta = ad::localization::util::normalizeAngle(
+        (-std::numbers::pi) + (binSize * (static_cast<double>(peaks[idx].index) + 0.5)));
+    orientations.push_back(theta);
+  }
+
+  if (orientations.empty()) {
+    orientations.push_back(0.0);
+  }
+  return orientations;
+}
+
+auto buildTranslationConstraintsForTheta(
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config, const double theta)
+    -> std::vector<TranslationConstraint> {
+  auto constraints = std::vector<TranslationConstraint>{};
+  constraints.reserve(observedLines.size() * mapLines.size());
+
+  for (std::size_t observedIndex = 0; observedIndex < observedLines.size(); ++observedIndex) {
+    const auto transformedAlpha =
+        ad::localization::util::normalizeAngle(observedLines[observedIndex].model.alpha + theta);
+    for (std::size_t mapIndex = 0; mapIndex < mapLines.size(); ++mapIndex) {
+      const auto angleDiff = std::abs(ad::localization::util::normalizeAngle(
+          transformedAlpha - mapLines[mapIndex].model.alpha));
+      if (angleDiff > config.lineAngleThreshold) {
+        continue;
+      }
+
+      constraints.push_back(TranslationConstraint{.observedIndex = observedIndex,
+                                                  .mapIndex = mapIndex,
+                                                  .rhs = mapLines[mapIndex].model.rho -
+                                                         observedLines[observedIndex].model.rho});
+    }
+  }
+
+  return constraints;
+}
+
+auto solveTranslationFromConstraints(
+    const TranslationConstraint &firstConstraint, const TranslationConstraint &secondConstraint,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config, const double theta)
+    -> std::optional<ad::types::Pose> {
+  const auto &firstMap = mapLines[firstConstraint.mapIndex];
+  const auto &secondMap = mapLines[secondConstraint.mapIndex];
+
+  const auto n1x = std::cos(firstMap.model.alpha);
+  const auto n1y = std::sin(firstMap.model.alpha);
+  const auto n2x = std::cos(secondMap.model.alpha);
+  const auto n2y = std::sin(secondMap.model.alpha);
+  const auto determinant = (n1x * n2y) - (n1y * n2x);
+  if (std::abs(determinant) < std::max(kEpsilon, config.parallelRejectThreshold)) {
     return std::nullopt;
+  }
+
+  const auto x = ((firstConstraint.rhs * n2y) - (n1y * secondConstraint.rhs)) / determinant;
+  const auto y = ((n1x * secondConstraint.rhs) - (firstConstraint.rhs * n2x)) / determinant;
+  return ad::types::Pose{.x = x, .y = y, .theta = ad::localization::util::normalizeAngle(theta)};
+}
+
+auto runTranslationRansacForTheta(
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config, const double theta,
+    std::mt19937 &rng) -> std::vector<PoseHypothesis> {
+  const auto constraints =
+      buildTranslationConstraintsForTheta(observedLines, mapLines, config, theta);
+  auto candidates = std::vector<PoseHypothesis>{};
+  if (constraints.size() < 2U) {
+    return candidates;
+  }
+
+  const auto maxIterations = std::max(1, config.translationRansacMaxIterations);
+  candidates.reserve(static_cast<std::size_t>(maxIterations));
+
+  for (int iteration = 0; iteration < maxIterations; ++iteration) {
+    const auto sampled = sampleDistinctIndices(rng, constraints.size());
+    if (!sampled) {
+      continue;
+    }
+    const auto [firstIndex, secondIndex] = *sampled;
+    const auto &firstConstraint = constraints[firstIndex];
+    const auto &secondConstraint = constraints[secondIndex];
+    if (firstConstraint.mapIndex == secondConstraint.mapIndex) {
+      continue;
+    }
+
+    const auto pose =
+        solveTranslationFromConstraints(firstConstraint, secondConstraint, mapLines, config, theta);
+    if (!pose) {
+      continue;
+    }
+
+    auto matches = evaluatePoseHypothesis(*pose, observedLines, mapLines, config);
+    if (matches.size() < config.minPoseInliers) {
+      continue;
+    }
+
+    const auto coarseScore = static_cast<double>(matches.size());
+    candidates.push_back(PoseHypothesis{.x = pose->x,
+                                        .y = pose->y,
+                                        .theta = pose->theta,
+                                        .matches = std::move(matches),
+                                        .coarseScore = coarseScore,
+                                        .refinementCost = std::numeric_limits<double>::infinity(),
+                                        .mahalanobisDistanceSquared = kMahaPenalty});
+  }
+
+  return candidates;
+}
+
+auto clusterHypotheses(const std::vector<PoseHypothesis> &raw,
+                       const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<PoseHypothesis> {
+  if (raw.empty()) {
+    return {};
+  }
+
+  auto sorted = raw;
+  std::sort(sorted.begin(), sorted.end(),
+            [](const PoseHypothesis &left, const PoseHypothesis &right) {
+              if (left.matches.size() != right.matches.size()) {
+                return left.matches.size() > right.matches.size();
+              }
+              return left.coarseScore > right.coarseScore;
+            });
+
+  auto clustered = std::vector<PoseHypothesis>{};
+  clustered.reserve(std::min(sorted.size(), config.maxCoarseHypotheses));
+
+  for (const auto &candidate : sorted) {
+    bool isClose = false;
+    for (const auto &selected : clustered) {
+      const auto positionDistance = std::hypot(candidate.x - selected.x, candidate.y - selected.y);
+      const auto angleDistance =
+          std::abs(ad::localization::util::normalizeAngle(candidate.theta - selected.theta));
+      if (positionDistance <= config.clusterPositionThreshold &&
+          angleDistance <= config.clusterAngleThreshold) {
+        isClose = true;
+        break;
+      }
+    }
+
+    if (!isClose) {
+      clustered.push_back(candidate);
+      if (clustered.size() >= config.maxCoarseHypotheses) {
+        break;
+      }
+    }
+  }
+
+  return clustered;
+}
+
+auto coarseSearchHypotheses(
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<PoseHypothesis> {
+  if (observedLines.size() < 2U || mapLines.size() < 2U) {
+    return {};
   }
 
   auto rng = std::mt19937{static_cast<std::uint32_t>(
       (observedLines.size() * kPoseRansacSeedMultiplier) + mapLines.size())};
+  const auto orientations = buildOrientationCandidates(observedLines, mapLines, config);
+  auto allCandidates = std::vector<PoseHypothesis>{};
 
-  auto bestHypothesis = std::optional<PoseHypothesis>{};
-  const auto maxIterations = std::max(1, config.poseRansacMaxIterations);
+  for (const auto theta : orientations) {
+    auto candidates = runTranslationRansacForTheta(observedLines, mapLines, config, theta, rng);
+    allCandidates.insert(allCandidates.end(), std::make_move_iterator(candidates.begin()),
+                         std::make_move_iterator(candidates.end()));
+  }
 
-  const auto tryAssignment =
-      [&](const std::size_t observedFirstIndex, const std::size_t observedSecondIndex,
-          const std::size_t mapFirstIndex,
-          const std::size_t mapSecondIndex) -> std::optional<PoseHypothesis> {
-    const auto estimatedPose =
-        estimatePoseFromPairs(observedLines[observedFirstIndex], mapLines[mapFirstIndex],
-                              observedLines[observedSecondIndex], mapLines[mapSecondIndex], config);
-    if (!estimatedPose) {
-      return std::nullopt;
-    }
+  return clusterHypotheses(allCandidates, config);
+}
 
-    auto matches = evaluatePoseHypothesis(*estimatedPose, observedLines, mapLines, config);
-    if (matches.size() < config.minPoseInliers) {
-      return std::nullopt;
-    }
-    return PoseHypothesis{.pose = *estimatedPose, .matches = std::move(matches)};
-  };
-
-  const auto chooseBetter =
-      [&](const std::optional<PoseHypothesis> &left,
-          const std::optional<PoseHypothesis> &right) -> std::optional<PoseHypothesis> {
-    if (left && right) {
-      return left->matches.size() >= right->matches.size() ? left : right;
-    }
-    return left ? left : right;
-  };
+auto refineHypothesisGaussNewton(
+    const PoseHypothesis &inputHypothesis, const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config) -> PoseHypothesis {
+  auto poseX = inputHypothesis.x;
+  auto poseY = inputHypothesis.y;
+  auto poseTheta = inputHypothesis.theta;
+  const auto maxIterations = std::max(1, config.refinementMaxIterations);
 
   for (int iteration = 0; iteration < maxIterations; ++iteration) {
-    const auto observedPair = sampleDistinctIndices(rng, observedLines.size());
-    if (!observedPair) {
-      continue;
-    }
-    const auto mapPair = sampleDistinctIndices(rng, mapLines.size());
-    if (!mapPair) {
-      continue;
+    Eigen::Matrix3d jtj = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d jtr = Eigen::Vector3d::Zero();
+
+    for (const auto &[observedIndex, mapIndex] : inputHypothesis.matches) {
+      const auto &observed = observedLines[observedIndex];
+      const auto &mapLine = mapLines[mapIndex];
+      const auto nx = std::cos(mapLine.model.alpha);
+      const auto ny = std::sin(mapLine.model.alpha);
+      const auto weight =
+          std::max(kEpsilon, std::hypot(observed.segment.end.x - observed.segment.start.x,
+                                        observed.segment.end.y - observed.segment.start.y));
+      const auto cosTheta = std::cos(poseTheta);
+      const auto sinTheta = std::sin(poseTheta);
+
+      const auto accumulate = [&](const ad::types::Point &localPoint) {
+        const auto transformedX = poseX + (cosTheta * localPoint.x) - (sinTheta * localPoint.y);
+        const auto transformedY = poseY + (sinTheta * localPoint.x) + (cosTheta * localPoint.y);
+        const auto residual = (nx * transformedX) + (ny * transformedY) - mapLine.model.rho;
+
+        const auto dxdTheta = (-sinTheta * localPoint.x) - (cosTheta * localPoint.y);
+        const auto dydTheta = (cosTheta * localPoint.x) - (sinTheta * localPoint.y);
+        Eigen::Vector3d jacobian;
+        jacobian << nx, ny, (nx * dxdTheta) + (ny * dydTheta);
+
+        jtj += weight * (jacobian * jacobian.transpose());
+        jtr += weight * (jacobian * residual);
+      };
+
+      accumulate(observed.segment.start);
+      accumulate(observed.segment.end);
     }
 
-    const auto [obsFirstIndex, obsSecondIndex] = *observedPair;
-    const auto [mapFirstIndex, mapSecondIndex] = *mapPair;
-
-    const auto direct = tryAssignment(obsFirstIndex, obsSecondIndex, mapFirstIndex, mapSecondIndex);
-    const auto reverseAssignment =
-        tryAssignment(obsFirstIndex, obsSecondIndex, mapSecondIndex, mapFirstIndex);
-    const auto candidate = chooseBetter(direct, reverseAssignment);
-    if (!candidate) {
-      continue;
+    jtj += config.refinementDamping * Eigen::Matrix3d::Identity();
+    const auto delta = jtj.ldlt().solve(-jtr);
+    if (!delta.allFinite()) {
+      break;
     }
 
-    if (!bestHypothesis || candidate->matches.size() > bestHypothesis->matches.size()) {
-      bestHypothesis.emplace(*candidate);
+    poseX += delta(0);
+    poseY += delta(1);
+    poseTheta = ad::localization::util::normalizeAngle(poseTheta + delta(2));
+    if (delta.norm() < config.refinementStepTolerance) {
+      break;
     }
   }
 
-  return bestHypothesis;
+  const auto refinedPose = ad::types::Pose{.x = poseX, .y = poseY, .theta = poseTheta};
+  auto refinedMatches = evaluatePoseHypothesis(refinedPose, observedLines, mapLines, config);
+  auto refinementCost = 0.0;
+  for (const auto &[observedIndex, mapIndex] : refinedMatches) {
+    const auto &observed = observedLines[observedIndex];
+    const auto &mapLine = mapLines[mapIndex];
+    const auto nx = std::cos(mapLine.model.alpha);
+    const auto ny = std::sin(mapLine.model.alpha);
+    const auto weight =
+        std::max(kEpsilon, std::hypot(observed.segment.end.x - observed.segment.start.x,
+                                      observed.segment.end.y - observed.segment.start.y));
+    const auto start = transformPointToMap(observed.segment.start, refinedPose);
+    const auto end = transformPointToMap(observed.segment.end, refinedPose);
+    const auto eStart = (nx * start.x) + (ny * start.y) - mapLine.model.rho;
+    const auto eEnd = (nx * end.x) + (ny * end.y) - mapLine.model.rho;
+    refinementCost += weight * ((eStart * eStart) + (eEnd * eEnd));
+  }
+
+  return PoseHypothesis{.x = poseX,
+                        .y = poseY,
+                        .theta = poseTheta,
+                        .matches = std::move(refinedMatches),
+                        .coarseScore = inputHypothesis.coarseScore,
+                        .refinementCost = refinementCost,
+                        .mahalanobisDistanceSquared = kMahaPenalty};
+}
+
+auto refineHypotheses(
+    const std::vector<PoseHypothesis> &coarseHypotheses,
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<PoseHypothesis> {
+  auto refined = std::vector<PoseHypothesis>{};
+  refined.reserve(coarseHypotheses.size());
+  for (const auto &hypothesis : coarseHypotheses) {
+    auto refinedHypothesis =
+        refineHypothesisGaussNewton(hypothesis, observedLines, mapLines, config);
+    if (refinedHypothesis.matches.size() >= config.minPoseInliers) {
+      refined.push_back(std::move(refinedHypothesis));
+    }
+  }
+  return refined;
+}
+
+auto computeMahalanobisDistanceSquared(const ad::types::Pose &observedPose,
+                                       const ad::types::Pose &predictedPose,
+                                       const ad::localization::CovarianceMatrix &covariance)
+    -> std::optional<double> {
+  const auto inverse = covariance.inverse();
+  if (!inverse.allFinite()) {
+    return std::nullopt;
+  }
+
+  Eigen::Vector3d delta;
+  delta << observedPose.x - predictedPose.x, observedPose.y - predictedPose.y,
+      ad::localization::util::normalizeAngle(observedPose.theta - predictedPose.theta);
+  const auto distance = delta.transpose() * inverse * delta;
+  if (!std::isfinite(distance)) {
+    return std::nullopt;
+  }
+  return distance;
+}
+
+auto selectFinalHypothesis(const std::vector<PoseHypothesis> &refinedHypotheses,
+                           const ad::types::Pose &predictedPose,
+                           const ad::localization::CovarianceMatrix &predictedCovariance,
+                           const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::optional<PoseHypothesis> {
+  auto best = std::optional<PoseHypothesis>{};
+
+  for (const auto &hypothesis : refinedHypotheses) {
+    const auto maha =
+        computeMahalanobisDistanceSquared(toPose(hypothesis), predictedPose, predictedCovariance);
+    if (!maha) {
+      continue;
+    }
+
+    if (config.useContextGate && *maha > config.contextGateThreshold) {
+      continue;
+    }
+
+    auto updated = hypothesis;
+    updated.mahalanobisDistanceSquared = *maha;
+    if (!best || updated.mahalanobisDistanceSquared < best->mahalanobisDistanceSquared) {
+      best = std::move(updated);
+    }
+  }
+
+  return best;
 }
 
 } // namespace
@@ -722,19 +1004,52 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
     return {std::nullopt};
   }
 
-  const auto bestHypothesis = runPoseRansac(observedLines, mapLines_, config_);
-  if (!bestHypothesis || bestHypothesis->matches.size() < config_.minObservations) {
-    const auto stage2MatchCount = bestHypothesis ? bestHypothesis->matches.size() : 0U;
+  const auto coarseHypotheses = coarseSearchHypotheses(observedLines, mapLines_, config_);
+  if (coarseHypotheses.empty()) {
     std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
-              << " stage2_matches=" << stage2MatchCount
-              << " gate_passed=0 accepted=0 reject=stage2_min_observations"
+              << " phase2_candidates=0 phase3_refined=0 phase4_gate_passed=0 accepted=0"
+              << " reject=phase2_no_hypothesis"
+              << " stage1_segments=" << stage1Segments << "\n";
+    return {std::nullopt};
+  }
+
+  const auto refinedHypotheses =
+      refineHypotheses(coarseHypotheses, observedLines, mapLines_, config_);
+  if (refinedHypotheses.empty()) {
+    std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
+              << " phase2_candidates=" << coarseHypotheses.size()
+              << " phase3_refined=0 phase4_gate_passed=0 accepted=0"
+              << " reject=phase3_no_refined"
+              << " stage1_segments=" << stage1Segments << "\n";
+    return {std::nullopt};
+  }
+
+  std::size_t phase4GatePassed = 0U;
+  for (const auto &candidate : refinedHypotheses) {
+    const auto maha =
+        computeMahalanobisDistanceSquared(toPose(candidate), predictedPose, predictedCovariance);
+    if (!maha) {
+      continue;
+    }
+    if (!config_.useContextGate || *maha <= config_.contextGateThreshold) {
+      ++phase4GatePassed;
+    }
+  }
+
+  const auto bestHypothesis =
+      selectFinalHypothesis(refinedHypotheses, predictedPose, predictedCovariance, config_);
+  if (!bestHypothesis || bestHypothesis->matches.size() < config_.minObservations) {
+    std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
+              << " phase2_candidates=" << coarseHypotheses.size()
+              << " phase3_refined=" << refinedHypotheses.size()
+              << " phase4_gate_passed=" << phase4GatePassed << " accepted=0"
+              << " reject=phase4_selection"
               << " stage1_segments=" << stage1Segments << "\n";
     return {std::nullopt};
   }
 
   auto observations = std::vector<observation_model::util::LineObservation>{};
   observations.reserve(bestHypothesis->matches.size());
-  const auto stage2MatchCount = bestHypothesis->matches.size();
   std::size_t gatePassed = 0;
 
   for (const auto &[observedIndex, mapIndex] : bestHypothesis->matches) {
@@ -763,7 +1078,9 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
 
   if (observations.size() < config_.minObservations) {
     std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
-              << " stage2_matches=" << stage2MatchCount << " gate_passed=" << gatePassed
+              << " phase2_candidates=" << coarseHypotheses.size()
+              << " phase3_refined=" << refinedHypotheses.size()
+              << " phase4_gate_passed=" << phase4GatePassed << " gate_passed=" << gatePassed
               << " accepted=0 reject=gate_min_observations"
               << " stage1_segments=" << stage1Segments << "\n";
     return {std::nullopt};
@@ -774,8 +1091,12 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
           ? static_cast<double>(gatePassed) / static_cast<double>(bestHypothesis->matches.size())
           : 0.0;
   std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
-            << " stage2_matches=" << stage2MatchCount << " gate_passed=" << gatePassed
-            << " accepted=1 score=" << score << " stage1_segments=" << stage1Segments << "\n";
+            << " phase2_candidates=" << coarseHypotheses.size()
+            << " phase3_refined=" << refinedHypotheses.size()
+            << " phase4_gate_passed=" << phase4GatePassed << " gate_passed=" << gatePassed
+            << " accepted=1 score=" << score
+            << " best_maha=" << bestHypothesis->mahalanobisDistanceSquared
+            << " stage1_segments=" << stage1Segments << "\n";
   return {observation_model::util::buildMeasurementData(observations, score)};
 }
 

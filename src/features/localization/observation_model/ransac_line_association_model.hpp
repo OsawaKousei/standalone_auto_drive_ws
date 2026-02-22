@@ -27,12 +27,25 @@ struct RansacLineAssociationModelConfig {
   const double minLinearity;
   const int maxContinuityGap;
 
-  const int poseRansacMaxIterations;
+  const double orientationBinSize;
+  const std::size_t maxOrientationCandidates;
+  const std::size_t orientationPeakMinVotes;
+  const int translationRansacMaxIterations;
   const double lineAngleThreshold;
   const double lineRhoThreshold;
   const double parallelRejectThreshold;
+  const double clusterPositionThreshold;
+  const double clusterAngleThreshold;
+  const std::size_t maxCoarseHypotheses;
   const std::size_t minPoseInliers;
   const double segmentMargin;
+
+  const int refinementMaxIterations;
+  const double refinementStepTolerance;
+  const double refinementDamping;
+
+  const bool useContextGate;
+  const double contextGateThreshold;
 
   const bool useEkfGate;
   const double gateThreshold;
