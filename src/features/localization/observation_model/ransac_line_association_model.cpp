@@ -12,6 +12,8 @@
 #include <numbers>
 #include <optional>
 #include <random>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -359,6 +361,19 @@ auto segmentOverlapsInMap(const ObservedLine &observed, const ad::types::Pose &p
          observedMin <= (mapLine.maxProjection + margin);
 }
 
+auto serializeObservedSegments(const std::vector<ObservedLine> &observedLines) -> std::string {
+  auto stream = std::ostringstream{};
+  for (std::size_t index = 0; index < observedLines.size(); ++index) {
+    const auto &segment = observedLines[index].segment;
+    stream << segment.start.x << ':' << segment.start.y << ':' << segment.end.x << ':'
+           << segment.end.y;
+    if ((index + 1U) < observedLines.size()) {
+      stream << '|';
+    }
+  }
+  return stream.str();
+}
+
 auto evaluatePoseHypothesis(
     const ad::types::Pose &pose, const std::vector<ObservedLine> &observedLines,
     const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
@@ -520,9 +535,11 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
 
   const auto observedLines = extractObservedLinesRansac(scan, config_);
   const auto stage1ExtractedCount = observedLines.size();
+  const auto stage1Segments = serializeObservedSegments(observedLines);
   if (observedLines.size() < config_.minObservations) {
     std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
-              << " stage2_matches=0 gate_passed=0 accepted=0 reject=stage1_min_observations\n";
+              << " stage2_matches=0 gate_passed=0 accepted=0 reject=stage1_min_observations"
+              << " stage1_segments=" << stage1Segments << "\n";
     return {std::nullopt};
   }
 
@@ -531,7 +548,8 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
     const auto stage2MatchCount = bestHypothesis ? bestHypothesis->matches.size() : 0U;
     std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
               << " stage2_matches=" << stage2MatchCount
-              << " gate_passed=0 accepted=0 reject=stage2_min_observations\n";
+              << " gate_passed=0 accepted=0 reject=stage2_min_observations"
+              << " stage1_segments=" << stage1Segments << "\n";
     return {std::nullopt};
   }
 
@@ -567,7 +585,8 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
   if (observations.size() < config_.minObservations) {
     std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
               << " stage2_matches=" << stage2MatchCount << " gate_passed=" << gatePassed
-              << " accepted=0 reject=gate_min_observations\n";
+              << " accepted=0 reject=gate_min_observations"
+              << " stage1_segments=" << stage1Segments << "\n";
     return {std::nullopt};
   }
 
@@ -577,7 +596,7 @@ auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
           : 0.0;
   std::cerr << "[ransac_diag] stage1_extracted=" << stage1ExtractedCount
             << " stage2_matches=" << stage2MatchCount << " gate_passed=" << gatePassed
-            << " accepted=1 score=" << score << "\n";
+            << " accepted=1 score=" << score << " stage1_segments=" << stage1Segments << "\n";
   return {observation_model::util::buildMeasurementData(observations, score)};
 }
 

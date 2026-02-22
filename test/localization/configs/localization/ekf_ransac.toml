@@ -23,7 +23,7 @@ min_segment_length = 0.8
 
 [localization.observation.models.ransac_line_association]
 use_ekf_gate = true
-segment_margin = 0.3
+segment_margin = 0.7
 
 [localization.observation.models.ransac_line_association.stage1]
 point_distance_threshold = 0.5
@@ -34,8 +34,8 @@ min_segment_length = 0.2
 min_remaining_points = 1
 
 [localization.observation.models.ransac_line_association.stage2]
-max_iterations = 120
-line_angle_threshold = 0.15
-line_rho_threshold = 0.3
+max_iterations = 1000
+line_angle_threshold = 0.314
+line_rho_threshold = 0.5
 parallel_reject_threshold = 0.05
 min_pose_inliers = 3
