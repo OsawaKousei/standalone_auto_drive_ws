@@ -171,20 +171,20 @@ struct EvalSummary {
       .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
-struct RansacStage1HybridSettings {
+struct RansacScanLineExtractionSettings {
   int maxContinuityGap;
 };
 
-[[nodiscard]] auto parseRansacStage1HybridSettings(const config::TextConfig &cfg)
-    -> Result<RansacStage1HybridSettings> {
-  const auto section =
-      std::string_view{"localization.observation.models.ransac_line_association.stage1"};
+[[nodiscard]] auto parseRansacScanLineExtractionSettings(const config::TextConfig &cfg)
+    -> Result<RansacScanLineExtractionSettings> {
+  const auto section = std::string_view{
+      "localization.observation.models.ransac_line_association.scan_line_extraction"};
   const auto maxContinuityGap = requiredInt(cfg, section, "max_continuity_gap");
   if (!maxContinuityGap) {
     return tl::make_unexpected(maxContinuityGap.error());
   }
 
-  return RansacStage1HybridSettings{.maxContinuityGap = *maxContinuityGap};
+  return RansacScanLineExtractionSettings{.maxContinuityGap = *maxContinuityGap};
 }
 
 [[nodiscard]] auto parseRansacLineAssociationConfig(const config::TextConfig &cfg)
@@ -216,75 +216,80 @@ struct RansacStage1HybridSettings {
     return tl::make_unexpected(minObservations.error());
   }
 
-  const auto pointDistanceThreshold =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage1",
-                     "point_distance_threshold");
+  const auto pointDistanceThreshold = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.scan_line_extraction",
+      "point_distance_threshold");
   if (!pointDistanceThreshold) {
     return tl::make_unexpected(pointDistanceThreshold.error());
   }
   const auto minInlierPoints = requiredInt(
-      cfg, "localization.observation.models.ransac_line_association.stage1", "min_inlier_points");
+      cfg, "localization.observation.models.ransac_line_association.scan_line_extraction",
+      "min_inlier_points");
   if (!minInlierPoints) {
     return tl::make_unexpected(minInlierPoints.error());
   }
   const auto pointRansacIterations = requiredInt(
-      cfg, "localization.observation.models.ransac_line_association.stage1", "max_iterations");
+      cfg, "localization.observation.models.ransac_line_association.scan_line_extraction",
+      "max_iterations");
   if (!pointRansacIterations) {
     return tl::make_unexpected(pointRansacIterations.error());
   }
-  const auto maxExtractedScanLines =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage1",
-                  "max_extracted_scan_lines");
+  const auto maxExtractedScanLines = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.scan_line_extraction",
+      "max_extracted_scan_lines");
   if (!maxExtractedScanLines) {
     return tl::make_unexpected(maxExtractedScanLines.error());
   }
   const auto minExtractedSegmentLength = requiredDouble(
-      cfg, "localization.observation.models.ransac_line_association.stage1", "min_segment_length");
+      cfg, "localization.observation.models.ransac_line_association.scan_line_extraction",
+      "min_segment_length");
   if (!minExtractedSegmentLength) {
     return tl::make_unexpected(minExtractedSegmentLength.error());
   }
-  const auto minRemainingPoints =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage1",
-                  "min_remaining_points");
+  const auto minRemainingPoints = requiredInt(
+      cfg, "localization.observation.models.ransac_line_association.scan_line_extraction",
+      "min_remaining_points");
   if (!minRemainingPoints) {
     return tl::make_unexpected(minRemainingPoints.error());
   }
-  const auto hybrid = parseRansacStage1HybridSettings(cfg);
+  const auto hybrid = parseRansacScanLineExtractionSettings(cfg);
   if (!hybrid) {
     return tl::make_unexpected(hybrid.error());
   }
 
   const auto translationRansacIterations =
-      requiredInt(cfg, "localization.observation.models.ransac_line_association.stage2",
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.line_association",
                   "translation_ransac_iterations");
   if (!translationRansacIterations) {
     return tl::make_unexpected(translationRansacIterations.error());
   }
-  const auto lineAngleThreshold =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
-                     "line_angle_threshold");
+  const auto lineAngleThreshold = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.line_association",
+      "line_angle_threshold");
   if (!lineAngleThreshold) {
     return tl::make_unexpected(lineAngleThreshold.error());
   }
   const auto lineRhoThreshold = requiredDouble(
-      cfg, "localization.observation.models.ransac_line_association.stage2", "line_rho_threshold");
+      cfg, "localization.observation.models.ransac_line_association.line_association",
+      "line_rho_threshold");
   if (!lineRhoThreshold) {
     return tl::make_unexpected(lineRhoThreshold.error());
   }
-  const auto parallelRejectThreshold =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage2",
-                     "parallel_reject_threshold");
+  const auto parallelRejectThreshold = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.line_association",
+      "parallel_reject_threshold");
   if (!parallelRejectThreshold) {
     return tl::make_unexpected(parallelRejectThreshold.error());
   }
-  const auto minPoseInliers = requiredInt(
-      cfg, "localization.observation.models.ransac_line_association.stage2", "min_pose_inliers");
+  const auto minPoseInliers =
+      requiredInt(cfg, "localization.observation.models.ransac_line_association.line_association",
+                  "min_pose_inliers");
   if (!minPoseInliers) {
     return tl::make_unexpected(minPoseInliers.error());
   }
-  const auto contextGateThreshold =
-      requiredDouble(cfg, "localization.observation.models.ransac_line_association.stage4",
-                     "context_gate_threshold");
+  const auto contextGateThreshold = requiredDouble(
+      cfg, "localization.observation.models.ransac_line_association.pose_context_gate",
+      "context_gate_threshold");
   if (!contextGateThreshold) {
     return tl::make_unexpected(contextGateThreshold.error());
   }
