@@ -149,6 +149,46 @@ parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
+struct RansacStage1HybridSettings {
+  int localPcaWindowSize;
+  int sampleNeighborWindow;
+  double minDirectionAlignment;
+  double minLinearity;
+  int maxContinuityGap;
+};
+
+[[nodiscard]] auto parseRansacStage1HybridSettings(const ::ad::config::TextConfig &cfg)
+    -> Result<RansacStage1HybridSettings> {
+  const auto section =
+      std::string_view{"localization.observation.models.ransac_line_association.stage1"};
+  const auto localPcaWindowSize = requiredInt(cfg, section, "local_pca_window_size");
+  if (!localPcaWindowSize) {
+    return tl::make_unexpected(localPcaWindowSize.error());
+  }
+  const auto sampleNeighborWindow = requiredInt(cfg, section, "sample_neighbor_window");
+  if (!sampleNeighborWindow) {
+    return tl::make_unexpected(sampleNeighborWindow.error());
+  }
+  const auto minDirectionAlignment = requiredDouble(cfg, section, "min_direction_alignment");
+  if (!minDirectionAlignment) {
+    return tl::make_unexpected(minDirectionAlignment.error());
+  }
+  const auto minLinearity = requiredDouble(cfg, section, "min_linearity");
+  if (!minLinearity) {
+    return tl::make_unexpected(minLinearity.error());
+  }
+  const auto maxContinuityGap = requiredInt(cfg, section, "max_continuity_gap");
+  if (!maxContinuityGap) {
+    return tl::make_unexpected(maxContinuityGap.error());
+  }
+
+  return RansacStage1HybridSettings{.localPcaWindowSize = *localPcaWindowSize,
+                                    .sampleNeighborWindow = *sampleNeighborWindow,
+                                    .minDirectionAlignment = *minDirectionAlignment,
+                                    .minLinearity = *minLinearity,
+                                    .maxContinuityGap = *maxContinuityGap};
+}
+
 [[nodiscard]] auto
 parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
     -> Result<RansacLineAssociationModelConfig> {
@@ -219,6 +259,10 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
   if (!minRemainingPoints) {
     return tl::make_unexpected(minRemainingPoints.error());
   }
+  const auto hybrid = parseRansacStage1HybridSettings(cfg);
+  if (!hybrid) {
+    return tl::make_unexpected(hybrid.error());
+  }
 
   const auto poseRansacIterations = requiredInt(
       cfg, "localization.observation.models.ransac_line_association.stage2", "max_iterations");
@@ -282,6 +326,11 @@ parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       .maxExtractedScanLines = *maxExtractedScanLines,
       .minExtractedSegmentLength = *minExtractedSegmentLength,
       .minRemainingPoints = static_cast<std::size_t>(*minRemainingPoints),
+      .localPcaWindowSize = hybrid->localPcaWindowSize,
+      .sampleNeighborWindow = hybrid->sampleNeighborWindow,
+      .minDirectionAlignment = hybrid->minDirectionAlignment,
+      .minLinearity = hybrid->minLinearity,
+      .maxContinuityGap = hybrid->maxContinuityGap,
       .poseRansacMaxIterations = *poseRansacIterations,
       .lineAngleThreshold = *lineAngleThreshold,
       .lineRhoThreshold = *lineRhoThreshold,

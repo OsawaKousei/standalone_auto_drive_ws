@@ -10,6 +10,7 @@
 #include <iostream>
 #include <limits>
 #include <numbers>
+#include <numeric>
 #include <optional>
 #include <random>
 #include <sstream>
@@ -41,6 +42,17 @@ struct ExtractedLineCandidate {
   std::optional<ObservedLine> observedLine;
 };
 
+struct ScanPoint {
+  ad::types::Point point;
+  std::size_t scanIndex;
+};
+
+struct LocalPointFeature {
+  double directionX;
+  double directionY;
+  double linearity;
+};
+
 auto sampleDistinctIndices(std::mt19937 &rng, const std::size_t size)
     -> std::optional<std::pair<std::size_t, std::size_t>> {
   if (size < 2U) {
@@ -69,8 +81,8 @@ auto transformPointToMap(const ad::types::Point &point, const ad::types::Pose &p
                           .y = pose.y + (sinTheta * point.x) + (cosTheta * point.y)};
 }
 
-auto buildScanPoints(const ad::types::LidarScan &scan) -> std::vector<ad::types::Point> {
-  auto points = std::vector<ad::types::Point>{};
+auto buildScanPoints(const ad::types::LidarScan &scan) -> std::vector<ScanPoint> {
+  auto points = std::vector<ScanPoint>{};
   points.reserve(scan.ranges.size());
 
   for (std::size_t index = 0; index < scan.ranges.size(); ++index) {
@@ -80,10 +92,72 @@ auto buildScanPoints(const ad::types::LidarScan &scan) -> std::vector<ad::types:
     }
 
     const auto angle = scan.minAngle + (scan.angleIncrement * static_cast<double>(index));
-    points.push_back(ad::types::Point{.x = range * std::cos(angle), .y = range * std::sin(angle)});
+    points.push_back(ScanPoint{
+        .point = ad::types::Point{.x = range * std::cos(angle), .y = range * std::sin(angle)},
+        .scanIndex = index});
   }
 
   return points;
+}
+
+auto buildLocalPointFeatures(const std::vector<ScanPoint> &points,
+                             const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<LocalPointFeature> {
+  auto features = std::vector<LocalPointFeature>(
+      points.size(), LocalPointFeature{.directionX = 1.0, .directionY = 0.0, .linearity = 0.0});
+  if (points.size() < 2U) {
+    return features;
+  }
+
+  const auto windowRadius = static_cast<std::size_t>(std::max(1, config.localPcaWindowSize));
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    const auto start = index > windowRadius ? index - windowRadius : 0U;
+    const auto end = std::min(points.size() - 1U, index + windowRadius);
+    if ((end - start + 1U) < 2U) {
+      continue;
+    }
+
+    double meanX = 0.0;
+    double meanY = 0.0;
+    for (std::size_t local = start; local <= end; ++local) {
+      meanX += points[local].point.x;
+      meanY += points[local].point.y;
+    }
+    const auto count = static_cast<double>(end - start + 1U);
+    meanX /= count;
+    meanY /= count;
+
+    double sxx = 0.0;
+    double sxy = 0.0;
+    double syy = 0.0;
+    for (std::size_t local = start; local <= end; ++local) {
+      const auto deltaX = points[local].point.x - meanX;
+      const auto deltaY = points[local].point.y - meanY;
+      sxx += deltaX * deltaX;
+      sxy += deltaX * deltaY;
+      syy += deltaY * deltaY;
+    }
+
+    const auto trace = sxx + syy;
+    if (trace < kEpsilon) {
+      continue;
+    }
+
+    const auto direction = 0.5 * std::atan2(2.0 * sxy, sxx - syy);
+    const auto directionX = std::cos(direction);
+    const auto directionY = std::sin(direction);
+    const auto determinant = (sxx * syy) - (sxy * sxy);
+    const auto discriminant = std::max(0.0, (trace * trace) - (4.0 * determinant));
+    const auto root = std::sqrt(discriminant);
+    const auto lambda1 = 0.5 * (trace + root);
+    const auto lambda2 = 0.5 * (trace - root);
+    const auto linearity = std::clamp((lambda1 - lambda2) / std::max(kEpsilon, trace), 0.0, 1.0);
+
+    features[index] = LocalPointFeature{
+        .directionX = directionX, .directionY = directionY, .linearity = linearity};
+  }
+
+  return features;
 }
 
 auto fitLineFromPoints(const std::vector<ad::types::Point> &points)
@@ -147,23 +221,107 @@ auto sampleLineFromPoints(const ad::types::Point &first, const ad::types::Point 
       ad::localization::observation_model::util::LineModel{.rho = rho, .alpha = alpha});
 }
 
-auto collectInlierIndices(const std::vector<ad::types::Point> &points,
-                          const ad::localization::observation_model::util::LineModel &model,
-                          const double distanceThreshold) -> std::vector<std::size_t> {
-  auto inliers = std::vector<std::size_t>{};
-  inliers.reserve(points.size());
-  const auto normalX = std::cos(model.alpha);
-  const auto normalY = std::sin(model.alpha);
-
-  for (std::size_t index = 0; index < points.size(); ++index) {
-    const auto &point = points[index];
-    const auto distance = std::abs((normalX * point.x) + (normalY * point.y) - model.rho);
-    if (distance <= distanceThreshold) {
-      inliers.push_back(index);
-    }
+auto sampleLocalPairIndices(std::mt19937 &rng, const std::vector<std::size_t> &activeIndices,
+                            const int neighborWindow)
+    -> std::optional<std::pair<std::size_t, std::size_t>> {
+  if (activeIndices.size() < 2U) {
+    return std::nullopt;
   }
 
-  return inliers;
+  auto fullDistribution = std::uniform_int_distribution<std::size_t>{0, activeIndices.size() - 1U};
+  const auto firstPos = fullDistribution(rng);
+  const auto window = static_cast<std::size_t>(std::max(1, neighborWindow));
+  const auto start = firstPos > window ? firstPos - window : 0U;
+  const auto end = std::min(activeIndices.size() - 1U, firstPos + window);
+  if (start == end) {
+    return std::nullopt;
+  }
+
+  auto localDistribution = std::uniform_int_distribution<std::size_t>{start, end};
+  auto secondPos = localDistribution(rng);
+  for (int retries = 0; retries < kDistinctSampleRetryCount && secondPos == firstPos; ++retries) {
+    secondPos = localDistribution(rng);
+  }
+  if (secondPos == firstPos) {
+    return std::nullopt;
+  }
+
+  return std::pair<std::size_t, std::size_t>{activeIndices[firstPos], activeIndices[secondPos]};
+}
+
+auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
+                                const std::vector<LocalPointFeature> &features,
+                                const std::vector<bool> &activeMask,
+                                const ad::localization::observation_model::util::LineModel &model,
+                                const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::vector<std::size_t> {
+  auto inlierCandidates = std::vector<std::size_t>{};
+  inlierCandidates.reserve(points.size());
+  const auto normalX = std::cos(model.alpha);
+  const auto normalY = std::sin(model.alpha);
+  const auto lineDirectionX = -std::sin(model.alpha);
+  const auto lineDirectionY = std::cos(model.alpha);
+
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    if (!activeMask[index]) {
+      continue;
+    }
+
+    const auto &point = points[index].point;
+    const auto distance = std::abs((normalX * point.x) + (normalY * point.y) - model.rho);
+    if (distance > config.pointDistanceThreshold) {
+      continue;
+    }
+
+    if (features[index].linearity < config.minLinearity) {
+      continue;
+    }
+
+    const auto alignment = std::abs((lineDirectionX * features[index].directionX) +
+                                    (lineDirectionY * features[index].directionY));
+    if (alignment < config.minDirectionAlignment) {
+      continue;
+    }
+
+    inlierCandidates.push_back(index);
+  }
+
+  if (inlierCandidates.empty()) {
+    return {};
+  }
+
+  const auto continuityGap = static_cast<std::size_t>(std::max(1, config.maxContinuityGap));
+  std::size_t bestStart = 0U;
+  std::size_t bestLength = 1U;
+  std::size_t runStart = 0U;
+  std::size_t runLength = 1U;
+
+  for (std::size_t index = 1U; index < inlierCandidates.size(); ++index) {
+    const auto previousScanIndex = points[inlierCandidates[index - 1U]].scanIndex;
+    const auto currentScanIndex = points[inlierCandidates[index]].scanIndex;
+    if ((currentScanIndex - previousScanIndex) <= continuityGap) {
+      ++runLength;
+    } else {
+      if (runLength > bestLength) {
+        bestLength = runLength;
+        bestStart = runStart;
+      }
+      runStart = index;
+      runLength = 1U;
+    }
+  }
+  if (runLength > bestLength) {
+    bestLength = runLength;
+    bestStart = runStart;
+  }
+
+  auto contiguousInliers = std::vector<std::size_t>{};
+  contiguousInliers.reserve(bestLength);
+  for (std::size_t index = bestStart; index < (bestStart + bestLength); ++index) {
+    contiguousInliers.push_back(inlierCandidates[index]);
+  }
+
+  return contiguousInliers;
 }
 
 auto buildObservedLine(const std::vector<ad::types::Point> &supportPoints,
@@ -209,43 +367,29 @@ auto buildObservedLine(const std::vector<ad::types::Point> &supportPoints,
                       .mse = mse};
 }
 
-auto filterRemainingPoints(const std::vector<ad::types::Point> &remaining,
-                           const std::vector<std::size_t> &inlierIndices)
-    -> std::vector<ad::types::Point> {
-  auto inlierFlags = std::vector<bool>(remaining.size(), false);
-  for (const auto index : inlierIndices) {
-    inlierFlags[index] = true;
-  }
-
-  auto filtered = std::vector<ad::types::Point>{};
-  filtered.reserve(remaining.size() - inlierIndices.size());
-  for (std::size_t index = 0; index < remaining.size(); ++index) {
-    if (!inlierFlags[index]) {
-      filtered.push_back(remaining[index]);
-    }
-  }
-  return filtered;
-}
-
-auto extractOneLineCandidate(const std::vector<ad::types::Point> &remaining, std::mt19937 &rng,
+auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
+                             const std::vector<LocalPointFeature> &features,
+                             const std::vector<bool> &activeMask,
+                             const std::vector<std::size_t> &activeIndices, std::mt19937 &rng,
                              const ad::localization::RansacLineAssociationModelConfig &config,
                              const int maxIterations) -> ExtractedLineCandidate {
   auto bestInliers = std::vector<std::size_t>{};
-  bestInliers.reserve(remaining.size());
+  bestInliers.reserve(activeIndices.size());
 
   for (int iteration = 0; iteration < maxIterations; ++iteration) {
-    const auto sampled = sampleDistinctIndices(rng, remaining.size());
+    const auto sampled = sampleLocalPairIndices(rng, activeIndices, config.sampleNeighborWindow);
     if (!sampled) {
       continue;
     }
 
     const auto [firstIndex, secondIndex] = *sampled;
-    const auto candidate = sampleLineFromPoints(remaining[firstIndex], remaining[secondIndex]);
+    const auto candidate =
+        sampleLineFromPoints(points[firstIndex].point, points[secondIndex].point);
     if (!candidate) {
       continue;
     }
 
-    auto inliers = collectInlierIndices(remaining, *candidate, config.pointDistanceThreshold);
+    auto inliers = collectHybridInlierIndices(points, features, activeMask, *candidate, config);
     if (inliers.size() > bestInliers.size()) {
       bestInliers = std::move(inliers);
     }
@@ -259,7 +403,7 @@ auto extractOneLineCandidate(const std::vector<ad::types::Point> &remaining, std
   auto supportPoints = std::vector<ad::types::Point>{};
   supportPoints.reserve(bestInliers.size());
   for (const auto index : bestInliers) {
-    supportPoints.push_back(remaining[index]);
+    supportPoints.push_back(points[index].point);
   }
 
   const auto refined = fitLineFromPoints(supportPoints);
@@ -276,22 +420,48 @@ auto extractOneLineCandidate(const std::vector<ad::types::Point> &remaining, std
 auto extractObservedLinesRansac(const ad::types::LidarScan &scan,
                                 const ad::localization::RansacLineAssociationModelConfig &config)
     -> std::vector<ObservedLine> {
-  auto remaining = buildScanPoints(scan);
+  const auto points = buildScanPoints(scan);
+  const auto features = buildLocalPointFeatures(points, config);
   auto extracted = std::vector<ObservedLine>{};
   extracted.reserve(static_cast<std::size_t>(std::max(1, config.maxExtractedScanLines)));
+  if (points.size() < 2U) {
+    return extracted;
+  }
 
-  auto rng = std::mt19937{static_cast<std::uint32_t>(remaining.size()) + kPointRansacSeedBias};
+  auto activeMask = std::vector<bool>(points.size(), true);
+  auto activeIndices = std::vector<std::size_t>(points.size());
+  std::iota(activeIndices.begin(), activeIndices.end(), 0U);
+  auto remainingCount = points.size();
+
+  auto rng = std::mt19937{static_cast<std::uint32_t>(points.size()) + kPointRansacSeedBias};
   const auto maxIterations = std::max(1, config.pointRansacMaxIterations);
   const auto maxScanLines = static_cast<std::size_t>(std::max(1, config.maxExtractedScanLines));
   const auto minRemaining = std::max<std::size_t>(config.minRemainingPoints, 2U);
 
-  while (remaining.size() >= minRemaining && extracted.size() < maxScanLines) {
-    const auto candidate = extractOneLineCandidate(remaining, rng, config, maxIterations);
+  while (remainingCount >= minRemaining && extracted.size() < maxScanLines) {
+    const auto candidate = extractOneLineCandidate(points, features, activeMask, activeIndices, rng,
+                                                   config, maxIterations);
     if (candidate.inlierIndices.size() < config.minInlierPoints) {
       break;
     }
 
-    remaining = filterRemainingPoints(remaining, candidate.inlierIndices);
+    std::size_t removedCount = 0U;
+    for (const auto index : candidate.inlierIndices) {
+      if (!activeMask[index]) {
+        continue;
+      }
+      activeMask[index] = false;
+      ++removedCount;
+      --remainingCount;
+    }
+    activeIndices.erase(std::remove_if(activeIndices.begin(), activeIndices.end(),
+                                       [&](const std::size_t index) { return !activeMask[index]; }),
+                        activeIndices.end());
+
+    if (removedCount == 0U) {
+      break;
+    }
+
     if (candidate.observedLine) {
       extracted.push_back(*candidate.observedLine);
     }

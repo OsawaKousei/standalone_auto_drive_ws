@@ -32,6 +32,11 @@ max_iterations = 400
 max_extracted_scan_lines = 10
 min_segment_length = 0.2
 min_remaining_points = 1
+local_pca_window_size = 4
+sample_neighbor_window = 18
+min_direction_alignment = 0.5
+min_linearity = 0.25
+max_continuity_gap = 3
 
 [localization.observation.models.ransac_line_association.stage2]
 max_iterations = 1000
