@@ -28,10 +28,8 @@ namespace ad::observation_model_test {
 struct ProgramOptions {
   std::string logPath = "test/localization/logs/localization_test.log";
   std::string scenarioPath = "test/localization/configs/localization.toml";
-  std::string configAPath = "test/localization/configs/localization/ekf_hough.toml";
-  std::string configBPath = "test/localization/configs/localization/ekf_hough_ransac.toml";
-  std::string labelA = "simple_a";
-  std::string labelB = "simple_b";
+  std::optional<std::string> configPath = std::nullopt;
+  std::string label = "simple_line_association";
   std::string outputCsvPath = "test/localization/logs/observation_model_eval.csv";
   std::string outputJsonPath = "test/localization/logs/observation_model_eval_metrics.json";
 };
@@ -252,30 +250,18 @@ struct EvalSummary {
         return tl::make_unexpected(value.error());
       }
       options.scenarioPath = *value;
-    } else if (arg == "--config-a") {
+    } else if (arg == "--config") {
       auto value = readValue(arg);
       if (!value) {
         return tl::make_unexpected(value.error());
       }
-      options.configAPath = *value;
-    } else if (arg == "--config-b") {
+      options.configPath = *value;
+    } else if (arg == "--label") {
       auto value = readValue(arg);
       if (!value) {
         return tl::make_unexpected(value.error());
       }
-      options.configBPath = *value;
-    } else if (arg == "--label-a") {
-      auto value = readValue(arg);
-      if (!value) {
-        return tl::make_unexpected(value.error());
-      }
-      options.labelA = *value;
-    } else if (arg == "--label-b") {
-      auto value = readValue(arg);
-      if (!value) {
-        return tl::make_unexpected(value.error());
-      }
-      options.labelB = *value;
+      options.label = *value;
     } else if (arg == "--out-csv") {
       auto value = readValue(arg);
       if (!value) {
@@ -293,8 +279,8 @@ struct EvalSummary {
           Error{.code = ErrorCode::InvalidInput,
                 .message = "Unknown argument: " + std::string{arg} +
                            "\nUsage: observation_model_test_app "
-                           "[--log path] [--scenario path] [--config-a path] [--config-b path] "
-                           "[--label-a name] [--label-b name] [--out-csv path] [--out-json path]"});
+                           "[--log path] [--scenario path] [--config path] "
+                           "[--label name] [--out-csv path] [--out-json path]"});
     }
   }
 
@@ -560,9 +546,8 @@ auto writeCsv(std::string_view path, const std::vector<EvaluationRecord> &record
   return static_cast<double>(summary.successCount) / static_cast<double>(summary.totalFrames);
 }
 
-auto writeMetricsJson(std::string_view path, const EvalSummary &summaryA,
-                      const EvalSummary &summaryB, std::string_view configAPath,
-                      std::string_view configBPath, std::size_t frameCount) -> Result<void> {
+auto writeMetricsJson(std::string_view path, const EvalSummary &summary,
+                      std::string_view configPath, std::size_t frameCount) -> Result<void> {
   std::filesystem::create_directories(std::filesystem::path{std::string{path}}.parent_path());
   auto stream = std::ofstream{std::string{path}};
   if (!stream.is_open()) {
@@ -571,90 +556,38 @@ auto writeMetricsJson(std::string_view path, const EvalSummary &summaryA,
               .message = "Failed to open output JSON path: " + std::string{path}});
   }
 
-  const auto meanScoreA = summaryA.successCount > 0U
-                              ? (summaryA.scoreSum / static_cast<double>(summaryA.successCount))
-                              : 0.0;
-  const auto meanScoreB = summaryB.successCount > 0U
-                              ? (summaryB.scoreSum / static_cast<double>(summaryB.successCount))
-                              : 0.0;
-  const auto meanResidualA =
-      summaryA.successCount > 0U
-          ? (summaryA.residualRmseSum / static_cast<double>(summaryA.successCount))
-          : 0.0;
-  const auto meanResidualB =
-      summaryB.successCount > 0U
-          ? (summaryB.residualRmseSum / static_cast<double>(summaryB.successCount))
-          : 0.0;
-  const auto meanNisA =
-      summaryA.nisCount > 0U ? (summaryA.nisSum / static_cast<double>(summaryA.nisCount)) : 0.0;
-  const auto meanNisB =
-      summaryB.nisCount > 0U ? (summaryB.nisSum / static_cast<double>(summaryB.nisCount)) : 0.0;
-  const auto meanRuntimeA =
-      summaryA.totalFrames > 0U
-          ? (summaryA.runtimeMsSum / static_cast<double>(summaryA.totalFrames))
-          : 0.0;
-  const auto meanRuntimeB =
-      summaryB.totalFrames > 0U
-          ? (summaryB.runtimeMsSum / static_cast<double>(summaryB.totalFrames))
-          : 0.0;
-  const auto meanMeasA = summaryA.successCount > 0U
-                             ? (static_cast<double>(summaryA.measurementCountSum) /
-                                static_cast<double>(summaryA.successCount))
-                             : 0.0;
-  const auto meanMeasB = summaryB.successCount > 0U
-                             ? (static_cast<double>(summaryB.measurementCountSum) /
-                                static_cast<double>(summaryB.successCount))
-                             : 0.0;
-
   stream << std::fixed << std::setprecision(8);
   stream << "{\n";
   stream << fmt::format("  \"frame_count\": {},\n", frameCount);
-  stream << "  \"models\": [\n";
-  const auto writeOne = [&](const EvalSummary &summary, std::string_view configPath, bool isLast) {
-    stream << "    {\n";
-    stream << fmt::format("      \"label\": \"{}\",\n", summary.label);
-    stream << fmt::format("      \"config_path\": \"{}\",\n", configPath);
-    stream << fmt::format("      \"total_frames\": {},\n", summary.totalFrames);
-    stream << fmt::format("      \"success_count\": {},\n", summary.successCount);
-    stream << fmt::format("      \"no_update_count\": {},\n", summary.noUpdateCount);
-    stream << fmt::format("      \"error_count\": {},\n", summary.errorCount);
-    stream << fmt::format("      \"success_rate\": {:.8f},\n", successRate(summary));
-    stream << fmt::format("      \"mean_score\": {:.8f},\n",
-                          summary.successCount > 0U
-                              ? (summary.scoreSum / static_cast<double>(summary.successCount))
-                              : 0.0);
-    stream << fmt::format("      \"mean_residual_rmse\": {:.8f},\n",
-                          summary.successCount > 0U ? (summary.residualRmseSum /
-                                                       static_cast<double>(summary.successCount))
-                                                    : 0.0);
-    stream << fmt::format(
-        "      \"mean_nis\": {:.8f},\n",
-        summary.nisCount > 0U ? (summary.nisSum / static_cast<double>(summary.nisCount)) : 0.0);
-    stream << fmt::format("      \"mean_measurement_count\": {:.8f},\n",
-                          summary.successCount > 0U
-                              ? (static_cast<double>(summary.measurementCountSum) /
-                                 static_cast<double>(summary.successCount))
-                              : 0.0);
-    stream << fmt::format("      \"mean_runtime_ms\": {:.8f},\n",
-                          summary.totalFrames > 0U
-                              ? (summary.runtimeMsSum / static_cast<double>(summary.totalFrames))
-                              : 0.0);
-    stream << fmt::format("      \"p95_runtime_ms\": {:.8f}\n",
-                          percentile95(summary.runtimeSamplesMs));
-    stream << (isLast ? "    }\n" : "    },\n");
-  };
-  writeOne(summaryA, configAPath, false);
-  writeOne(summaryB, configBPath, true);
-  stream << "  ],\n";
-  stream << "  \"comparison\": {\n";
-  stream << fmt::format("    \"success_rate_delta\": {:.8f},\n",
-                        successRate(summaryB) - successRate(summaryA));
-  stream << fmt::format("    \"mean_score_delta\": {:.8f},\n", meanScoreB - meanScoreA);
-  stream << fmt::format("    \"mean_residual_rmse_delta\": {:.8f},\n",
-                        meanResidualB - meanResidualA);
-  stream << fmt::format("    \"mean_nis_delta\": {:.8f},\n", meanNisB - meanNisA);
-  stream << fmt::format("    \"mean_measurement_count_delta\": {:.8f},\n", meanMeasB - meanMeasA);
-  stream << fmt::format("    \"mean_runtime_ms_delta\": {:.8f}\n", meanRuntimeB - meanRuntimeA);
+  stream << "  \"model\": {\n";
+  stream << fmt::format("    \"label\": \"{}\",\n", summary.label);
+  stream << fmt::format("    \"config_path\": \"{}\",\n", configPath);
+  stream << fmt::format("    \"total_frames\": {},\n", summary.totalFrames);
+  stream << fmt::format("    \"success_count\": {},\n", summary.successCount);
+  stream << fmt::format("    \"no_update_count\": {},\n", summary.noUpdateCount);
+  stream << fmt::format("    \"error_count\": {},\n", summary.errorCount);
+  stream << fmt::format("    \"success_rate\": {:.8f},\n", successRate(summary));
+  stream << fmt::format("    \"mean_score\": {:.8f},\n",
+                        summary.successCount > 0U
+                            ? (summary.scoreSum / static_cast<double>(summary.successCount))
+                            : 0.0);
+  stream << fmt::format("    \"mean_residual_rmse\": {:.8f},\n",
+                        summary.successCount > 0U
+                            ? (summary.residualRmseSum / static_cast<double>(summary.successCount))
+                            : 0.0);
+  stream << fmt::format(
+      "    \"mean_nis\": {:.8f},\n",
+      summary.nisCount > 0U ? (summary.nisSum / static_cast<double>(summary.nisCount)) : 0.0);
+  stream << fmt::format("    \"mean_measurement_count\": {:.8f},\n",
+                        summary.successCount > 0U
+                            ? (static_cast<double>(summary.measurementCountSum) /
+                               static_cast<double>(summary.successCount))
+                            : 0.0);
+  stream << fmt::format("    \"mean_runtime_ms\": {:.8f},\n",
+                        summary.totalFrames > 0U
+                            ? (summary.runtimeMsSum / static_cast<double>(summary.totalFrames))
+                            : 0.0);
+  stream << fmt::format("    \"p95_runtime_ms\": {:.8f}\n", percentile95(summary.runtimeSamplesMs));
   stream << "  }\n";
   stream << "}\n";
 
@@ -718,6 +651,28 @@ auto writeMetricsJson(std::string_view path, const EvalSummary &summaryA,
   return resolvePath(baseDir.lexically_normal().string(), *mapYamlPath);
 }
 
+[[nodiscard]] auto resolveLocalizationConfigPath(const ProgramOptions &options)
+    -> Result<std::string> {
+  const auto scenarioFsPath = std::filesystem::path{options.scenarioPath};
+  const auto baseDir = scenarioFsPath.parent_path().empty() ? std::filesystem::path{"."}
+                                                            : scenarioFsPath.parent_path();
+
+  if (options.configPath.has_value()) {
+    return resolvePath(baseDir.lexically_normal().string(), *options.configPath);
+  }
+
+  const auto cfg = config::loadTextConfig(scenarioFsPath.lexically_normal().string());
+  if (!cfg) {
+    return tl::make_unexpected(cfg.error());
+  }
+
+  const auto localizationConfigPath = requiredString(*cfg, "localization", "config_path");
+  if (!localizationConfigPath) {
+    return tl::make_unexpected(localizationConfigPath.error());
+  }
+  return resolvePath(baseDir.lexically_normal().string(), *localizationConfigPath);
+}
+
 } // namespace ad::observation_model_test
 
 auto main(int argc, char **argv) -> int {
@@ -744,16 +699,17 @@ auto main(int argc, char **argv) -> int {
     return 1;
   }
 
-  const auto modelA = createObservationModel(*map, options->configAPath);
-  if (!modelA) {
-    fmt::print(stderr, "[observation_model_test_app] model A create error: {}\n",
-               modelA.error().message);
+  const auto localizationConfigPath = resolveLocalizationConfigPath(*options);
+  if (!localizationConfigPath) {
+    fmt::print(stderr, "[observation_model_test_app] localization config resolve error: {}\n",
+               localizationConfigPath.error().message);
     return 1;
   }
-  const auto modelB = createObservationModel(*map, options->configBPath);
-  if (!modelB) {
-    fmt::print(stderr, "[observation_model_test_app] model B create error: {}\n",
-               modelB.error().message);
+
+  const auto model = createObservationModel(*map, *localizationConfigPath);
+  if (!model) {
+    fmt::print(stderr, "[observation_model_test_app] model create error: {}\n",
+               model.error().message);
     return 1;
   }
 
@@ -765,18 +721,14 @@ auto main(int argc, char **argv) -> int {
   }
 
   auto records = std::vector<EvaluationRecord>{};
-  records.reserve(frames->size() * 2U);
+  records.reserve(frames->size());
 
-  auto summaryA = EvalSummary{.label = options->labelA};
-  auto summaryB = EvalSummary{.label = options->labelB};
+  auto summary = EvalSummary{.label = options->label};
 
   for (std::size_t index = 0; index < frames->size(); ++index) {
-    auto recordA = evaluateOneFrame(index, options->labelA, **modelA, *map, (*frames)[index]);
-    auto recordB = evaluateOneFrame(index, options->labelB, **modelB, *map, (*frames)[index]);
-    accumulate(summaryA, recordA);
-    accumulate(summaryB, recordB);
-    records.push_back(std::move(recordA));
-    records.push_back(std::move(recordB));
+    auto record = evaluateOneFrame(index, options->label, **model, *map, (*frames)[index]);
+    accumulate(summary, record);
+    records.push_back(std::move(record));
   }
 
   const auto csvWritten = writeCsv(options->outputCsvPath, records);
@@ -787,8 +739,7 @@ auto main(int argc, char **argv) -> int {
   }
 
   const auto metricsWritten =
-      writeMetricsJson(options->outputJsonPath, summaryA, summaryB, options->configAPath,
-                       options->configBPath, frames->size());
+      writeMetricsJson(options->outputJsonPath, summary, *localizationConfigPath, frames->size());
   if (!metricsWritten) {
     fmt::print(stderr, "[observation_model_test_app] metrics write error: {}\n",
                metricsWritten.error().message);
@@ -797,8 +748,9 @@ auto main(int argc, char **argv) -> int {
 
   fmt::print("Observation model evaluation completed.\n");
   fmt::print("  frames: {}\n", frames->size());
-  fmt::print("  {} success rate: {:.3f}\n", options->labelA, successRate(summaryA));
-  fmt::print("  {} success rate: {:.3f}\n", options->labelB, successRate(summaryB));
+  fmt::print("  label: {}\n", options->label);
+  fmt::print("  config: {}\n", *localizationConfigPath);
+  fmt::print("  success rate: {:.3f}\n", successRate(summary));
   fmt::print("  csv: {}\n", options->outputCsvPath);
   fmt::print("  metrics: {}\n", options->outputJsonPath);
   return 0;
