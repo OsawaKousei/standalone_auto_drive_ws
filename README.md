@@ -40,7 +40,7 @@
 
 ## マップの準備（必須）
 
-実行には **マップファイル（YAML/PGM）が必須** です。既定のマップは `tools/map.yaml` と `tools/map.pgm` で、`tools/map_editor.py` を使って作成・更新できます。
+実行には **マップファイル（YAML/PGM）が必須** です。既定のマップは `tools/map.yaml` と `tools/map.pgm` で、`tools/map_schema_editor.py` を使って作成・更新できます（`tools/map_schema.yaml` を編集するとリアルタイムでプレビュー更新）。
 
 ## 設定ファイルのデフォルトマージ
 
@@ -79,5 +79,5 @@
 - ビルドは使い捨てコンテナで実行し、成果物はホストの `build/` に出力されます。
 - コーディングは DevContainer 内で行い、ホスト環境は最小限に保ちます。
 - 可視化は Python/NumPy に依存します（matplotlib-cpp 経由）。
-- マップは `tools/map_editor.py` を使って作成できます（出力は `tools/map.yaml` / `tools/map.pgm`）。
+- マップは `tools/map_schema_editor.py` を使って作成できます（`tools/map_schema.yaml` を編集し、Save ボタンで `tools/map.yaml` / `tools/map.pgm` を出力）。
 - 詳細は [docs/BuildStrategy.md](docs/BuildStrategy.md) と [docs/CodingGuideline.md](docs/CodingGuideline.md) を参照してください。
