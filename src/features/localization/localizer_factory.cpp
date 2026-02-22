@@ -51,11 +51,13 @@ namespace {
   }
 
   const auto &cfg = *configDoc;
-  const auto processNoiseTranslation = requiredDouble(cfg, "ekf", "process_noise_translation");
+  const auto processNoiseTranslation =
+      requiredDouble(cfg, "localization.localizer.ekf", "process_noise_translation");
   if (!processNoiseTranslation) {
     return tl::make_unexpected(processNoiseTranslation.error());
   }
-  const auto processNoiseRotation = requiredDouble(cfg, "ekf", "process_noise_rotation");
+  const auto processNoiseRotation =
+      requiredDouble(cfg, "localization.localizer.ekf", "process_noise_rotation");
   if (!processNoiseRotation) {
     return tl::make_unexpected(processNoiseRotation.error());
   }
@@ -71,9 +73,9 @@ parseObservationModelType(const std::optional<::ad::config::TextConfig> &configD
                                      .message = "Localization config is required for ekf."});
   }
 
-  const auto raw = configDoc->findRaw("", "observation_model");
+  const auto raw = requiredRaw(*configDoc, "localization", "observation_model");
   if (!raw) {
-    return std::string{"simple_line_association"};
+    return tl::make_unexpected(raw.error());
   }
 
   const auto parsed = ::ad::config::parseQuotedString(*raw);
@@ -93,36 +95,43 @@ parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConf
   }
 
   const auto &cfg = *configDoc;
-  const auto maxLines = requiredInt(cfg, "line_extraction", "max_lines");
+  const auto maxLines =
+      requiredInt(cfg, "localization.observation.line_based.map_line_extraction", "max_lines");
   if (!maxLines) {
     return tl::make_unexpected(maxLines.error());
   }
-  const auto minSegmentLength = requiredDouble(cfg, "line_extraction", "min_segment_length");
+  const auto minSegmentLength = requiredDouble(
+      cfg, "localization.observation.line_based.map_line_extraction", "min_segment_length");
   if (!minSegmentLength) {
     return tl::make_unexpected(minSegmentLength.error());
   }
-  const auto measurementNoiseRange = requiredDouble(cfg, "ekf", "measurement_noise_range");
+  const auto measurementNoiseRange =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_range");
   if (!measurementNoiseRange) {
     return tl::make_unexpected(measurementNoiseRange.error());
   }
-  const auto measurementNoiseAngle = requiredDouble(cfg, "ekf", "measurement_noise_angle");
+  const auto measurementNoiseAngle =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_angle");
   if (!measurementNoiseAngle) {
     return tl::make_unexpected(measurementNoiseAngle.error());
   }
-  const auto maxAssociationDistance =
-      requiredDouble(cfg, "association", "max_association_distance");
+  const auto maxAssociationDistance = requiredDouble(
+      cfg, "localization.observation.models.simple_line_association", "max_association_distance");
   if (!maxAssociationDistance) {
     return tl::make_unexpected(maxAssociationDistance.error());
   }
-  const auto segmentMargin = requiredDouble(cfg, "association", "segment_margin");
+  const auto segmentMargin = requiredDouble(
+      cfg, "localization.observation.models.simple_line_association", "segment_margin");
   if (!segmentMargin) {
     return tl::make_unexpected(segmentMargin.error());
   }
-  const auto gateThreshold = requiredDouble(cfg, "association", "gate_threshold");
+  const auto gateThreshold =
+      requiredDouble(cfg, "localization.observation.line_based", "gate_threshold");
   if (!gateThreshold) {
     return tl::make_unexpected(gateThreshold.error());
   }
-  const auto minObservations = requiredInt(cfg, "association", "min_observations");
+  const auto minObservations =
+      requiredInt(cfg, "localization.observation.line_based", "min_observations");
   if (!minObservations) {
     return tl::make_unexpected(minObservations.error());
   }
@@ -152,7 +161,7 @@ auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConf
   CovarianceMatrix covariance = CovarianceMatrix::Zero();
   const auto &cfg = *configDoc;
   const auto readDiagonal = [&](std::string_view key) -> Result<double> {
-    return requiredDouble(cfg, "initial_covariance", key);
+    return requiredDouble(cfg, "localization.localizer.initial_covariance", key);
   };
 
   const auto covXx = readDiagonal("xx");

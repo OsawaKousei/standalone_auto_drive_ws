@@ -271,3 +271,113 @@ flowchart TD
 - 線分観測汎用処理が `observation_model` 配下 util に集約される
 - `simple_line_association_model` は戦略ロジック中心の読みやすい構造になる
 - 既存テスト・主要実行パスで回帰なし
+
+---
+
+## 12. 設定スキーマ再検討（改修後の推奨）
+
+### 12.1 再検討が必要な理由
+
+現状のローカライズ設定は、構造上は次のように責務が混在している。
+
+- `ekf.*` に状態遷移ノイズ（localizer責務）と観測ノイズ（observation責務）が同居
+- `association.*` に観測モデル固有パラメータが配置
+
+実装分割後（`localizer_util` 最小化 + `observation_model` util 導入）との整合性を高めるため、
+「ローカライザ設定」と「観測モデル設定」を分離したスキーマへ寄せるのが望ましい。
+
+### 12.2 現行読み取りキー（実装準拠）
+
+現行実装が読む必須キー:
+
+- `ekf.process_noise_translation`
+- `ekf.process_noise_rotation`
+- `ekf.measurement_noise_range`
+- `ekf.measurement_noise_angle`
+- `line_extraction.max_lines`
+- `line_extraction.min_segment_length`
+- `association.max_association_distance`
+- `association.segment_margin`
+- `association.gate_threshold`
+- `association.min_observations`
+- `initial_covariance.xx|yy|tt`
+- `observation_model`（未指定時は `simple_line_association`）
+
+### 12.3 推奨スキーマ（v2案）
+
+方針:
+
+- `localizer` と `observation` をトップレベルで分離
+- `observation.model` でモデル種別を宣言
+- `observation.<model_name>` にモデル固有設定を閉じ込める
+- 今後の 2段RANSAC 追加時は `observation.ransac_line_association` を追加するだけにする
+
+例:
+
+```toml
+[localizer]
+algorithm = "ekf"
+
+[localizer.ekf]
+process_noise_translation = 0.05
+process_noise_rotation = 0.03
+
+[localizer.initial_covariance]
+xx = 0.5
+yy = 0.5
+tt = 0.2
+
+[observation]
+model = "simple_line_association"
+
+[observation.common]
+measurement_noise_range = 0.12
+measurement_noise_angle = 0.12
+gate_threshold = 6.0
+min_observations = 3
+
+[observation.map_line_extraction]
+max_lines = 40
+min_segment_length = 0.8
+
+[observation.simple_line_association]
+max_association_distance = 0.3
+segment_margin = 0.3
+```
+
+### 12.4 simple と 2段RANSAC を見据えた設定境界
+
+`common` に置く（共有見込みが高い）:
+
+- `measurement_noise_range`
+- `measurement_noise_angle`
+- `gate_threshold`
+- `min_observations`
+- `map_line_extraction.*`
+
+モデル固有に置く:
+
+- simple: `max_association_distance`, `segment_margin`
+- 2段RANSAC: `scan_line_ransac.*`, `matching_ransac.*`（反復回数、inlier条件など）
+
+### 12.5 互換移行戦略
+
+Phase A（互換読み取り）:
+
+- 新スキーマ優先で読み取り
+- 未指定なら現行キー（`ekf.*`, `association.*`, `line_extraction.*`）へフォールバック
+
+Phase B（警告）:
+
+- 旧キー使用時に deprecation 警告を出力
+
+Phase C（統一）:
+
+- テスト・サンプル設定を v2 に移行
+- 旧キー削除
+
+### 12.6 バリデーション方針
+
+- 値域チェックはパーサで一元化（負値禁止、最小値制約など）
+- モデル別の必須キーは `observation.model` ごとに分岐して検証
+- 「設定未使用」検出（不要キー警告）を導入し、設定ドリフトを防止

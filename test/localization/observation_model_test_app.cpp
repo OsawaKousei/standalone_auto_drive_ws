@@ -117,36 +117,43 @@ struct EvalSummary {
 
 [[nodiscard]] auto parseSimpleLineAssociationConfig(const config::TextConfig &cfg)
     -> Result<localization::SimpleLineAssociationModelConfig> {
-  const auto maxLines = requiredInt(cfg, "line_extraction", "max_lines");
+  const auto maxLines =
+      requiredInt(cfg, "localization.observation.line_based.map_line_extraction", "max_lines");
   if (!maxLines) {
     return tl::make_unexpected(maxLines.error());
   }
-  const auto minSegmentLength = requiredDouble(cfg, "line_extraction", "min_segment_length");
+  const auto minSegmentLength = requiredDouble(
+      cfg, "localization.observation.line_based.map_line_extraction", "min_segment_length");
   if (!minSegmentLength) {
     return tl::make_unexpected(minSegmentLength.error());
   }
-  const auto measurementNoiseRange = requiredDouble(cfg, "ekf", "measurement_noise_range");
+  const auto measurementNoiseRange =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_range");
   if (!measurementNoiseRange) {
     return tl::make_unexpected(measurementNoiseRange.error());
   }
-  const auto measurementNoiseAngle = requiredDouble(cfg, "ekf", "measurement_noise_angle");
+  const auto measurementNoiseAngle =
+      requiredDouble(cfg, "localization.observation.line_based", "measurement_noise_angle");
   if (!measurementNoiseAngle) {
     return tl::make_unexpected(measurementNoiseAngle.error());
   }
-  const auto maxAssociationDistance =
-      requiredDouble(cfg, "association", "max_association_distance");
+  const auto maxAssociationDistance = requiredDouble(
+      cfg, "localization.observation.models.simple_line_association", "max_association_distance");
   if (!maxAssociationDistance) {
     return tl::make_unexpected(maxAssociationDistance.error());
   }
-  const auto segmentMargin = requiredDouble(cfg, "association", "segment_margin");
+  const auto segmentMargin = requiredDouble(
+      cfg, "localization.observation.models.simple_line_association", "segment_margin");
   if (!segmentMargin) {
     return tl::make_unexpected(segmentMargin.error());
   }
-  const auto gateThreshold = requiredDouble(cfg, "association", "gate_threshold");
+  const auto gateThreshold =
+      requiredDouble(cfg, "localization.observation.line_based", "gate_threshold");
   if (!gateThreshold) {
     return tl::make_unexpected(gateThreshold.error());
   }
-  const auto minObservations = requiredInt(cfg, "association", "min_observations");
+  const auto minObservations =
+      requiredInt(cfg, "localization.observation.line_based", "min_observations");
   if (!minObservations) {
     return tl::make_unexpected(minObservations.error());
   }
@@ -170,8 +177,12 @@ struct EvalSummary {
     return tl::make_unexpected(cfg.error());
   }
 
-  auto observationModelType = std::string{"simple_line_association"};
-  if (const auto raw = cfg->findRaw("", "observation_model"); raw) {
+  auto observationModelType = std::string{};
+  {
+    const auto raw = requiredRaw(*cfg, "localization", "observation_model");
+    if (!raw) {
+      return tl::make_unexpected(raw.error());
+    }
     const auto parsed = config::parseQuotedString(*raw);
     if (!parsed) {
       return tl::make_unexpected(parsed.error());
