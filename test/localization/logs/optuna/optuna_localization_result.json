@@ -1,18 +1,18 @@
 {
   "study_name": "localization_hough_ransac_ate",
-  "best_trial": 12,
-  "best_value": 0.13359593833762223,
+  "best_trial": 184,
+  "best_value": 0.10582072744570839,
   "best_params": {
-    "hough.min_votes": 17,
-    "hough.max_lines": 66,
-    "hough.min_segment_length": 0.6499110062584299,
-    "hough.merge_rho": 0.19475452813338612,
-    "hough.merge_theta": 0.04163879796747685,
-    "association.max_association_distance": 0.22436616504148138,
-    "association.gate_threshold": 6.4800924271076275,
-    "ransac.max_iterations": 140,
-    "ransac.min_inliers": 6,
-    "ransac.min_inlier_ratio": 0.34301129811575626
+    "hough.min_votes": 14,
+    "hough.max_lines": 57,
+    "hough.min_segment_length": 0.3930486480044232,
+    "hough.merge_rho": 0.1218537285256305,
+    "hough.merge_theta": 0.06786627004620424,
+    "association.max_association_distance": 0.31257965761909595,
+    "association.gate_threshold": 4.308513604389816,
+    "ransac.max_iterations": 101,
+    "ransac.min_inliers": 4,
+    "ransac.min_inlier_ratio": 0.2000585258239609
   },
   "search_space": {
     "hough.min_votes": {
@@ -66,8 +66,8 @@
       "kind": "float"
     }
   },
-  "n_trials": 28,
-  "n_complete": 27,
+  "n_trials": 200,
+  "n_complete": 200,
   "backup_path": "/workspace/test/localization/configs/localization/ekf_hough_ransac.toml.optuna.bak",
   "localization_config": "/workspace/test/localization/configs/localization/ekf_hough_ransac.toml",
   "final_config_mode": "applied_best"

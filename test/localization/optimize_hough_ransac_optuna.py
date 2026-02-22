@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import re
+import statistics
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -79,6 +80,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-trials", type=int, default=20, help="Number of Optuna trials")
     parser.add_argument("--timeout", type=int, default=0, help="Optimization timeout seconds (0: no timeout)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for sampler")
+    parser.add_argument(
+        "--eval-runs",
+        type=int,
+        default=3,
+        help="Number of repeated runs per trial to reduce randomness",
+    )
+    parser.add_argument(
+        "--eval-reducer",
+        type=str,
+        default="median",
+        choices=["median", "mean"],
+        help="How to aggregate ATE values from repeated runs",
+    )
     parser.add_argument(
         "--study-name",
         type=str,
@@ -205,6 +219,9 @@ def main() -> int:
     if not analyzer_script.exists():
         print(f"analyzer script not found: {analyzer_script}", file=sys.stderr)
         return 1
+    if args.eval_runs <= 0:
+        print("--eval-runs must be >= 1", file=sys.stderr)
+        return 1
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -226,6 +243,8 @@ def main() -> int:
     print(f"  metrics_path: {metrics_path}")
     print(f"  n_trials: {args.n_trials}")
     print(f"  timeout: {args.timeout}")
+    print(f"  eval_runs: {args.eval_runs}")
+    print(f"  eval_reducer: {args.eval_reducer}")
 
     sampler = optuna.samplers.TPESampler(seed=args.seed)
     study = optuna.create_study(
@@ -260,63 +279,93 @@ def main() -> int:
         )
 
         app_command = [str(localization_app), "--render"] if args.render else [str(localization_app), "--no-render"]
-        run_result = run_command(app_command, cwd=workspace_root)
-        if run_result.returncode != 0:
-            trial.set_user_attr("status", "localization_app_failed")
-            trial.set_user_attr("localization_app_output", run_result.stdout[-5000:])
-            trial_logs.append(
-                {
-                    "trial": trial.number,
-                    "status": "localization_app_failed",
-                    "objective": args.failure_penalty,
-                    "params": sampled_log,
-                }
-            )
-            return args.failure_penalty
+        run_ates: list[float] = []
+        run_results: list[str] = []
+        run_update_counts: list[int | None] = []
 
-        analyze_result = run_command([sys.executable, str(analyzer_script)], cwd=workspace_root)
-        if analyze_result.returncode != 0 or not metrics_path.exists():
-            trial.set_user_attr("status", "analyzer_failed")
-            trial.set_user_attr("analyzer_output", analyze_result.stdout[-5000:])
-            trial_logs.append(
-                {
-                    "trial": trial.number,
-                    "status": "analyzer_failed",
-                    "objective": args.failure_penalty,
-                    "params": sampled_log,
-                }
-            )
-            return args.failure_penalty
+        for run_index in range(args.eval_runs):
+            run_result = run_command(app_command, cwd=workspace_root)
+            if run_result.returncode != 0:
+                trial.set_user_attr("status", "localization_app_failed")
+                trial.set_user_attr("failed_eval_run", run_index)
+                trial.set_user_attr("localization_app_output", run_result.stdout[-5000:])
+                trial_logs.append(
+                    {
+                        "trial": trial.number,
+                        "status": "localization_app_failed",
+                        "failed_eval_run": run_index,
+                        "objective": args.failure_penalty,
+                        "params": sampled_log,
+                    }
+                )
+                return args.failure_penalty
 
-        try:
-            ate, metrics = load_ate(metrics_path)
-        except Exception as exc:
-            trial.set_user_attr("status", "metrics_parse_failed")
-            trial.set_user_attr("metrics_error", str(exc))
-            trial_logs.append(
-                {
-                    "trial": trial.number,
-                    "status": "metrics_parse_failed",
-                    "objective": args.failure_penalty,
-                    "params": sampled_log,
-                }
-            )
-            return args.failure_penalty
+            analyze_result = run_command([sys.executable, str(analyzer_script)], cwd=workspace_root)
+            if analyze_result.returncode != 0 or not metrics_path.exists():
+                trial.set_user_attr("status", "analyzer_failed")
+                trial.set_user_attr("failed_eval_run", run_index)
+                trial.set_user_attr("analyzer_output", analyze_result.stdout[-5000:])
+                trial_logs.append(
+                    {
+                        "trial": trial.number,
+                        "status": "analyzer_failed",
+                        "failed_eval_run": run_index,
+                        "objective": args.failure_penalty,
+                        "params": sampled_log,
+                    }
+                )
+                return args.failure_penalty
 
-        result = str(metrics.get("result", "unknown"))
-        if result != "success" or not math.isfinite(ate) or ate <= 0.0:
-            objective_value = args.failure_penalty + (ate if math.isfinite(ate) else 0.0)
-            status = "run_failure_or_invalid_ate"
-        else:
-            objective_value = ate
-            status = "ok"
+            try:
+                ate, metrics = load_ate(metrics_path)
+            except Exception as exc:
+                trial.set_user_attr("status", "metrics_parse_failed")
+                trial.set_user_attr("failed_eval_run", run_index)
+                trial.set_user_attr("metrics_error", str(exc))
+                trial_logs.append(
+                    {
+                        "trial": trial.number,
+                        "status": "metrics_parse_failed",
+                        "failed_eval_run": run_index,
+                        "objective": args.failure_penalty,
+                        "params": sampled_log,
+                    }
+                )
+                return args.failure_penalty
+
+            result = str(metrics.get("result", "unknown"))
+            if result != "success" or not math.isfinite(ate) or ate <= 0.0:
+                trial.set_user_attr("status", "run_failure_or_invalid_ate")
+                trial.set_user_attr("failed_eval_run", run_index)
+                trial_logs.append(
+                    {
+                        "trial": trial.number,
+                        "status": "run_failure_or_invalid_ate",
+                        "failed_eval_run": run_index,
+                        "objective": args.failure_penalty,
+                        "ate": ate if math.isfinite(ate) else None,
+                        "result": result,
+                        "params": sampled_log,
+                    }
+                )
+                return args.failure_penalty
+
+            run_ates.append(ate)
+            run_results.append(result)
+            run_update_counts.append((metrics.get("observation_update") or {}).get("count"))
+
+        objective_value = statistics.median(run_ates) if args.eval_reducer == "median" else statistics.fmean(run_ates)
+        status = "ok"
 
         trial.set_user_attr("status", status)
-        trial.set_user_attr("ate", ate)
-        trial.set_user_attr("result", result)
+        trial.set_user_attr("ate", objective_value)
+        trial.set_user_attr("ate_runs", run_ates)
+        trial.set_user_attr("result", "success")
+        trial.set_user_attr("eval_runs", args.eval_runs)
+        trial.set_user_attr("eval_reducer", args.eval_reducer)
         trial.set_user_attr(
             "update_count",
-            (metrics.get("observation_update") or {}).get("count"),
+            min(count for count in run_update_counts if count is not None) if any(count is not None for count in run_update_counts) else None,
         )
 
         trial_logs.append(
@@ -324,16 +373,19 @@ def main() -> int:
                 "trial": trial.number,
                 "status": status,
                 "objective": objective_value,
-                "ate": ate,
-                "result": result,
-                "update_count": (metrics.get("observation_update") or {}).get("count"),
+                "ate": objective_value,
+                "ate_runs": run_ates,
+                "result": "success",
+                "update_count": min(count for count in run_update_counts if count is not None) if any(count is not None for count in run_update_counts) else None,
+                "eval_runs": args.eval_runs,
+                "eval_reducer": args.eval_reducer,
                 "params": sampled_log,
             }
         )
 
         print(
             f"trial={trial.number} objective(ATE)={objective_value:.6f} "
-            f"ate={ate:.6f} result={result} status={status}"
+            f"ate_runs={[round(v, 6) for v in run_ates]} reducer={args.eval_reducer} status={status}"
         )
         return objective_value
 
