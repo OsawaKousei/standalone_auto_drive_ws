@@ -34,6 +34,7 @@ namespace ad::localization_test {
 constexpr auto kLogPrecision = 8;
 constexpr auto kAnglePeriod = 2.0 * std::numbers::pi;
 constexpr auto kScheduleEpsilon = 1.0e-12;
+constexpr auto kUpdateAppliedEpsilon = 1.0e-12;
 
 struct AlgorithmSpec {
   std::string algorithm;
@@ -80,6 +81,20 @@ struct ProgramOptions {
 
 [[nodiscard]] auto distanceToGoal(const types::Pose &pose, const types::Pose &goal) -> double {
   return std::hypot(goal.x - pose.x, goal.y - pose.y);
+}
+
+[[nodiscard]] auto observationUpdateApplied(const localization::LocalizerEstimate &before,
+                                            const localization::LocalizerEstimate &after) -> bool {
+  const auto deltaX = std::abs(after.pose.x - before.pose.x);
+  const auto deltaY = std::abs(after.pose.y - before.pose.y);
+  const auto deltaTheta = std::abs(normalizeAngle(after.pose.theta - before.pose.theta));
+  if (deltaX > kUpdateAppliedEpsilon || deltaY > kUpdateAppliedEpsilon ||
+      deltaTheta > kUpdateAppliedEpsilon) {
+    return true;
+  }
+
+  const auto covarianceDelta = (after.covariance - before.covariance).cwiseAbs().maxCoeff();
+  return covarianceDelta > kUpdateAppliedEpsilon;
 }
 
 [[nodiscard]] auto serializePoints(std::span<const types::Point> points) -> std::string {
@@ -463,12 +478,14 @@ struct ProgramOptions {
              "heading_err,pre_update_pos_err,post_update_pos_err,delta_pos_err,"
              "pre_update_heading_err,post_update_heading_err,delta_heading_err,score,cov_xx,"
              "cov_yy,cov_tt,cmd_v,cmd_vy,cmd_w,odom_df,odom_dl,odom_dtheta,lidar_updated,"
+             "obs_update_applied,"
              "scan_count,scan_min_angle,scan_angle_inc,scan_max_range,scan_ranges,"
              "scan_points_robot\n";
   logFile << "step,time,dist_goal,true_x,true_y,true_theta,est_x,est_y,est_theta,pos_err,"
              "heading_err,pre_update_pos_err,post_update_pos_err,delta_pos_err,"
              "pre_update_heading_err,post_update_heading_err,delta_heading_err,score,cov_xx,"
              "cov_yy,cov_tt,cmd_v,cmd_vy,cmd_w,odom_df,odom_dl,odom_dtheta,lidar_updated,"
+             "obs_update_applied,"
              "scan_count,scan_min_angle,scan_angle_inc,scan_max_range,scan_ranges,"
              "scan_points_robot\n";
   return logFile;
@@ -705,6 +722,7 @@ int main(int argc, char **argv) {
         estimateBeforeUpdate->pose.theta - trueState->pose.theta));
 
     auto lidarUpdated = false;
+    auto observationApplied = false;
     auto scanCount = 0;
     auto scanMinAngle = 0.0;
     auto scanAngleIncrement = 0.0;
@@ -762,14 +780,19 @@ int main(int argc, char **argv) {
       break;
     }
 
+    if (lidarUpdated) {
+      observationApplied =
+          ad::localization_test::observationUpdateApplied(*estimateBeforeUpdate, *estimateAfter);
+    }
+
     const auto postPositionError = std::hypot(estimateAfter->pose.x - trueState->pose.x,
                                               estimateAfter->pose.y - trueState->pose.y);
     const auto postHeadingError = std::abs(
         ad::localization_test::normalizeAngle(estimateAfter->pose.theta - trueState->pose.theta));
-    const auto deltaPositionError = lidarUpdated ? (prePositionError - postPositionError)
-                                                 : std::numeric_limits<double>::quiet_NaN();
-    const auto deltaHeadingError = lidarUpdated ? (preHeadingError - postHeadingError)
-                                                : std::numeric_limits<double>::quiet_NaN();
+    const auto deltaPositionError = observationApplied ? (prePositionError - postPositionError)
+                                                       : std::numeric_limits<double>::quiet_NaN();
+    const auto deltaHeadingError = observationApplied ? (preHeadingError - postHeadingError)
+                                                      : std::numeric_limits<double>::quiet_NaN();
 
     const auto distanceGoal = ad::localization_test::distanceToGoal(trueState->pose, scenario.goal);
     const auto timeSeconds = scenario.runtime.stepSeconds * static_cast<double>(step + 1);
@@ -784,9 +807,9 @@ int main(int argc, char **argv) {
              << estimateAfter->covariance(2, 2) << ',' << commandResult->v << ','
              << commandResult->vy << ',' << commandResult->w << ',' << odometryDelta->deltaForward
              << ',' << odometryDelta->deltaLateral << ',' << odometryDelta->deltaTheta << ','
-             << (lidarUpdated ? 1 : 0) << ',' << scanCount << ',' << scanMinAngle << ','
-             << scanAngleIncrement << ',' << scanMaxRange << ',' << scanRangesSerialized << ','
-             << scanPointsRobotSerialized << '\n';
+             << (lidarUpdated ? 1 : 0) << ',' << (observationApplied ? 1 : 0) << ',' << scanCount
+             << ',' << scanMinAngle << ',' << scanAngleIncrement << ',' << scanMaxRange << ','
+             << scanRangesSerialized << ',' << scanPointsRobotSerialized << '\n';
 
     if (distanceGoal <= scenario.runtime.goalTolerance) {
       reachedGoal = true;
