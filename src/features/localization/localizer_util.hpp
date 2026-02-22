@@ -18,7 +18,6 @@ struct LineModel {
 
 struct LineFit {
   LineModel model;
-  double alphaRaw;
   std::size_t pointCount;
   double mse;
 };
@@ -49,12 +48,6 @@ struct MapSignature {
   std::size_t gridSize;
 };
 
-struct GateCheck {
-  double residual;
-  double variance;
-  double threshold;
-};
-
 struct ObservationGateConfig {
   const CovarianceMatrix &covariance;
   double threshold;
@@ -63,7 +56,6 @@ struct ObservationGateConfig {
 [[nodiscard]] auto normalizeAngle(double angle) -> double;
 [[nodiscard]] auto mapHasConsistentGrid(const types::MapData &map) -> bool;
 [[nodiscard]] auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Point>;
-[[nodiscard]] auto passesGate(const GateCheck &check) -> bool;
 [[nodiscard]] auto toLineModel(LineModel raw) -> LineModel;
 [[nodiscard]] auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit>;
 [[nodiscard]] auto makeExpectedLine(const LineModel &mapLine, const types::Pose &pose)

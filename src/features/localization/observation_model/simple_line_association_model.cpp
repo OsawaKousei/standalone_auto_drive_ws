@@ -94,7 +94,11 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
         mapLines[lineIndex].model, ad::types::Pose{.x = pose.x, .y = pose.y, .theta = pose.theta});
     observation.observed = fit->model;
     ad::localization::observation_model_common::applyObservationNoiseFromMse(
-        observation, config, static_cast<double>(fit->pointCount), fit->mse);
+        observation,
+        ad::localization::observation_model_common::ObservationNoiseConfig{
+            .measurementNoiseRange = config.measurementNoiseRange,
+            .measurementNoiseAngle = config.measurementNoiseAngle},
+        static_cast<double>(fit->pointCount), fit->mse);
     ++summary.candidates;
 
     if (!ad::localization::util::gateLineObservation(

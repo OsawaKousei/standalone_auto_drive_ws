@@ -344,7 +344,11 @@ auto buildObservations(const std::vector<ad::localization::ransac::LinePairMatch
     auto observation = ad::localization::util::makeExpectedLine(mapLine.model, predictedPose);
     observation.observed = scanLine.model;
     ad::localization::observation_model_common::applyObservationNoiseFromResidual(
-        observation, config.baseObservation, pair.angleResidual, pair.rhoResidual);
+        observation,
+        ad::localization::observation_model_common::ObservationNoiseConfig{
+            .measurementNoiseRange = config.baseObservation.measurementNoiseRange,
+            .measurementNoiseAngle = config.baseObservation.measurementNoiseAngle},
+        pair.angleResidual, pair.rhoResidual);
 
     ++summary.candidates;
     if (!ad::localization::util::gateLineObservation(

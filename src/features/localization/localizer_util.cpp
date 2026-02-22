@@ -52,14 +52,6 @@ auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Poin
   return points;
 }
 
-auto passesGate(const GateCheck &check) -> bool {
-  if (check.variance <= 0.0) {
-    return false;
-  }
-  const auto normalized = (check.residual * check.residual) / check.variance;
-  return normalized <= check.threshold;
-}
-
 auto toLineModel(LineModel raw) -> LineModel {
   auto normalizedRho = raw.rho;
   auto normalizedAlpha = normalizeAngle(raw.alpha);
@@ -119,7 +111,7 @@ auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit> 
   }
   mse /= count;
 
-  return LineFit{.model = model, .alphaRaw = normal, .pointCount = points.size(), .mse = mse};
+  return LineFit{.model = model, .pointCount = points.size(), .mse = mse};
 }
 
 auto makeExpectedLine(const LineModel &mapLine, const types::Pose &pose) -> LineObservation {

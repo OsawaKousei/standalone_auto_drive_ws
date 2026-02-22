@@ -14,7 +14,7 @@ constexpr double kAngleMseScale = 0.1;
 namespace ad::localization::observation_model_common {
 
 auto applyObservationNoiseFromMse(util::LineObservation &observation,
-                                  const SimpleLineAssociationModelConfig &config,
+                                  const ObservationNoiseConfig &config,
                                   const double supportPointCount, const double mse) -> void {
   const auto pointCount = std::max(1.0, supportPointCount);
   const auto baseRangeVar = config.measurementNoiseRange * config.measurementNoiseRange;
@@ -29,7 +29,7 @@ auto applyObservationNoiseFromMse(util::LineObservation &observation,
 }
 
 auto applyObservationNoiseFromResidual(util::LineObservation &observation,
-                                       const SimpleLineAssociationModelConfig &config,
+                                       const ObservationNoiseConfig &config,
                                        const double angleResidual, const double rhoResidual)
     -> void {
   const auto mseLike =
