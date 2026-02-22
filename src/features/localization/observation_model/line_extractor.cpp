@@ -15,6 +15,10 @@
 namespace {
 
 constexpr double kEpsilon = 1e-9;
+constexpr int kMaxExtractedLines = 40;
+constexpr double kMinSegmentLength = 0.8;
+constexpr double kMergeRho = 0.2;
+constexpr double kMergeTheta = 0.08;
 
 struct GridVertex {
   int x;
@@ -261,13 +265,12 @@ auto buildMapLine(const ad::types::Point &start, const ad::types::Point &end)
 }
 
 auto isTooCloseToExisting(const ad::localization::util::LineModel &candidate,
-                          const std::vector<ad::localization::util::MapLine> &lines,
-                          const ad::localization::HoughConfig &config) -> bool {
+                          const std::vector<ad::localization::util::MapLine> &lines) -> bool {
   return std::ranges::any_of(lines, [&](const auto &existing) {
     const auto rhoDiff = std::abs(existing.model.rho - candidate.rho);
     const auto alphaDiff =
         std::abs(ad::localization::util::normalizeAngle(existing.model.alpha - candidate.alpha));
-    return rhoDiff <= config.mergeRho && alphaDiff <= config.mergeTheta;
+    return rhoDiff <= kMergeRho && alphaDiff <= kMergeTheta;
   });
 }
 
@@ -275,16 +278,14 @@ auto isTooCloseToExisting(const ad::localization::util::LineModel &candidate,
 
 namespace ad::localization::line_extractor {
 
-auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config)
-    -> Result<std::vector<util::MapLine>> {
+auto extractMapLinesFromMap(const types::MapData &map) -> Result<std::vector<util::MapLine>> {
   if (!util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
   }
 
-  if (config.maxLines <= 0 || config.minSegmentLength <= 0.0) {
-    return tl::make_unexpected(
-        Error{ErrorCode::InvalidInput, "Line extractor configuration is invalid."});
+  if (map.resolution <= 0.0) {
+    return tl::make_unexpected(Error{ErrorCode::InvalidInput, "Map resolution must be positive."});
   }
 
   const auto boundaryEdges = collectBoundaryEdges(map);
@@ -299,13 +300,13 @@ auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config
         Error{ErrorCode::EmptyCollection, "Failed to construct map contours."});
   }
 
-  const auto simplificationEpsilon = std::max(map.resolution * 0.5, config.inlierDistance);
+  const auto simplificationEpsilon = map.resolution * 0.5;
 
   auto lines = std::vector<util::MapLine>{};
-  lines.reserve(static_cast<std::size_t>(config.maxLines));
+  lines.reserve(static_cast<std::size_t>(kMaxExtractedLines));
 
   for (const auto &contour : contours) {
-    if (static_cast<int>(lines.size()) >= config.maxLines) {
+    if (static_cast<int>(lines.size()) >= kMaxExtractedLines) {
       break;
     }
 
@@ -315,13 +316,13 @@ auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config
     }
 
     for (std::size_t index = 1U; index < simplified.size(); ++index) {
-      if (static_cast<int>(lines.size()) >= config.maxLines) {
+      if (static_cast<int>(lines.size()) >= kMaxExtractedLines) {
         break;
       }
 
       const auto &start = simplified[index - 1U];
       const auto &end = simplified[index];
-      if (pointDistance(start, end) < config.minSegmentLength) {
+      if (pointDistance(start, end) < kMinSegmentLength) {
         continue;
       }
 
@@ -329,7 +330,7 @@ auto extractMapLinesFromMap(const types::MapData &map, const HoughConfig &config
       if (!line) {
         continue;
       }
-      if (isTooCloseToExisting(line->model, lines, config)) {
+      if (isTooCloseToExisting(line->model, lines)) {
         continue;
       }
 

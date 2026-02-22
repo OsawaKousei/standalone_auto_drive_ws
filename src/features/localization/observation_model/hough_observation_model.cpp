@@ -127,7 +127,7 @@ auto HoughObservationModel::create(const types::MapData &map, HoughObservationMo
     return tl::make_unexpected(signature.error());
   }
 
-  const auto mapLines = line_extractor::extractMapLinesFromMap(map, config.hough);
+  const auto mapLines = line_extractor::extractMapLinesFromMap(map);
   if (!mapLines) {
     return tl::make_unexpected(mapLines.error());
   }
