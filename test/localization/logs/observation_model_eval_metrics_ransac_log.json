@@ -1,0 +1,43 @@
+{
+  "frame_count": 95,
+  "models": [
+    {
+      "label": "hough_only",
+      "config_path": "test/localization/configs/localization/ekf_hough.toml",
+      "total_frames": 95,
+      "success_count": 95,
+      "no_update_count": 0,
+      "error_count": 0,
+      "success_rate": 1.00000000,
+      "mean_score": 0.97042537,
+      "mean_residual_rmse": 0.09029210,
+      "mean_nis": 2.53432538,
+      "mean_measurement_count": 16.40000000,
+      "mean_runtime_ms": 0.11313699,
+      "p95_runtime_ms": 0.12341400
+    },
+    {
+      "label": "hough_ransac",
+      "config_path": "test/localization/configs/localization/ekf_hough_ransac.toml",
+      "total_frames": 95,
+      "success_count": 87,
+      "no_update_count": 8,
+      "error_count": 0,
+      "success_rate": 0.91578947,
+      "mean_score": 0.99835796,
+      "mean_residual_rmse": 0.06195300,
+      "mean_nis": 1.79977133,
+      "mean_measurement_count": 4.42528736,
+      "mean_runtime_ms": 0.71781582,
+      "p95_runtime_ms": 0.84040800
+    }
+  ],
+  "comparison": {
+    "success_rate_delta": -0.08421053,
+    "mean_score_delta": 0.02793260,
+    "mean_residual_rmse_delta": -0.02833910,
+    "mean_nis_delta": -0.73455405,
+    "mean_measurement_count_delta": -11.97471264,
+    "mean_runtime_ms_delta": 0.60467883
+  }
+}

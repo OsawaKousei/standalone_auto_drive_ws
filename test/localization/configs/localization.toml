@@ -30,7 +30,7 @@ max_rotation_step = 0.05
 
 [localization]
 algorithm = "ekf"
-config_path = "localization/ekf_hough_ransac.toml"
+config_path = "localization/ekf_hough.toml"
 
 [planning]
 algorithm = "astar"
