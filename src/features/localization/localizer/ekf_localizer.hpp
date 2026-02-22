@@ -2,11 +2,19 @@
 
 #include "../i_localizer.hpp"
 #include "../i_observation_model.hpp"
-#include "../localization_config.hpp"
 
 #include <memory>
 
 namespace ad::localization {
+
+struct EkfConfig {
+  const double processNoiseTranslation;
+  const double processNoiseRotation;
+};
+
+struct EkfLocalizerConfig {
+  const EkfConfig ekf;
+};
 
 class EkfLocalizer final : public ILocalizer {
 public:

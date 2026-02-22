@@ -3,9 +3,11 @@
 #include "../../shared/result.hpp"
 #include "../../shared/types.hpp"
 
-#include "localization_config.hpp"
+#include <Eigen/Dense>
 
 namespace ad::localization {
+
+using CovarianceMatrix = Eigen::Matrix3d;
 
 struct LocalizerEstimate {
   const types::Pose pose;

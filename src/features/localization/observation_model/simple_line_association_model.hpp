@@ -2,6 +2,7 @@
 
 #include "../i_observation_model.hpp"
 #include "../localizer_util.hpp"
+#include "line_extractor.hpp"
 
 #include <memory>
 #include <vector>
@@ -9,7 +10,7 @@
 namespace ad::localization {
 
 struct SimpleLineAssociationModelConfig {
-  const MapLineExtractionConfig mapLineExtraction;
+  const line_extractor::MapLineExtractionConfig mapLineExtraction;
   const double measurementNoiseRange;
   const double measurementNoiseAngle;
   const double maxAssociationDistance;

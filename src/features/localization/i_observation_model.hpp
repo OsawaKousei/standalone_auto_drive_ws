@@ -1,6 +1,6 @@
 #pragma once
 
-#include "localization_config.hpp"
+#include "i_localizer.hpp"
 
 #include "../../shared/result.hpp"
 #include "../../shared/types.hpp"

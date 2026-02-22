@@ -1,7 +1,6 @@
 #pragma once
 
 #include "i_observation_model.hpp"
-#include "localization_config.hpp"
 #include "shared/result.hpp"
 #include "shared/types.hpp"
 

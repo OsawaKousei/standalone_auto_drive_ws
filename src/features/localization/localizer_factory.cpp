@@ -1,7 +1,6 @@
 #include "localizer_factory.hpp"
 
 #include "i_observation_model.hpp"
-#include "localization_config.hpp"
 #include "localizer/ekf_localizer.hpp"
 #include "observation_model/simple_line_association_model.hpp"
 
@@ -130,7 +129,8 @@ parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConf
 
   return SimpleLineAssociationModelConfig{
       .mapLineExtraction =
-          MapLineExtractionConfig{.maxLines = *maxLines, .minSegmentLength = *minSegmentLength},
+          line_extractor::MapLineExtractionConfig{.maxLines = *maxLines,
+                                                  .minSegmentLength = *minSegmentLength},
       .measurementNoiseRange = *measurementNoiseRange,
       .measurementNoiseAngle = *measurementNoiseAngle,
       .maxAssociationDistance = *maxAssociationDistance,

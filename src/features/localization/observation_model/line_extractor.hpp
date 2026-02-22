@@ -9,6 +9,11 @@
 
 namespace ad::localization::line_extractor {
 
+struct MapLineExtractionConfig {
+  const int maxLines;
+  const double minSegmentLength;
+};
+
 [[nodiscard]] auto extractMapLinesFromMap(const types::MapData &map,
                                           const MapLineExtractionConfig &config)
     -> Result<std::vector<util::MapLine>>;
