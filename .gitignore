@@ -3,6 +3,6 @@ build/
 tools/*yaml
 tools/*pgm
 *.log
-*json
-*scv
+*.json
+*.csv
 .venv/

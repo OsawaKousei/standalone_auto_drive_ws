@@ -341,7 +341,6 @@ def main() -> int:
         "est_theta",
         "pos_err",
         "heading_err",
-        "lidar_updated",
         "pre_update_pos_err",
         "post_update_pos_err",
         "delta_pos_err",
@@ -352,6 +351,18 @@ def main() -> int:
     missing = [name for name in required_cols if name not in col_idx]
     if missing:
         print(f"missing required columns: {missing}", file=sys.stderr)
+        return 1
+
+    update_flag_col = None
+    if "obs_update_applied" in col_idx:
+        update_flag_col = "obs_update_applied"
+    elif "lidar_updated" in col_idx:
+        update_flag_col = "lidar_updated"
+    else:
+        print(
+            "missing required update flag column: need one of ['obs_update_applied', 'lidar_updated']",
+            file=sys.stderr,
+        )
         return 1
 
     scenario_cfg_rel = header.get("scenario_config", "test/localization/configs/localization.toml")
@@ -371,7 +382,7 @@ def main() -> int:
     est_theta = column_as_float(rows, col_idx["est_theta"])
     pos_err = column_as_float(rows, col_idx["pos_err"])
     heading_err = column_as_float(rows, col_idx["heading_err"])
-    lidar_updated = column_as_float(rows, col_idx["lidar_updated"])
+    update_flag = column_as_float(rows, col_idx[update_flag_col])
 
     pre_update_pos_err = column_as_float(rows, col_idx["pre_update_pos_err"])
     post_update_pos_err = column_as_float(rows, col_idx["post_update_pos_err"])
@@ -407,7 +418,7 @@ def main() -> int:
     )
 
     update_mask = (
-        (lidar_updated > 0.5)
+        (update_flag > 0.5)
         & np.isfinite(pre_update_pos_err)
         & np.isfinite(post_update_pos_err)
         & np.isfinite(delta_pos_err)
@@ -417,7 +428,7 @@ def main() -> int:
     )
 
     if not np.any(update_mask):
-        print("no lidar update rows with pre/post/delta errors found", file=sys.stderr)
+        print("no observation-applied update rows with pre/post/delta errors found", file=sys.stderr)
         return 1
 
     update_time_s = time_s[update_mask]
