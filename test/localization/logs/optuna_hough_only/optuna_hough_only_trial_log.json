@@ -1,0 +1,18 @@
+[
+  {
+    "trial": 0,
+    "status": "localization_app_failed",
+    "failed_eval_run": 3,
+    "objective": 1000000.0,
+    "params": {
+      "hough.min_votes": 21.0,
+      "hough.max_lines": 68.0,
+      "hough.min_segment_length": 0.9123957592679837,
+      "hough.merge_rho": 0.2077585271554666,
+      "hough.merge_theta": 0.05248149123539492,
+      "association.max_association_distance": 0.2480790136605165,
+      "association.gate_threshold": 4.174250836504599,
+      "association.min_observations": 5.0
+    }
+  }
+]
