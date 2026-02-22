@@ -1,7 +1,5 @@
 #include "features/localization/i_observation_model.hpp"
 #include "features/localization/localization_config.hpp"
-#include "features/localization/observation_model/ransac_core.hpp"
-#include "features/localization/observation_model/ransac_line_association_model.hpp"
 #include "features/localization/observation_model/simple_line_association_model.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
@@ -25,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-namespace ad::observation_model_debug {
+namespace ad::observation_model_test {
 
 struct ProgramOptions {
   std::string logPath = "test/localization/logs/localization_test.log";
@@ -33,7 +31,7 @@ struct ProgramOptions {
   std::string configAPath = "test/localization/configs/localization/ekf_hough.toml";
   std::string configBPath = "test/localization/configs/localization/ekf_hough_ransac.toml";
   std::string labelA = "hough";
-  std::string labelB = "hough_ransac";
+  std::string labelB = "hough_ransac_compat";
   std::string outputCsvPath = "test/localization/logs/observation_model_eval.csv";
   std::string outputJsonPath = "test/localization/logs/observation_model_eval_metrics.json";
 };
@@ -118,24 +116,6 @@ struct EvalSummary {
   return config::parseIntValue(*raw);
 }
 
-[[nodiscard]] auto optionalInt(const config::TextConfig &cfg, std::string_view section,
-                               std::string_view key, int defaultValue) -> Result<int> {
-  const auto raw = cfg.findRaw(section, key);
-  if (!raw) {
-    return defaultValue;
-  }
-  return config::parseIntValue(*raw);
-}
-
-[[nodiscard]] auto optionalDouble(const config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key, double defaultValue) -> Result<double> {
-  const auto raw = cfg.findRaw(section, key);
-  if (!raw) {
-    return defaultValue;
-  }
-  return config::parseDoubleValue(*raw);
-}
-
 [[nodiscard]] auto parseSimpleLineAssociationConfig(const config::TextConfig &cfg)
     -> Result<localization::SimpleLineAssociationModelConfig> {
   const auto maxLines = [&]() -> Result<int> {
@@ -215,80 +195,20 @@ struct EvalSummary {
     return tl::make_unexpected(simpleConfig.error());
   }
 
-  if (observationModelType == "hough_line" || observationModelType == "simple_line_association") {
-    auto model = localization::SimpleLineAssociationModel::create(map, *simpleConfig);
-    if (!model) {
-      return tl::make_unexpected(model.error());
-    }
-    std::unique_ptr<localization::IObservationModel> base = std::move(*model);
-    return base;
+  if (observationModelType != "hough_line" && observationModelType != "simple_line_association" &&
+      observationModelType != "hough_ransac_line" &&
+      observationModelType != "ransac_line_association") {
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Unsupported observation model: " + observationModelType});
   }
 
-  if (observationModelType == "hough_ransac_line" ||
-      observationModelType == "ransac_line_association") {
-    const auto inlierDistance = [&]() -> Result<double> {
-      if (const auto raw = cfg->findRaw("line_extraction", "inlier_distance")) {
-        return config::parseDoubleValue(*raw);
-      }
-      return requiredDouble(*cfg, "hough", "inlier_distance");
-    }();
-    if (!inlierDistance) {
-      return tl::make_unexpected(inlierDistance.error());
-    }
-    const auto mergeRho = [&]() -> Result<double> {
-      if (const auto raw = cfg->findRaw("line_extraction", "merge_rho")) {
-        return config::parseDoubleValue(*raw);
-      }
-      return requiredDouble(*cfg, "hough", "merge_rho");
-    }();
-    if (!mergeRho) {
-      return tl::make_unexpected(mergeRho.error());
-    }
-    const auto mergeTheta = [&]() -> Result<double> {
-      if (const auto raw = cfg->findRaw("line_extraction", "merge_theta")) {
-        return config::parseDoubleValue(*raw);
-      }
-      return requiredDouble(*cfg, "hough", "merge_theta");
-    }();
-    if (!mergeTheta) {
-      return tl::make_unexpected(mergeTheta.error());
-    }
-    const auto maxIterations = optionalInt(*cfg, "ransac", "max_iterations", 80);
-    if (!maxIterations) {
-      return tl::make_unexpected(maxIterations.error());
-    }
-    const auto minInliers = optionalInt(*cfg, "ransac", "min_inliers", 8);
-    if (!minInliers) {
-      return tl::make_unexpected(minInliers.error());
-    }
-    const auto minInlierRatio = optionalDouble(*cfg, "ransac", "min_inlier_ratio", 0.35);
-    if (!minInlierRatio) {
-      return tl::make_unexpected(minInlierRatio.error());
-    }
-
-    const auto configValue = localization::RansacLineAssociationModelConfig{
-        .baseObservation = *simpleConfig,
-        .ransacLineExtraction =
-            localization::RansacLineExtractionConfig{
-                .maxLines = simpleConfig->mapLineExtraction.maxLines,
-                .inlierDistance = *inlierDistance,
-                .minSegmentLength = simpleConfig->mapLineExtraction.minSegmentLength,
-                .mergeRho = *mergeRho,
-                .mergeTheta = *mergeTheta},
-        .ransac = localization::RansacConfig{.maxIterations = *maxIterations,
-                                             .minInliers = static_cast<std::size_t>(*minInliers),
-                                             .minInlierRatio = *minInlierRatio}};
-    auto model = localization::RansacLineAssociationModel::create(map, configValue);
-    if (!model) {
-      return tl::make_unexpected(model.error());
-    }
-    std::unique_ptr<localization::IObservationModel> base = std::move(*model);
-    return base;
+  auto model = localization::SimpleLineAssociationModel::create(map, *simpleConfig);
+  if (!model) {
+    return tl::make_unexpected(model.error());
   }
-
-  return tl::make_unexpected(
-      Error{.code = ErrorCode::InvalidInput,
-            .message = "Unsupported observation model: " + observationModelType});
+  std::unique_ptr<localization::IObservationModel> base = std::move(*model);
+  return base;
 }
 
 [[nodiscard]] auto split(std::string_view text, char delimiter) -> std::vector<std::string> {
@@ -384,7 +304,7 @@ struct EvalSummary {
       return tl::make_unexpected(
           Error{.code = ErrorCode::InvalidInput,
                 .message = "Unknown argument: " + std::string{arg} +
-                           "\nUsage: observation_model_debug_app "
+                           "\nUsage: observation_model_test_app "
                            "[--log path] [--scenario path] [--config-a path] [--config-b path] "
                            "[--label-a name] [--label-b name] [--out-csv path] [--out-json path]"});
     }
@@ -810,48 +730,48 @@ auto writeMetricsJson(std::string_view path, const EvalSummary &summaryA,
   return resolvePath(baseDir.lexically_normal().string(), *mapYamlPath);
 }
 
-} // namespace ad::observation_model_debug
+} // namespace ad::observation_model_test
 
 auto main(int argc, char **argv) -> int {
   using namespace ad;
-  using namespace ad::observation_model_debug;
+  using namespace ad::observation_model_test;
 
   const auto options = parseArgs(argc, argv);
   if (!options) {
-    fmt::print(stderr, "[observation_model_debug_app] argument error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] argument error: {}\n",
                options.error().message);
     return 1;
   }
 
   const auto mapYamlPath = resolveMapYamlPath(options->scenarioPath);
   if (!mapYamlPath) {
-    fmt::print(stderr, "[observation_model_debug_app] scenario parse error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] scenario parse error: {}\n",
                mapYamlPath.error().message);
     return 1;
   }
 
   const auto map = loadMapFromYaml(*mapYamlPath);
   if (!map) {
-    fmt::print(stderr, "[observation_model_debug_app] map load error: {}\n", map.error().message);
+    fmt::print(stderr, "[observation_model_test_app] map load error: {}\n", map.error().message);
     return 1;
   }
 
   const auto modelA = createObservationModel(*map, options->configAPath);
   if (!modelA) {
-    fmt::print(stderr, "[observation_model_debug_app] model A create error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] model A create error: {}\n",
                modelA.error().message);
     return 1;
   }
   const auto modelB = createObservationModel(*map, options->configBPath);
   if (!modelB) {
-    fmt::print(stderr, "[observation_model_debug_app] model B create error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] model B create error: {}\n",
                modelB.error().message);
     return 1;
   }
 
   const auto frames = loadFramesFromLog(options->logPath);
   if (!frames) {
-    fmt::print(stderr, "[observation_model_debug_app] log parse error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] log parse error: {}\n",
                frames.error().message);
     return 1;
   }
@@ -873,7 +793,7 @@ auto main(int argc, char **argv) -> int {
 
   const auto csvWritten = writeCsv(options->outputCsvPath, records);
   if (!csvWritten) {
-    fmt::print(stderr, "[observation_model_debug_app] csv write error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] csv write error: {}\n",
                csvWritten.error().message);
     return 1;
   }
@@ -882,7 +802,7 @@ auto main(int argc, char **argv) -> int {
       writeMetricsJson(options->outputJsonPath, summaryA, summaryB, options->configAPath,
                        options->configBPath, frames->size());
   if (!metricsWritten) {
-    fmt::print(stderr, "[observation_model_debug_app] metrics write error: {}\n",
+    fmt::print(stderr, "[observation_model_test_app] metrics write error: {}\n",
                metricsWritten.error().message);
     return 1;
   }
