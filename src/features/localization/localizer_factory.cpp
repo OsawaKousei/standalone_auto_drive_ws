@@ -35,50 +35,9 @@ namespace {
   return ::ad::config::parseDoubleValue(*raw);
 }
 
-[[nodiscard]] auto requiredRawWithFallback(const ::ad::config::TextConfig &cfg,
-                                           std::string_view primarySection,
-                                           std::string_view fallbackSection, std::string_view key)
-    -> Result<std::string_view> {
-  const auto primary = cfg.findRaw(primarySection, key);
-  if (primary) {
-    return *primary;
-  }
-  const auto fallback = cfg.findRaw(fallbackSection, key);
-  if (fallback) {
-    return *fallback;
-  }
-  return tl::make_unexpected(Error{
-      .code = ErrorCode::InvalidInput,
-      .message = "Required localization config key is missing: " + std::string{primarySection} +
-                 "." + std::string{key} + " (legacy fallback: " + std::string{fallbackSection} +
-                 ")"});
-}
-
-[[nodiscard]] auto requiredDoubleWithFallback(const ::ad::config::TextConfig &cfg,
-                                              std::string_view primarySection,
-                                              std::string_view fallbackSection,
-                                              std::string_view key) -> Result<double> {
-  const auto raw = requiredRawWithFallback(cfg, primarySection, fallbackSection, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return ::ad::config::parseDoubleValue(*raw);
-}
-
 [[nodiscard]] auto requiredInt(const ::ad::config::TextConfig &cfg, std::string_view section,
                                std::string_view key) -> Result<int> {
   const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return ::ad::config::parseIntValue(*raw);
-}
-
-[[nodiscard]] auto requiredIntWithFallback(const ::ad::config::TextConfig &cfg,
-                                           std::string_view primarySection,
-                                           std::string_view fallbackSection, std::string_view key)
-    -> Result<int> {
-  const auto raw = requiredRawWithFallback(cfg, primarySection, fallbackSection, key);
   if (!raw) {
     return tl::make_unexpected(raw.error());
   }
@@ -135,12 +94,11 @@ parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConf
   }
 
   const auto &cfg = *configDoc;
-  const auto maxLines = requiredIntWithFallback(cfg, "line_extraction", "hough", "max_lines");
+  const auto maxLines = requiredInt(cfg, "line_extraction", "max_lines");
   if (!maxLines) {
     return tl::make_unexpected(maxLines.error());
   }
-  const auto minSegmentLength =
-      requiredDoubleWithFallback(cfg, "line_extraction", "hough", "min_segment_length");
+  const auto minSegmentLength = requiredDouble(cfg, "line_extraction", "min_segment_length");
   if (!minSegmentLength) {
     return tl::make_unexpected(minSegmentLength.error());
   }
@@ -243,9 +201,7 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
     return tl::make_unexpected(observationModelType.error());
   }
 
-  if (*observationModelType != "simple_line_association" && *observationModelType != "hough_line" &&
-      *observationModelType != "ransac_line_association" &&
-      *observationModelType != "hough_ransac_line") {
+  if (*observationModelType != "simple_line_association") {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "Unsupported observation model: " + *observationModelType});

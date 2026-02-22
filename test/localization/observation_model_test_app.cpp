@@ -30,8 +30,8 @@ struct ProgramOptions {
   std::string scenarioPath = "test/localization/configs/localization.toml";
   std::string configAPath = "test/localization/configs/localization/ekf_hough.toml";
   std::string configBPath = "test/localization/configs/localization/ekf_hough_ransac.toml";
-  std::string labelA = "hough";
-  std::string labelB = "hough_ransac_compat";
+  std::string labelA = "simple_a";
+  std::string labelB = "simple_b";
   std::string outputCsvPath = "test/localization/logs/observation_model_eval.csv";
   std::string outputJsonPath = "test/localization/logs/observation_model_eval_metrics.json";
 };
@@ -118,21 +118,11 @@ struct EvalSummary {
 
 [[nodiscard]] auto parseSimpleLineAssociationConfig(const config::TextConfig &cfg)
     -> Result<localization::SimpleLineAssociationModelConfig> {
-  const auto maxLines = [&]() -> Result<int> {
-    if (const auto raw = cfg.findRaw("line_extraction", "max_lines")) {
-      return config::parseIntValue(*raw);
-    }
-    return requiredInt(cfg, "hough", "max_lines");
-  }();
+  const auto maxLines = requiredInt(cfg, "line_extraction", "max_lines");
   if (!maxLines) {
     return tl::make_unexpected(maxLines.error());
   }
-  const auto minSegmentLength = [&]() -> Result<double> {
-    if (const auto raw = cfg.findRaw("line_extraction", "min_segment_length")) {
-      return config::parseDoubleValue(*raw);
-    }
-    return requiredDouble(cfg, "hough", "min_segment_length");
-  }();
+  const auto minSegmentLength = requiredDouble(cfg, "line_extraction", "min_segment_length");
   if (!minSegmentLength) {
     return tl::make_unexpected(minSegmentLength.error());
   }
@@ -195,9 +185,7 @@ struct EvalSummary {
     return tl::make_unexpected(simpleConfig.error());
   }
 
-  if (observationModelType != "hough_line" && observationModelType != "simple_line_association" &&
-      observationModelType != "hough_ransac_line" &&
-      observationModelType != "ransac_line_association") {
+  if (observationModelType != "simple_line_association") {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "Unsupported observation model: " + observationModelType});
