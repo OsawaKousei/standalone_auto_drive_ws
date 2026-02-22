@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -54,6 +55,41 @@ struct PoseMatchResult {
   std::vector<std::pair<std::size_t, std::size_t>> pairs;
   double mahalanobisDistanceSquared;
 };
+
+auto mixToUint32(const std::uint64_t value) -> std::uint32_t {
+  auto mixed = value;
+  mixed ^= mixed >> 33U;
+  mixed *= 0xff51afd7ed558ccdULL;
+  mixed ^= mixed >> 33U;
+  mixed *= 0xc4ceb9fe1a85ec53ULL;
+  mixed ^= mixed >> 33U;
+  return static_cast<std::uint32_t>(mixed & 0xffffffffULL);
+}
+
+auto buildAssociationRansacSeed(const std::size_t observedCount, const std::size_t mapCount,
+                                const ad::types::Pose &predictedPose) -> std::uint32_t {
+  auto randomDevice = std::random_device{};
+  const auto now =
+      static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+  const auto quantizedX = static_cast<std::int64_t>(std::llround(predictedPose.x * 1000.0));
+  const auto quantizedY = static_cast<std::int64_t>(std::llround(predictedPose.y * 1000.0));
+  const auto quantizedTheta =
+      static_cast<std::int64_t>(std::llround(predictedPose.theta * 1000000.0));
+
+  auto seedSequence = std::seed_seq{randomDevice(),
+                                    randomDevice(),
+                                    randomDevice(),
+                                    static_cast<std::uint32_t>(observedCount),
+                                    static_cast<std::uint32_t>(mapCount),
+                                    mixToUint32(now),
+                                    mixToUint32(static_cast<std::uint64_t>(quantizedX)),
+                                    mixToUint32(static_cast<std::uint64_t>(quantizedY)),
+                                    mixToUint32(static_cast<std::uint64_t>(quantizedTheta)),
+                                    kAssociationRansacSeedBias};
+  auto seed = std::uint32_t{0U};
+  seedSequence.generate(&seed, &seed + 1);
+  return seed;
+}
 
 auto sampleDistinctIndices(std::mt19937 &rng, const std::size_t size)
     -> std::optional<std::pair<std::size_t, std::size_t>> {
@@ -637,14 +673,16 @@ auto runAssociationRansac(
     return std::nullopt;
   }
 
-  auto rng = std::mt19937{static_cast<std::uint32_t>(observedLines.size() + mapLines.size()) +
-                          kAssociationRansacSeedBias};
+  const auto baseSeed =
+      buildAssociationRansacSeed(observedLines.size(), mapLines.size(), predictedPose);
+  auto observedRng = std::mt19937{baseSeed ^ 0x9e3779b9U};
+  auto mapRng = std::mt19937{baseSeed ^ 0x85ebca6bU};
   const auto iterations = std::max(1, config.translationRansacMaxIterations);
 
   auto best = std::optional<PoseMatchResult>{};
   for (int iteration = 0; iteration < iterations; ++iteration) {
-    const auto observedSample = sampleDistinctIndices(rng, observedLines.size());
-    const auto mapSample = sampleDistinctIndices(rng, mapLines.size());
+    const auto observedSample = sampleDistinctIndices(observedRng, observedLines.size());
+    const auto mapSample = sampleDistinctIndices(mapRng, mapLines.size());
     if (!observedSample || !mapSample) {
       continue;
     }
