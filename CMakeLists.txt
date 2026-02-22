@@ -80,14 +80,7 @@ add_library(ad_core
   src/features/control/controller_factory.cpp
   src/features/localization/localizer/ekf_localizer.cpp
   src/features/localization/observation_model/line_extractor.cpp
-  src/features/localization/observation_model/line_geometry.cpp
-  src/features/localization/observation_model/line_association_engine.cpp
-  src/features/localization/observation_model/line_observation_builder.cpp
-  src/features/localization/observation_model/observation_diagnostics_sink.cpp
-  src/features/localization/observation_model/scan_line_extractor.cpp
   src/features/localization/observation_model/simple_line_association_model.cpp
-  src/features/localization/observation_model/ransac_core.cpp
-  src/features/localization/observation_model/ransac_line_association_model.cpp
   src/features/localization/localizer_factory.cpp
   src/features/localization/localizer_util.cpp
   src/features/simulation/collision_checker/collision_checker.cpp
@@ -130,6 +123,3 @@ add_ad_executable(control_test_app test/control/control_test_app.cpp)
 add_ad_executable(planning_test_app test/planning/planning_test_app.cpp)
 add_ad_executable(localization_test_app test/localization/localization_test_app.cpp)
 add_ad_executable(line_extractor_overlay_test_app test/localization/line_extractor_overlay_test_app.cpp)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/localization/observation_model_debug_app.cpp")
-  add_ad_executable(observation_model_debug_app test/localization/observation_model_debug_app.cpp)
-endif()

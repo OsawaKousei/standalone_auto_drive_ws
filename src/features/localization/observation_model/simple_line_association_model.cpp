@@ -1,16 +1,11 @@
 #include "simple_line_association_model.hpp"
 
 #include "line_extractor.hpp"
-#include "line_observation_builder.hpp"
 
-#include <algorithm>
 #include <cmath>
-#include <optional>
 #include <vector>
 
 namespace {
-
-using Mat3 = ad::localization::CovarianceMatrix;
 
 struct ObservationSummary {
   std::vector<ad::localization::util::LineObservation> observations;
@@ -49,12 +44,14 @@ auto buildBuckets(const ad::types::LidarScan &scan,
           projection > (line.maxProjection + config.segmentMargin)) {
         continue;
       }
-      const auto lineNormalX = std::cos(line.model.alpha);
-      const auto lineNormalY = std::sin(line.model.alpha);
-      const auto distance = std::abs((lineNormalX * mapX) + (lineNormalY * mapY) - line.model.rho);
+
+      const auto nx = std::cos(line.model.alpha);
+      const auto ny = std::sin(line.model.alpha);
+      const auto distance = std::abs((nx * mapX) + (ny * mapY) - line.model.rho);
       if (distance > config.maxAssociationDistance) {
         continue;
       }
+
       if (!bestDistance || distance < *bestDistance) {
         bestDistance = distance;
         bestIndex = lineIndex;
@@ -73,10 +70,11 @@ auto buildBuckets(const ad::types::LidarScan &scan,
 
 auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets,
                        const std::vector<ad::localization::util::MapLine> &mapLines,
-                       const ad::types::Pose &pose,
+                       const ad::types::Pose &predictedPose,
                        const ad::localization::SimpleLineAssociationModelConfig &config,
-                       const Mat3 &covariance) -> ObservationSummary {
-  ObservationSummary summary{};
+                       const ad::localization::CovarianceMatrix &predictedCovariance)
+    -> ObservationSummary {
+  auto summary = ObservationSummary{};
   summary.observations.reserve(mapLines.size());
 
   for (std::size_t lineIndex = 0; lineIndex < mapLines.size(); ++lineIndex) {
@@ -90,23 +88,26 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
       continue;
     }
 
-    ++summary.candidates;
+    auto observation =
+        ad::localization::util::makeExpectedLine(mapLines[lineIndex].model, predictedPose);
+    observation.observed = fit->model;
+    ad::localization::util::applyObservationNoiseFromMse(
+        observation,
+        ad::localization::util::ObservationNoiseConfig{
+            .measurementNoiseRange = config.measurementNoiseRange,
+            .measurementNoiseAngle = config.measurementNoiseAngle},
+        static_cast<double>(fit->pointCount), fit->mse);
 
-    const auto observation =
-        ad::localization::line_observation_builder::buildGatedObservationFromFit(
-            mapLines[lineIndex].model, fit->model, pose, static_cast<double>(fit->pointCount),
-            fit->mse,
-            ad::localization::line_observation_builder::ObservationBuildConfig{
-                .measurementNoiseRange = config.measurementNoiseRange,
-                .measurementNoiseAngle = config.measurementNoiseAngle,
-                .gateThreshold = config.gateThreshold},
-            covariance);
-    if (!observation) {
+    ++summary.candidates;
+    if (!ad::localization::util::gateLineObservation(
+            observation,
+            ad::localization::util::ObservationGateConfig{.covariance = predictedCovariance,
+                                                          .threshold = config.gateThreshold})) {
       continue;
     }
 
     ++summary.gatePassed;
-    summary.observations.push_back(*observation);
+    summary.observations.push_back(observation);
   }
 
   return summary;
@@ -165,7 +166,7 @@ auto SimpleLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
   const auto score = summary.candidates > 0 ? static_cast<double>(summary.gatePassed) /
                                                   static_cast<double>(summary.candidates)
                                             : 0.0;
-  return {ad::localization::util::buildMeasurementData(summary.observations, score)};
+  return {util::buildMeasurementData(summary.observations, score)};
 }
 
 } // namespace ad::localization

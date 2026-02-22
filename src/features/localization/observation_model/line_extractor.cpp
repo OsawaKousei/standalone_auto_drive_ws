@@ -1,7 +1,5 @@
 #include "line_extractor.hpp"
 
-#include "line_geometry.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -40,6 +38,37 @@ auto toWorldPoint(const GridVertex &vertex, double resolution) -> ad::types::Poi
 
 auto pointDistance(const ad::types::Point &a, const ad::types::Point &b) -> double {
   return std::hypot(b.x - a.x, b.y - a.y);
+}
+
+auto buildMapLineFromSegment(const ad::types::Point &start, const ad::types::Point &end,
+                             double minSegmentLength)
+    -> std::optional<ad::localization::util::MapLine> {
+  const auto dx = end.x - start.x;
+  const auto dy = end.y - start.y;
+  const auto length = std::hypot(dx, dy);
+  if (length < std::max(kEpsilon, minSegmentLength)) {
+    return std::nullopt;
+  }
+
+  const auto directionX = dx / length;
+  const auto directionY = dy / length;
+  const auto normalX = -directionY;
+  const auto normalY = directionX;
+  const auto alpha = std::atan2(normalY, normalX);
+  const auto rho = (normalX * start.x) + (normalY * start.y);
+
+  const auto model = ad::localization::util::toLineModel(
+      ad::localization::util::LineModel{.rho = rho, .alpha = alpha});
+  const auto projectionStart = (directionX * start.x) + (directionY * start.y);
+  const auto projectionEnd = (directionX * end.x) + (directionY * end.y);
+
+  return ad::localization::util::MapLine{.segment =
+                                             ad::types::LineSegment{.start = start, .end = end},
+                                         .model = model,
+                                         .directionX = directionX,
+                                         .directionY = directionY,
+                                         .minProjection = std::min(projectionStart, projectionEnd),
+                                         .maxProjection = std::max(projectionStart, projectionEnd)};
 }
 
 auto isOccupied(const ad::types::MapData &map, int row, int col) -> bool {
@@ -208,7 +237,7 @@ auto extractMapLinesFromMap(const types::MapData &map, const MapLineExtractionCo
       continue;
     }
 
-    const auto candidate = line_geometry::buildMapLineFromSegment(start, end, minSegmentLength);
+    const auto candidate = buildMapLineFromSegment(start, end, minSegmentLength);
     if (!candidate) {
       continue;
     }

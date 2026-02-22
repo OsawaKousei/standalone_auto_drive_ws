@@ -1,11 +1,15 @@
 #include "localizer_factory.hpp"
 
+#include "i_observation_model.hpp"
 #include "localization_config.hpp"
 #include "localizer/ekf_localizer.hpp"
-#include "observation_model/ransac_line_association_model.hpp"
 #include "observation_model/simple_line_association_model.hpp"
 
 #include <cstddef>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace ad::localization {
 
@@ -20,6 +24,15 @@ namespace {
                                                 std::string{section} + "." + std::string{key}});
   }
   return *raw;
+}
+
+[[nodiscard]] auto requiredDouble(const ::ad::config::TextConfig &cfg, std::string_view section,
+                                  std::string_view key) -> Result<double> {
+  const auto raw = requiredRaw(cfg, section, key);
+  if (!raw) {
+    return tl::make_unexpected(raw.error());
+  }
+  return ::ad::config::parseDoubleValue(*raw);
 }
 
 [[nodiscard]] auto requiredRawWithFallback(const ::ad::config::TextConfig &cfg,
@@ -39,15 +52,6 @@ namespace {
       .message = "Required localization config key is missing: " + std::string{primarySection} +
                  "." + std::string{key} + " (legacy fallback: " + std::string{fallbackSection} +
                  ")"});
-}
-
-[[nodiscard]] auto requiredDouble(const ::ad::config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key) -> Result<double> {
-  const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return ::ad::config::parseDoubleValue(*raw);
 }
 
 [[nodiscard]] auto requiredDoubleWithFallback(const ::ad::config::TextConfig &cfg,
@@ -77,24 +81,6 @@ namespace {
   const auto raw = requiredRawWithFallback(cfg, primarySection, fallbackSection, key);
   if (!raw) {
     return tl::make_unexpected(raw.error());
-  }
-  return ::ad::config::parseIntValue(*raw);
-}
-
-[[nodiscard]] auto optionalDouble(const ::ad::config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key, double defaultValue) -> Result<double> {
-  const auto raw = cfg.findRaw(section, key);
-  if (!raw) {
-    return defaultValue;
-  }
-  return ::ad::config::parseDoubleValue(*raw);
-}
-
-[[nodiscard]] auto optionalInt(const ::ad::config::TextConfig &cfg, std::string_view section,
-                               std::string_view key, int defaultValue) -> Result<int> {
-  const auto raw = cfg.findRaw(section, key);
-  if (!raw) {
-    return defaultValue;
   }
   return ::ad::config::parseIntValue(*raw);
 }
@@ -195,62 +181,6 @@ parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConf
       .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
-[[nodiscard]] auto
-parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<RansacLineAssociationModelConfig> {
-  const auto baseObservation = parseSimpleLineAssociationModelConfig(configDoc);
-  if (!baseObservation) {
-    return tl::make_unexpected(baseObservation.error());
-  }
-
-  const auto &cfg = *configDoc;
-  const auto inlierDistance =
-      requiredDoubleWithFallback(cfg, "line_extraction", "hough", "inlier_distance");
-  if (!inlierDistance) {
-    return tl::make_unexpected(inlierDistance.error());
-  }
-  const auto mergeRho = requiredDoubleWithFallback(cfg, "line_extraction", "hough", "merge_rho");
-  if (!mergeRho) {
-    return tl::make_unexpected(mergeRho.error());
-  }
-  const auto mergeTheta =
-      requiredDoubleWithFallback(cfg, "line_extraction", "hough", "merge_theta");
-  if (!mergeTheta) {
-    return tl::make_unexpected(mergeTheta.error());
-  }
-  const auto maxIterations = optionalInt(cfg, "ransac", "max_iterations", 80);
-  if (!maxIterations) {
-    return tl::make_unexpected(maxIterations.error());
-  }
-  const auto minInliers = optionalInt(cfg, "ransac", "min_inliers", 8);
-  if (!minInliers) {
-    return tl::make_unexpected(minInliers.error());
-  }
-  const auto minInlierRatio = optionalDouble(cfg, "ransac", "min_inlier_ratio", 0.35);
-  if (!minInlierRatio) {
-    return tl::make_unexpected(minInlierRatio.error());
-  }
-
-  if (*maxIterations <= 0 || *minInliers < 2 || *minInlierRatio <= 0.0 || *minInlierRatio > 1.0) {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "RANSAC configuration is invalid in [ransac] section."});
-  }
-
-  return RansacLineAssociationModelConfig{
-      .baseObservation = *baseObservation,
-      .ransacLineExtraction =
-          RansacLineExtractionConfig{.maxLines = baseObservation->mapLineExtraction.maxLines,
-                                     .inlierDistance = *inlierDistance,
-                                     .minSegmentLength =
-                                         baseObservation->mapLineExtraction.minSegmentLength,
-                                     .mergeRho = *mergeRho,
-                                     .mergeTheta = *mergeTheta},
-      .ransac = RansacConfig{.maxIterations = *maxIterations,
-                             .minInliers = static_cast<std::size_t>(*minInliers),
-                             .minInlierRatio = *minInlierRatio}};
-}
-
 } // namespace
 
 auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConfig> &configDoc)
@@ -267,23 +197,23 @@ auto parseInitialCovarianceFromConfig(const std::optional<::ad::config::TextConf
     return requiredDouble(cfg, "initial_covariance", key);
   };
 
-  const auto xx = readDiagonal("xx");
-  if (!xx) {
-    return tl::make_unexpected(xx.error());
+  const auto covXx = readDiagonal("xx");
+  if (!covXx) {
+    return tl::make_unexpected(covXx.error());
   }
-  covariance(0, 0) = *xx;
+  covariance(0, 0) = *covXx;
 
-  const auto yy = readDiagonal("yy");
-  if (!yy) {
-    return tl::make_unexpected(yy.error());
+  const auto covYy = readDiagonal("yy");
+  if (!covYy) {
+    return tl::make_unexpected(covYy.error());
   }
-  covariance(1, 1) = *yy;
+  covariance(1, 1) = *covYy;
 
-  const auto tt = readDiagonal("tt");
-  if (!tt) {
-    return tl::make_unexpected(tt.error());
+  const auto covTt = readDiagonal("tt");
+  if (!covTt) {
+    return tl::make_unexpected(covTt.error());
   }
-  covariance(2, 2) = *tt;
+  covariance(2, 2) = *covTt;
 
   if (covariance(0, 0) <= 0.0 || covariance(1, 1) <= 0.0 || covariance(2, 2) <= 0.0) {
     return tl::make_unexpected(
@@ -313,33 +243,24 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
     return tl::make_unexpected(observationModelType.error());
   }
 
-  std::unique_ptr<IObservationModel> observationModel;
-  if (*observationModelType == "hough_line" || *observationModelType == "simple_line_association") {
-    const auto modelConfig = parseSimpleLineAssociationModelConfig(configDoc);
-    if (!modelConfig) {
-      return tl::make_unexpected(modelConfig.error());
-    }
-    auto model = SimpleLineAssociationModel::create(map, *modelConfig);
-    if (!model) {
-      return tl::make_unexpected(model.error());
-    }
-    observationModel = std::move(*model);
-  } else if (*observationModelType == "hough_ransac_line" ||
-             *observationModelType == "ransac_line_association") {
-    const auto modelConfig = parseRansacLineAssociationModelConfig(configDoc);
-    if (!modelConfig) {
-      return tl::make_unexpected(modelConfig.error());
-    }
-    auto model = RansacLineAssociationModel::create(map, *modelConfig);
-    if (!model) {
-      return tl::make_unexpected(model.error());
-    }
-    observationModel = std::move(*model);
-  } else {
+  if (*observationModelType != "simple_line_association" && *observationModelType != "hough_line" &&
+      *observationModelType != "ransac_line_association" &&
+      *observationModelType != "hough_ransac_line") {
     return tl::make_unexpected(
         Error{.code = ErrorCode::InvalidInput,
               .message = "Unsupported observation model: " + *observationModelType});
   }
+
+  const auto modelConfig = parseSimpleLineAssociationModelConfig(configDoc);
+  if (!modelConfig) {
+    return tl::make_unexpected(modelConfig.error());
+  }
+
+  auto model = SimpleLineAssociationModel::create(map, *modelConfig);
+  if (!model) {
+    return tl::make_unexpected(model.error());
+  }
+  std::unique_ptr<IObservationModel> observationModel = std::move(*model);
 
   auto localizer = EkfLocalizer::create(*configValue, std::move(observationModel));
   if (!localizer) {
