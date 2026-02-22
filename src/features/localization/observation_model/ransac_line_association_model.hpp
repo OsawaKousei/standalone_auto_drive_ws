@@ -2,27 +2,28 @@
 
 #include "../i_observation_model.hpp"
 #include "../localizer_util.hpp"
-#include "hough_observation_model.hpp"
 #include "ransac_config.hpp"
+#include "simple_line_association_model.hpp"
 
 #include <memory>
 #include <vector>
 
 namespace ad::localization {
 
-struct HoughRansacObservationModelConfig {
-  const HoughObservationModelConfig houghObservation;
+struct RansacLineAssociationModelConfig {
+  const SimpleLineAssociationModelConfig baseObservation;
+  const RansacLineExtractionConfig ransacLineExtraction;
   const RansacConfig ransac;
 };
 
-class HoughRansacObservationModel final : public IObservationModel {
+class RansacLineAssociationModel final : public IObservationModel {
 public:
   [[nodiscard]] static auto create(const types::MapData &map,
-                                   HoughRansacObservationModelConfig config)
-      -> Result<std::unique_ptr<HoughRansacObservationModel>>;
+                                   RansacLineAssociationModelConfig config)
+      -> Result<std::unique_ptr<RansacLineAssociationModel>>;
 
-  HoughRansacObservationModel(std::vector<util::MapLine> mapLines, util::MapSignature signature,
-                              HoughRansacObservationModelConfig config);
+  RansacLineAssociationModel(std::vector<util::MapLine> mapLines, util::MapSignature signature,
+                             RansacLineAssociationModelConfig config);
 
   [[nodiscard]] auto buildUpdateInput(const types::LidarScan &scan, const types::MapData &map,
                                       const types::Pose &predictedPose,
@@ -30,7 +31,7 @@ public:
       -> Result<std::optional<ObservationUpdateInput>> override;
 
 private:
-  HoughRansacObservationModelConfig config_;
+  RansacLineAssociationModelConfig config_;
   std::vector<util::MapLine> mapLines_{};
   util::MapSignature mapSignature_;
 };

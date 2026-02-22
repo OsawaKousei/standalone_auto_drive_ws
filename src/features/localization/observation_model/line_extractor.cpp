@@ -14,8 +14,8 @@
 namespace {
 
 constexpr double kEpsilon = 1e-9;
-constexpr int kMaxExtractedLines = 40;
-constexpr double kMinSegmentLength = 0.8;
+constexpr int kDefaultMaxExtractedLines = 40;
+constexpr double kDefaultMinSegmentLength = 0.8;
 
 struct GridVertex {
   int x;
@@ -191,7 +191,8 @@ auto buildMapLine(const ad::types::Point &start, const ad::types::Point &end)
 
 namespace ad::localization::line_extractor {
 
-auto extractMapLinesFromMap(const types::MapData &map) -> Result<std::vector<util::MapLine>> {
+auto extractMapLinesFromMap(const types::MapData &map, const MapLineExtractionConfig &config)
+    -> Result<std::vector<util::MapLine>> {
   if (!util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
         Error{ErrorCode::SizeMismatch, "Map grid size does not match width and height."});
@@ -223,15 +224,18 @@ auto extractMapLinesFromMap(const types::MapData &map) -> Result<std::vector<uti
   });
 
   auto lines = std::vector<util::MapLine>{};
-  lines.reserve(static_cast<std::size_t>(kMaxExtractedLines));
+  const auto maxExtractedLines = std::max(1, config.maxLines);
+  const auto minSegmentLength = std::max(kEpsilon, config.minSegmentLength);
+
+  lines.reserve(static_cast<std::size_t>(maxExtractedLines));
   for (const auto &edge : sortedEdges) {
-    if (static_cast<int>(lines.size()) >= kMaxExtractedLines) {
+    if (static_cast<int>(lines.size()) >= maxExtractedLines) {
       break;
     }
 
     const auto start = toWorldPoint(edge.a, map.resolution);
     const auto end = toWorldPoint(edge.b, map.resolution);
-    if (pointDistance(start, end) < kMinSegmentLength) {
+    if (pointDistance(start, end) < minSegmentLength) {
       continue;
     }
 
@@ -249,6 +253,12 @@ auto extractMapLinesFromMap(const types::MapData &map) -> Result<std::vector<uti
   }
 
   return lines;
+}
+
+auto extractMapLinesFromMap(const types::MapData &map) -> Result<std::vector<util::MapLine>> {
+  return extractMapLinesFromMap(
+      map, MapLineExtractionConfig{.maxLines = kDefaultMaxExtractedLines,
+                                   .minSegmentLength = kDefaultMinSegmentLength});
 }
 
 } // namespace ad::localization::line_extractor

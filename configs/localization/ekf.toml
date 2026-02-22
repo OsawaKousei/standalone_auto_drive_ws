@@ -1,9 +1,6 @@
-observation_model = "hough_ransac_line"
+observation_model = "ransac_line_association"
 
-[hough]
-theta_bins = 180
-rho_bins = 200
-min_votes = 25
+[line_extraction]
 max_lines = 40
 inlier_distance = 0.12
 min_segment_length = 0.8

@@ -2,8 +2,8 @@
 
 #include "localization_config.hpp"
 #include "localizer/ekf_localizer.hpp"
-#include "observation_model/hough_observation_model.hpp"
-#include "observation_model/hough_ransac_observation_model.hpp"
+#include "observation_model/ransac_line_association_model.hpp"
+#include "observation_model/simple_line_association_model.hpp"
 
 #include <cstddef>
 
@@ -22,6 +22,25 @@ namespace {
   return *raw;
 }
 
+[[nodiscard]] auto requiredRawWithFallback(const ::ad::config::TextConfig &cfg,
+                                           std::string_view primarySection,
+                                           std::string_view fallbackSection, std::string_view key)
+    -> Result<std::string_view> {
+  const auto primary = cfg.findRaw(primarySection, key);
+  if (primary) {
+    return *primary;
+  }
+  const auto fallback = cfg.findRaw(fallbackSection, key);
+  if (fallback) {
+    return *fallback;
+  }
+  return tl::make_unexpected(Error{
+      .code = ErrorCode::InvalidInput,
+      .message = "Required localization config key is missing: " + std::string{primarySection} +
+                 "." + std::string{key} + " (legacy fallback: " + std::string{fallbackSection} +
+                 ")"});
+}
+
 [[nodiscard]] auto requiredDouble(const ::ad::config::TextConfig &cfg, std::string_view section,
                                   std::string_view key) -> Result<double> {
   const auto raw = requiredRaw(cfg, section, key);
@@ -31,9 +50,31 @@ namespace {
   return ::ad::config::parseDoubleValue(*raw);
 }
 
+[[nodiscard]] auto requiredDoubleWithFallback(const ::ad::config::TextConfig &cfg,
+                                              std::string_view primarySection,
+                                              std::string_view fallbackSection,
+                                              std::string_view key) -> Result<double> {
+  const auto raw = requiredRawWithFallback(cfg, primarySection, fallbackSection, key);
+  if (!raw) {
+    return tl::make_unexpected(raw.error());
+  }
+  return ::ad::config::parseDoubleValue(*raw);
+}
+
 [[nodiscard]] auto requiredInt(const ::ad::config::TextConfig &cfg, std::string_view section,
                                std::string_view key) -> Result<int> {
   const auto raw = requiredRaw(cfg, section, key);
+  if (!raw) {
+    return tl::make_unexpected(raw.error());
+  }
+  return ::ad::config::parseIntValue(*raw);
+}
+
+[[nodiscard]] auto requiredIntWithFallback(const ::ad::config::TextConfig &cfg,
+                                           std::string_view primarySection,
+                                           std::string_view fallbackSection, std::string_view key)
+    -> Result<int> {
+  const auto raw = requiredRawWithFallback(cfg, primarySection, fallbackSection, key);
   if (!raw) {
     return tl::make_unexpected(raw.error());
   }
@@ -88,7 +129,7 @@ parseObservationModelType(const std::optional<::ad::config::TextConfig> &configD
 
   const auto raw = configDoc->findRaw("", "observation_model");
   if (!raw) {
-    return std::string{"hough_line"};
+    return std::string{"simple_line_association"};
   }
 
   const auto parsed = ::ad::config::parseQuotedString(*raw);
@@ -99,45 +140,23 @@ parseObservationModelType(const std::optional<::ad::config::TextConfig> &configD
 }
 
 [[nodiscard]] auto
-parseHoughObservationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<HoughObservationModelConfig> {
+parseSimpleLineAssociationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<SimpleLineAssociationModelConfig> {
   if (!configDoc.has_value()) {
-    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                     .message = "Localization config is required for hough_line."});
+    return tl::make_unexpected(
+        Error{.code = ErrorCode::InvalidInput,
+              .message = "Localization config is required for simple_line_association."});
   }
 
   const auto &cfg = *configDoc;
-  const auto thetaBins = requiredInt(cfg, "hough", "theta_bins");
-  if (!thetaBins) {
-    return tl::make_unexpected(thetaBins.error());
-  }
-  const auto rhoBins = requiredInt(cfg, "hough", "rho_bins");
-  if (!rhoBins) {
-    return tl::make_unexpected(rhoBins.error());
-  }
-  const auto minVotes = requiredInt(cfg, "hough", "min_votes");
-  if (!minVotes) {
-    return tl::make_unexpected(minVotes.error());
-  }
-  const auto maxLines = requiredInt(cfg, "hough", "max_lines");
+  const auto maxLines = requiredIntWithFallback(cfg, "line_extraction", "hough", "max_lines");
   if (!maxLines) {
     return tl::make_unexpected(maxLines.error());
   }
-  const auto inlierDistance = requiredDouble(cfg, "hough", "inlier_distance");
-  if (!inlierDistance) {
-    return tl::make_unexpected(inlierDistance.error());
-  }
-  const auto minSegmentLength = requiredDouble(cfg, "hough", "min_segment_length");
+  const auto minSegmentLength =
+      requiredDoubleWithFallback(cfg, "line_extraction", "hough", "min_segment_length");
   if (!minSegmentLength) {
     return tl::make_unexpected(minSegmentLength.error());
-  }
-  const auto mergeRho = requiredDouble(cfg, "hough", "merge_rho");
-  if (!mergeRho) {
-    return tl::make_unexpected(mergeRho.error());
-  }
-  const auto mergeTheta = requiredDouble(cfg, "hough", "merge_theta");
-  if (!mergeTheta) {
-    return tl::make_unexpected(mergeTheta.error());
   }
   const auto measurementNoiseRange = requiredDouble(cfg, "ekf", "measurement_noise_range");
   if (!measurementNoiseRange) {
@@ -165,31 +184,40 @@ parseHoughObservationModelConfig(const std::optional<::ad::config::TextConfig> &
     return tl::make_unexpected(minObservations.error());
   }
 
-  return HoughObservationModelConfig{.hough = HoughConfig{.thetaBins = *thetaBins,
-                                                          .rhoBins = *rhoBins,
-                                                          .minVotes = *minVotes,
-                                                          .maxLines = *maxLines,
-                                                          .inlierDistance = *inlierDistance,
-                                                          .minSegmentLength = *minSegmentLength,
-                                                          .mergeRho = *mergeRho,
-                                                          .mergeTheta = *mergeTheta},
-                                     .measurementNoiseRange = *measurementNoiseRange,
-                                     .measurementNoiseAngle = *measurementNoiseAngle,
-                                     .maxAssociationDistance = *maxAssociationDistance,
-                                     .segmentMargin = *segmentMargin,
-                                     .gateThreshold = *gateThreshold,
-                                     .minObservations = static_cast<std::size_t>(*minObservations)};
+  return SimpleLineAssociationModelConfig{
+      .mapLineExtraction =
+          MapLineExtractionConfig{.maxLines = *maxLines, .minSegmentLength = *minSegmentLength},
+      .measurementNoiseRange = *measurementNoiseRange,
+      .measurementNoiseAngle = *measurementNoiseAngle,
+      .maxAssociationDistance = *maxAssociationDistance,
+      .segmentMargin = *segmentMargin,
+      .gateThreshold = *gateThreshold,
+      .minObservations = static_cast<std::size_t>(*minObservations)};
 }
 
 [[nodiscard]] auto
-parseHoughRansacObservationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
-    -> Result<HoughRansacObservationModelConfig> {
-  const auto houghObservation = parseHoughObservationModelConfig(configDoc);
-  if (!houghObservation) {
-    return tl::make_unexpected(houghObservation.error());
+parseRansacLineAssociationModelConfig(const std::optional<::ad::config::TextConfig> &configDoc)
+    -> Result<RansacLineAssociationModelConfig> {
+  const auto baseObservation = parseSimpleLineAssociationModelConfig(configDoc);
+  if (!baseObservation) {
+    return tl::make_unexpected(baseObservation.error());
   }
 
   const auto &cfg = *configDoc;
+  const auto inlierDistance =
+      requiredDoubleWithFallback(cfg, "line_extraction", "hough", "inlier_distance");
+  if (!inlierDistance) {
+    return tl::make_unexpected(inlierDistance.error());
+  }
+  const auto mergeRho = requiredDoubleWithFallback(cfg, "line_extraction", "hough", "merge_rho");
+  if (!mergeRho) {
+    return tl::make_unexpected(mergeRho.error());
+  }
+  const auto mergeTheta =
+      requiredDoubleWithFallback(cfg, "line_extraction", "hough", "merge_theta");
+  if (!mergeTheta) {
+    return tl::make_unexpected(mergeTheta.error());
+  }
   const auto maxIterations = optionalInt(cfg, "ransac", "max_iterations", 80);
   if (!maxIterations) {
     return tl::make_unexpected(maxIterations.error());
@@ -209,8 +237,15 @@ parseHoughRansacObservationModelConfig(const std::optional<::ad::config::TextCon
               .message = "RANSAC configuration is invalid in [ransac] section."});
   }
 
-  return HoughRansacObservationModelConfig{
-      .houghObservation = *houghObservation,
+  return RansacLineAssociationModelConfig{
+      .baseObservation = *baseObservation,
+      .ransacLineExtraction =
+          RansacLineExtractionConfig{.maxLines = baseObservation->mapLineExtraction.maxLines,
+                                     .inlierDistance = *inlierDistance,
+                                     .minSegmentLength =
+                                         baseObservation->mapLineExtraction.minSegmentLength,
+                                     .mergeRho = *mergeRho,
+                                     .mergeTheta = *mergeTheta},
       .ransac = RansacConfig{.maxIterations = *maxIterations,
                              .minInliers = static_cast<std::size_t>(*minInliers),
                              .minInlierRatio = *minInlierRatio}};
@@ -279,22 +314,23 @@ auto createLocalizerFromConfig(std::string_view algorithm, const types::MapData 
   }
 
   std::unique_ptr<IObservationModel> observationModel;
-  if (*observationModelType == "hough_line") {
-    const auto modelConfig = parseHoughObservationModelConfig(configDoc);
+  if (*observationModelType == "hough_line" || *observationModelType == "simple_line_association") {
+    const auto modelConfig = parseSimpleLineAssociationModelConfig(configDoc);
     if (!modelConfig) {
       return tl::make_unexpected(modelConfig.error());
     }
-    auto model = HoughObservationModel::create(map, *modelConfig);
+    auto model = SimpleLineAssociationModel::create(map, *modelConfig);
     if (!model) {
       return tl::make_unexpected(model.error());
     }
     observationModel = std::move(*model);
-  } else if (*observationModelType == "hough_ransac_line") {
-    const auto modelConfig = parseHoughRansacObservationModelConfig(configDoc);
+  } else if (*observationModelType == "hough_ransac_line" ||
+             *observationModelType == "ransac_line_association") {
+    const auto modelConfig = parseRansacLineAssociationModelConfig(configDoc);
     if (!modelConfig) {
       return tl::make_unexpected(modelConfig.error());
     }
-    auto model = HoughRansacObservationModel::create(map, *modelConfig);
+    auto model = RansacLineAssociationModel::create(map, *modelConfig);
     if (!model) {
       return tl::make_unexpected(model.error());
     }

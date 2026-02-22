@@ -1,4 +1,4 @@
-#include "hough_ransac_observation_model.hpp"
+#include "ransac_line_association_model.hpp"
 
 #include "observation_model_common.hpp"
 #include "ransac_core.hpp"
@@ -51,7 +51,7 @@ auto appendUpdateDebugCsv(const UpdateDebugRecord &record) -> void {
   std::error_code error;
   std::filesystem::create_directories("test/localization/logs", error);
 
-  constexpr auto path = "test/localization/logs/hough_ransac_update_debug.csv";
+  constexpr auto path = "test/localization/logs/ransac_line_association_update_debug.csv";
   const auto needHeader = !std::filesystem::exists(path);
   auto stream = std::ofstream(path, std::ios::app);
   if (!stream.is_open()) {
@@ -109,12 +109,13 @@ auto collectScanPoints(const ad::types::LidarScan &scan) -> std::vector<ad::type
 
 auto isTooCloseToExisting(const ad::localization::util::LineModel &candidate,
                           const std::vector<ad::localization::util::MapLine> &lines,
-                          const ad::localization::HoughConfig &houghConfig) -> bool {
+                          const ad::localization::RansacLineExtractionConfig &lineExtraction)
+    -> bool {
   return std::any_of(lines.begin(), lines.end(), [&](const auto &existing) {
     const auto rhoDiff = std::abs(existing.model.rho - candidate.rho);
     const auto alphaDiff =
         std::abs(ad::localization::util::normalizeAngle(existing.model.alpha - candidate.alpha));
-    return rhoDiff <= houghConfig.mergeRho && alphaDiff <= houghConfig.mergeTheta;
+    return rhoDiff <= lineExtraction.mergeRho && alphaDiff <= lineExtraction.mergeTheta;
   });
 }
 
@@ -174,18 +175,18 @@ auto buildMapLineFromInliers(const ad::localization::util::LineModel &model,
 }
 
 auto extractLinesFromPointsRansac(const std::vector<ad::types::Point> &points,
-                                  const ad::localization::HoughRansacObservationModelConfig &config)
+                                  const ad::localization::RansacLineAssociationModelConfig &config)
     -> ad::Result<std::vector<ad::localization::util::MapLine>> {
   if (points.size() < 2U) {
     return tl::make_unexpected(
         ad::Error{ad::ErrorCode::EmptyCollection, "Point set is too small for RANSAC."});
   }
 
-  const auto maxLines = std::max(1, config.houghObservation.hough.maxLines);
+  const auto maxLines = std::max(1, config.ransacLineExtraction.maxLines);
   const auto inlierDistance =
-      std::max(kLineExtractionDistanceMin, config.houghObservation.hough.inlierDistance);
+      std::max(kLineExtractionDistanceMin, config.ransacLineExtraction.inlierDistance);
   const auto minInlierSpan =
-      std::max(kLineExtractionSpanMin, config.houghObservation.hough.minSegmentLength);
+      std::max(kLineExtractionSpanMin, config.ransacLineExtraction.minSegmentLength);
 
   auto remainingPoints = points;
   auto lines = std::vector<ad::localization::util::MapLine>{};
@@ -212,7 +213,7 @@ auto extractLinesFromPointsRansac(const std::vector<ad::types::Point> &points,
     }
 
     const auto line = buildMapLineFromInliers(fit->fit.model, remainingPoints, fit->inlierIndices);
-    if (line && !isTooCloseToExisting(fit->fit.model, lines, config.houghObservation.hough)) {
+    if (line && !isTooCloseToExisting(fit->fit.model, lines, config.ransacLineExtraction)) {
       lines.push_back(*line);
     }
 
@@ -240,7 +241,7 @@ auto extractLinesFromPointsRansac(const std::vector<ad::types::Point> &points,
 }
 
 auto extractMapLinesRansac(const ad::types::MapData &map,
-                           const ad::localization::HoughRansacObservationModelConfig &config)
+                           const ad::localization::RansacLineAssociationModelConfig &config)
     -> ad::Result<std::vector<ad::localization::util::MapLine>> {
   if (!ad::localization::util::mapHasConsistentGrid(map)) {
     return tl::make_unexpected(
@@ -267,13 +268,13 @@ auto transformLocalLineToMap(const ad::localization::util::LineModel &localLine,
 auto buildCandidatePairs(const std::vector<ad::localization::util::MapLine> &scanLines,
                          const std::vector<ad::localization::util::MapLine> &mapLines,
                          const ad::types::Pose &predictedPose,
-                         const ad::localization::HoughRansacObservationModelConfig &config)
+                         const ad::localization::RansacLineAssociationModelConfig &config)
     -> std::vector<ad::localization::ransac::LinePairCandidate> {
   auto candidates = std::vector<ad::localization::ransac::LinePairCandidate>{};
   const auto angleGate =
-      std::max(kCandidateAngleGateMin, config.houghObservation.hough.mergeTheta * 2.0);
+      std::max(kCandidateAngleGateMin, config.ransacLineExtraction.mergeTheta * 2.0);
   const auto rhoGate =
-      std::max(kCandidateRhoGateMin, config.houghObservation.maxAssociationDistance * 2.0);
+      std::max(kCandidateRhoGateMin, config.baseObservation.maxAssociationDistance * 2.0);
 
   for (std::size_t scanIndex = 0; scanIndex < scanLines.size(); ++scanIndex) {
     const auto predictedMapLine =
@@ -308,9 +309,9 @@ auto buildCandidatePairs(const std::vector<ad::localization::util::MapLine> &sca
       const auto scanProjectionMin = std::min(scanProjection0, scanProjection1);
       const auto scanProjectionMax = std::max(scanProjection0, scanProjection1);
       const auto mapProjectionMin =
-          mapLines[mapIndex].minProjection - config.houghObservation.segmentMargin;
+          mapLines[mapIndex].minProjection - config.baseObservation.segmentMargin;
       const auto mapProjectionMax =
-          mapLines[mapIndex].maxProjection + config.houghObservation.segmentMargin;
+          mapLines[mapIndex].maxProjection + config.baseObservation.segmentMargin;
       const auto overlapMin = std::max(scanProjectionMin, mapProjectionMin);
       const auto overlapMax = std::min(scanProjectionMax, mapProjectionMax);
       if (overlapMax < overlapMin) {
@@ -331,7 +332,7 @@ auto buildObservations(const std::vector<ad::localization::ransac::LinePairMatch
                        const std::vector<ad::localization::util::MapLine> &scanLines,
                        const std::vector<ad::localization::util::MapLine> &mapLines,
                        const ad::types::Pose &predictedPose,
-                       const ad::localization::HoughRansacObservationModelConfig &config,
+                       const ad::localization::RansacLineAssociationModelConfig &config,
                        const Mat3 &covariance) -> ObservationSummary {
   auto summary = ObservationSummary{};
   summary.observations.reserve(inliers.size());
@@ -343,13 +344,13 @@ auto buildObservations(const std::vector<ad::localization::ransac::LinePairMatch
     auto observation = ad::localization::util::makeExpectedLine(mapLine.model, predictedPose);
     observation.observed = scanLine.model;
     ad::localization::observation_model_common::applyObservationNoiseFromResidual(
-        observation, config.houghObservation, pair.angleResidual, pair.rhoResidual);
+        observation, config.baseObservation, pair.angleResidual, pair.rhoResidual);
 
     ++summary.candidates;
     if (!ad::localization::util::gateLineObservation(
             observation,
             ad::localization::util::ObservationGateConfig{
-                .covariance = covariance, .threshold = config.houghObservation.gateThreshold})) {
+                .covariance = covariance, .threshold = config.baseObservation.gateThreshold})) {
       continue;
     }
 
@@ -376,15 +377,15 @@ auto countDistinctScanLines(
 
 namespace ad::localization {
 
-HoughRansacObservationModel::HoughRansacObservationModel(std::vector<util::MapLine> mapLines,
-                                                         util::MapSignature signature,
-                                                         HoughRansacObservationModelConfig config)
+RansacLineAssociationModel::RansacLineAssociationModel(std::vector<util::MapLine> mapLines,
+                                                       util::MapSignature signature,
+                                                       RansacLineAssociationModelConfig config)
     : config_(std::move(config)), mapLines_(std::move(mapLines)),
       mapSignature_(std::move(signature)) {}
 
-auto HoughRansacObservationModel::create(const types::MapData &map,
-                                         HoughRansacObservationModelConfig config)
-    -> Result<std::unique_ptr<HoughRansacObservationModel>> {
+auto RansacLineAssociationModel::create(const types::MapData &map,
+                                        RansacLineAssociationModelConfig config)
+    -> Result<std::unique_ptr<RansacLineAssociationModel>> {
   const auto signature = util::mapSignatureFromMap(map);
   if (!signature) {
     return tl::make_unexpected(signature.error());
@@ -396,13 +397,14 @@ auto HoughRansacObservationModel::create(const types::MapData &map,
   }
 
   auto observationModel =
-      std::make_unique<HoughRansacObservationModel>(std::move(*mapLines), *signature, config);
+      std::make_unique<RansacLineAssociationModel>(std::move(*mapLines), *signature, config);
   return {std::move(observationModel)};
 }
 
-auto HoughRansacObservationModel::buildUpdateInput(
-    const types::LidarScan &scan, const types::MapData &map, const types::Pose &predictedPose,
-    const CovarianceMatrix &predictedCovariance) const
+auto RansacLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
+                                                  const types::MapData &map,
+                                                  const types::Pose &predictedPose,
+                                                  const CovarianceMatrix &predictedCovariance) const
     -> Result<std::optional<ObservationUpdateInput>> {
   if (!util::signatureMatches(mapSignature_, map)) {
     return tl::make_unexpected(
@@ -414,7 +416,7 @@ auto HoughRansacObservationModel::buildUpdateInput(
   }
 
   auto debugRecord = UpdateDebugRecord{};
-  debugRecord.minObservations = config_.houghObservation.minObservations;
+  debugRecord.minObservations = config_.baseObservation.minObservations;
 
   const auto scanPoints = collectScanPoints(scan);
   debugRecord.scanPointCount = scanPoints.size();
@@ -444,8 +446,8 @@ auto HoughRansacObservationModel::buildUpdateInput(
           .minInliers = config_.ransac.minInliers,
           .minInlierRatio = config_.ransac.minInlierRatio,
           .inlierAngleThreshold =
-              std::max(kInlierAngleThresholdMin, config_.houghObservation.hough.mergeTheta * 2.0),
-          .inlierRhoThreshold = std::max(config_.houghObservation.maxAssociationDistance, 1e-6),
+              std::max(kInlierAngleThresholdMin, config_.ransacLineExtraction.mergeTheta * 2.0),
+          .inlierRhoThreshold = std::max(config_.baseObservation.maxAssociationDistance, 1e-6),
           .lineCountForRatio = ratioLineCount,
           .usePosePrior = true,
           .priorPoseX = predictedPose.x,
@@ -467,7 +469,7 @@ auto HoughRansacObservationModel::buildUpdateInput(
   debugRecord.observationGatePassed = summary.gatePassed;
   debugRecord.finalObservationCount = summary.observations.size();
 
-  if (summary.observations.size() < config_.houghObservation.minObservations) {
+  if (summary.observations.size() < config_.baseObservation.minObservations) {
     if (!scanLines->empty() && candidates.empty()) {
       debugRecord.reason = "no_candidate_pairs";
     } else if (!ransacResult.diagnostics.configurationValid) {

@@ -1,8 +1,8 @@
 #include "features/localization/i_observation_model.hpp"
 #include "features/localization/localization_config.hpp"
-#include "features/localization/observation_model/hough_observation_model.hpp"
-#include "features/localization/observation_model/hough_ransac_observation_model.hpp"
 #include "features/localization/observation_model/ransac_config.hpp"
+#include "features/localization/observation_model/ransac_line_association_model.hpp"
+#include "features/localization/observation_model/simple_line_association_model.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
 #include "shared/text_config.hpp"
@@ -136,39 +136,25 @@ struct EvalSummary {
   return config::parseDoubleValue(*raw);
 }
 
-[[nodiscard]] auto parseHoughConfig(const config::TextConfig &cfg)
-    -> Result<localization::HoughObservationModelConfig> {
-  const auto thetaBins = requiredInt(cfg, "hough", "theta_bins");
-  if (!thetaBins) {
-    return tl::make_unexpected(thetaBins.error());
-  }
-  const auto rhoBins = requiredInt(cfg, "hough", "rho_bins");
-  if (!rhoBins) {
-    return tl::make_unexpected(rhoBins.error());
-  }
-  const auto minVotes = requiredInt(cfg, "hough", "min_votes");
-  if (!minVotes) {
-    return tl::make_unexpected(minVotes.error());
-  }
-  const auto maxLines = requiredInt(cfg, "hough", "max_lines");
+[[nodiscard]] auto parseSimpleLineAssociationConfig(const config::TextConfig &cfg)
+    -> Result<localization::SimpleLineAssociationModelConfig> {
+  const auto maxLines = [&]() -> Result<int> {
+    if (const auto raw = cfg.findRaw("line_extraction", "max_lines")) {
+      return config::parseIntValue(*raw);
+    }
+    return requiredInt(cfg, "hough", "max_lines");
+  }();
   if (!maxLines) {
     return tl::make_unexpected(maxLines.error());
   }
-  const auto inlierDistance = requiredDouble(cfg, "hough", "inlier_distance");
-  if (!inlierDistance) {
-    return tl::make_unexpected(inlierDistance.error());
-  }
-  const auto minSegmentLength = requiredDouble(cfg, "hough", "min_segment_length");
+  const auto minSegmentLength = [&]() -> Result<double> {
+    if (const auto raw = cfg.findRaw("line_extraction", "min_segment_length")) {
+      return config::parseDoubleValue(*raw);
+    }
+    return requiredDouble(cfg, "hough", "min_segment_length");
+  }();
   if (!minSegmentLength) {
     return tl::make_unexpected(minSegmentLength.error());
-  }
-  const auto mergeRho = requiredDouble(cfg, "hough", "merge_rho");
-  if (!mergeRho) {
-    return tl::make_unexpected(mergeRho.error());
-  }
-  const auto mergeTheta = requiredDouble(cfg, "hough", "merge_theta");
-  if (!mergeTheta) {
-    return tl::make_unexpected(mergeTheta.error());
   }
   const auto measurementNoiseRange = requiredDouble(cfg, "ekf", "measurement_noise_range");
   if (!measurementNoiseRange) {
@@ -196,15 +182,10 @@ struct EvalSummary {
     return tl::make_unexpected(minObservations.error());
   }
 
-  return localization::HoughObservationModelConfig{
-      .hough = localization::HoughConfig{.thetaBins = *thetaBins,
-                                         .rhoBins = *rhoBins,
-                                         .minVotes = *minVotes,
-                                         .maxLines = *maxLines,
-                                         .inlierDistance = *inlierDistance,
-                                         .minSegmentLength = *minSegmentLength,
-                                         .mergeRho = *mergeRho,
-                                         .mergeTheta = *mergeTheta},
+  return localization::SimpleLineAssociationModelConfig{
+      .mapLineExtraction =
+          localization::MapLineExtractionConfig{.maxLines = *maxLines,
+                                                .minSegmentLength = *minSegmentLength},
       .measurementNoiseRange = *measurementNoiseRange,
       .measurementNoiseAngle = *measurementNoiseAngle,
       .maxAssociationDistance = *maxAssociationDistance,
@@ -220,7 +201,7 @@ struct EvalSummary {
     return tl::make_unexpected(cfg.error());
   }
 
-  auto observationModelType = std::string{"hough_line"};
+  auto observationModelType = std::string{"simple_line_association"};
   if (const auto raw = cfg->findRaw("", "observation_model"); raw) {
     const auto parsed = config::parseQuotedString(*raw);
     if (!parsed) {
@@ -229,13 +210,13 @@ struct EvalSummary {
     observationModelType = *parsed;
   }
 
-  const auto houghConfig = parseHoughConfig(*cfg);
-  if (!houghConfig) {
-    return tl::make_unexpected(houghConfig.error());
+  const auto simpleConfig = parseSimpleLineAssociationConfig(*cfg);
+  if (!simpleConfig) {
+    return tl::make_unexpected(simpleConfig.error());
   }
 
-  if (observationModelType == "hough_line") {
-    auto model = localization::HoughObservationModel::create(map, *houghConfig);
+  if (observationModelType == "hough_line" || observationModelType == "simple_line_association") {
+    auto model = localization::SimpleLineAssociationModel::create(map, *simpleConfig);
     if (!model) {
       return tl::make_unexpected(model.error());
     }
@@ -243,7 +224,35 @@ struct EvalSummary {
     return base;
   }
 
-  if (observationModelType == "hough_ransac_line") {
+  if (observationModelType == "hough_ransac_line" ||
+      observationModelType == "ransac_line_association") {
+    const auto inlierDistance = [&]() -> Result<double> {
+      if (const auto raw = cfg->findRaw("line_extraction", "inlier_distance")) {
+        return config::parseDoubleValue(*raw);
+      }
+      return requiredDouble(*cfg, "hough", "inlier_distance");
+    }();
+    if (!inlierDistance) {
+      return tl::make_unexpected(inlierDistance.error());
+    }
+    const auto mergeRho = [&]() -> Result<double> {
+      if (const auto raw = cfg->findRaw("line_extraction", "merge_rho")) {
+        return config::parseDoubleValue(*raw);
+      }
+      return requiredDouble(*cfg, "hough", "merge_rho");
+    }();
+    if (!mergeRho) {
+      return tl::make_unexpected(mergeRho.error());
+    }
+    const auto mergeTheta = [&]() -> Result<double> {
+      if (const auto raw = cfg->findRaw("line_extraction", "merge_theta")) {
+        return config::parseDoubleValue(*raw);
+      }
+      return requiredDouble(*cfg, "hough", "merge_theta");
+    }();
+    if (!mergeTheta) {
+      return tl::make_unexpected(mergeTheta.error());
+    }
     const auto maxIterations = optionalInt(*cfg, "ransac", "max_iterations", 80);
     if (!maxIterations) {
       return tl::make_unexpected(maxIterations.error());
@@ -257,12 +266,19 @@ struct EvalSummary {
       return tl::make_unexpected(minInlierRatio.error());
     }
 
-    const auto configValue = localization::HoughRansacObservationModelConfig{
-        .houghObservation = *houghConfig,
+    const auto configValue = localization::RansacLineAssociationModelConfig{
+        .baseObservation = *simpleConfig,
+        .ransacLineExtraction =
+            localization::RansacLineExtractionConfig{
+                .maxLines = simpleConfig->mapLineExtraction.maxLines,
+                .inlierDistance = *inlierDistance,
+                .minSegmentLength = simpleConfig->mapLineExtraction.minSegmentLength,
+                .mergeRho = *mergeRho,
+                .mergeTheta = *mergeTheta},
         .ransac = localization::RansacConfig{.maxIterations = *maxIterations,
                                              .minInliers = static_cast<std::size_t>(*minInliers),
                                              .minInlierRatio = *minInlierRatio}};
-    auto model = localization::HoughRansacObservationModel::create(map, configValue);
+    auto model = localization::RansacLineAssociationModel::create(map, configValue);
     if (!model) {
       return tl::make_unexpected(model.error());
     }

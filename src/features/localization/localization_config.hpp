@@ -5,10 +5,12 @@
 
 namespace ad::localization {
 
-struct HoughConfig {
-  const int thetaBins;
-  const int rhoBins;
-  const int minVotes;
+struct MapLineExtractionConfig {
+  const int maxLines;
+  const double minSegmentLength;
+};
+
+struct RansacLineExtractionConfig {
   const int maxLines;
   const double inlierDistance;
   const double minSegmentLength;

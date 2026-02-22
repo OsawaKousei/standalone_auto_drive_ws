@@ -1,4 +1,4 @@
-#include "hough_observation_model.hpp"
+#include "simple_line_association_model.hpp"
 
 #include "line_extractor.hpp"
 #include "observation_model_common.hpp"
@@ -21,7 +21,7 @@ struct ObservationSummary {
 auto buildBuckets(const ad::types::LidarScan &scan,
                   const std::vector<ad::localization::util::MapLine> &mapLines,
                   const ad::types::Pose &pose,
-                  const ad::localization::HoughObservationModelConfig &config)
+                  const ad::localization::SimpleLineAssociationModelConfig &config)
     -> std::vector<std::vector<ad::types::Point>> {
   const auto cosTheta = std::cos(pose.theta);
   const auto sinTheta = std::sin(pose.theta);
@@ -74,7 +74,7 @@ auto buildBuckets(const ad::types::LidarScan &scan,
 auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets,
                        const std::vector<ad::localization::util::MapLine> &mapLines,
                        const ad::types::Pose &pose,
-                       const ad::localization::HoughObservationModelConfig &config,
+                       const ad::localization::SimpleLineAssociationModelConfig &config,
                        const Mat3 &covariance) -> ObservationSummary {
   ObservationSummary summary{};
   summary.observations.reserve(mapLines.size());
@@ -114,33 +114,34 @@ auto buildObservations(const std::vector<std::vector<ad::types::Point>> &buckets
 
 namespace ad::localization {
 
-HoughObservationModel::HoughObservationModel(std::vector<util::MapLine> mapLines,
-                                             util::MapSignature signature,
-                                             HoughObservationModelConfig config)
+SimpleLineAssociationModel::SimpleLineAssociationModel(std::vector<util::MapLine> mapLines,
+                                                       util::MapSignature signature,
+                                                       SimpleLineAssociationModelConfig config)
     : config_(std::move(config)), mapLines_(std::move(mapLines)),
       mapSignature_(std::move(signature)) {}
 
-auto HoughObservationModel::create(const types::MapData &map, HoughObservationModelConfig config)
-    -> Result<std::unique_ptr<HoughObservationModel>> {
+auto SimpleLineAssociationModel::create(const types::MapData &map,
+                                        SimpleLineAssociationModelConfig config)
+    -> Result<std::unique_ptr<SimpleLineAssociationModel>> {
   const auto signature = util::mapSignatureFromMap(map);
   if (!signature) {
     return tl::make_unexpected(signature.error());
   }
 
-  const auto mapLines = line_extractor::extractMapLinesFromMap(map);
+  const auto mapLines = line_extractor::extractMapLinesFromMap(map, config.mapLineExtraction);
   if (!mapLines) {
     return tl::make_unexpected(mapLines.error());
   }
 
   auto observationModel =
-      std::make_unique<HoughObservationModel>(std::move(*mapLines), *signature, config);
+      std::make_unique<SimpleLineAssociationModel>(std::move(*mapLines), *signature, config);
   return {std::move(observationModel)};
 }
 
-auto HoughObservationModel::buildUpdateInput(const types::LidarScan &scan,
-                                             const types::MapData &map,
-                                             const types::Pose &predictedPose,
-                                             const CovarianceMatrix &predictedCovariance) const
+auto SimpleLineAssociationModel::buildUpdateInput(const types::LidarScan &scan,
+                                                  const types::MapData &map,
+                                                  const types::Pose &predictedPose,
+                                                  const CovarianceMatrix &predictedCovariance) const
     -> Result<std::optional<ObservationUpdateInput>> {
   if (!util::signatureMatches(mapSignature_, map)) {
     return tl::make_unexpected(

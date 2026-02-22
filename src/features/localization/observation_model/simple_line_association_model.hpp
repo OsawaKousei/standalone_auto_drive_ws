@@ -8,8 +8,8 @@
 
 namespace ad::localization {
 
-struct HoughObservationModelConfig {
-  const HoughConfig hough;
+struct SimpleLineAssociationModelConfig {
+  const MapLineExtractionConfig mapLineExtraction;
   const double measurementNoiseRange;
   const double measurementNoiseAngle;
   const double maxAssociationDistance;
@@ -18,13 +18,14 @@ struct HoughObservationModelConfig {
   const std::size_t minObservations;
 };
 
-class HoughObservationModel final : public IObservationModel {
+class SimpleLineAssociationModel final : public IObservationModel {
 public:
-  [[nodiscard]] static auto create(const types::MapData &map, HoughObservationModelConfig config)
-      -> Result<std::unique_ptr<HoughObservationModel>>;
+  [[nodiscard]] static auto create(const types::MapData &map,
+                                   SimpleLineAssociationModelConfig config)
+      -> Result<std::unique_ptr<SimpleLineAssociationModel>>;
 
-  HoughObservationModel(std::vector<util::MapLine> mapLines, util::MapSignature signature,
-                        HoughObservationModelConfig config);
+  SimpleLineAssociationModel(std::vector<util::MapLine> mapLines, util::MapSignature signature,
+                             SimpleLineAssociationModelConfig config);
 
   [[nodiscard]] auto buildUpdateInput(const types::LidarScan &scan, const types::MapData &map,
                                       const types::Pose &predictedPose,
@@ -32,7 +33,7 @@ public:
       -> Result<std::optional<ObservationUpdateInput>> override;
 
 private:
-  HoughObservationModelConfig config_;
+  SimpleLineAssociationModelConfig config_;
   std::vector<util::MapLine> mapLines_{};
   util::MapSignature mapSignature_;
 };
