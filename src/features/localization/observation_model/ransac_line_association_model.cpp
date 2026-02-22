@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -23,7 +22,6 @@ namespace {
 
 constexpr double kEpsilon = 1e-9;
 constexpr std::uint32_t kPointRansacSeedBias = 17U;
-constexpr std::uint32_t kAssociationRansacSeedBias = 97U;
 constexpr int kDistinctSampleRetryCount = 8;
 constexpr double kClusterSplitDistanceMultiplier = 3.0;
 
@@ -56,39 +54,19 @@ struct PoseMatchResult {
   double mahalanobisDistanceSquared;
 };
 
-auto mixToUint32(const std::uint64_t value) -> std::uint32_t {
-  auto mixed = value;
-  mixed ^= mixed >> 33U;
-  mixed *= 0xff51afd7ed558ccdULL;
-  mixed ^= mixed >> 33U;
-  mixed *= 0xc4ceb9fe1a85ec53ULL;
-  mixed ^= mixed >> 33U;
-  return static_cast<std::uint32_t>(mixed & 0xffffffffULL);
-}
-
-auto buildAssociationRansacSeed(const std::size_t observedCount, const std::size_t mapCount,
-                                const ad::types::Pose &predictedPose) -> std::uint32_t {
-  auto randomDevice = std::random_device{};
-  const auto now =
-      static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
-  const auto quantizedX = static_cast<std::int64_t>(std::llround(predictedPose.x * 1000.0));
-  const auto quantizedY = static_cast<std::int64_t>(std::llround(predictedPose.y * 1000.0));
-  const auto quantizedTheta =
-      static_cast<std::int64_t>(std::llround(predictedPose.theta * 1000000.0));
-
-  auto seedSequence = std::seed_seq{randomDevice(),
-                                    randomDevice(),
-                                    randomDevice(),
-                                    static_cast<std::uint32_t>(observedCount),
-                                    static_cast<std::uint32_t>(mapCount),
-                                    mixToUint32(now),
-                                    mixToUint32(static_cast<std::uint64_t>(quantizedX)),
-                                    mixToUint32(static_cast<std::uint64_t>(quantizedY)),
-                                    mixToUint32(static_cast<std::uint64_t>(quantizedTheta)),
-                                    kAssociationRansacSeedBias};
-  auto seed = std::uint32_t{0U};
-  seedSequence.generate(&seed, &seed + 1);
-  return seed;
+auto sampleDistinctIndexInRange(std::mt19937 &rng, const std::size_t firstIndex,
+                                const std::size_t startInclusive, const std::size_t endInclusive)
+    -> std::optional<std::size_t> {
+  auto distribution = std::uniform_int_distribution<std::size_t>{startInclusive, endInclusive};
+  auto secondIndex = distribution(rng);
+  for (int retries = 0; retries < kDistinctSampleRetryCount && secondIndex == firstIndex;
+       ++retries) {
+    secondIndex = distribution(rng);
+  }
+  if (secondIndex == firstIndex) {
+    return std::nullopt;
+  }
+  return secondIndex;
 }
 
 auto sampleDistinctIndices(std::mt19937 &rng, const std::size_t size)
@@ -99,16 +77,11 @@ auto sampleDistinctIndices(std::mt19937 &rng, const std::size_t size)
 
   auto distribution = std::uniform_int_distribution<std::size_t>{0, size - 1U};
   const auto firstIndex = distribution(rng);
-  auto secondIndex = distribution(rng);
-  for (int retries = 0; retries < kDistinctSampleRetryCount && secondIndex == firstIndex;
-       ++retries) {
-    secondIndex = distribution(rng);
-  }
-
-  if (secondIndex == firstIndex) {
+  const auto secondIndex = sampleDistinctIndexInRange(rng, firstIndex, 0U, size - 1U);
+  if (!secondIndex) {
     return std::nullopt;
   }
-  return std::pair<std::size_t, std::size_t>{firstIndex, secondIndex};
+  return std::pair<std::size_t, std::size_t>{firstIndex, *secondIndex};
 }
 
 auto transformPointToMap(const ad::types::Point &point, const ad::types::Pose &pose)
@@ -286,16 +259,19 @@ auto sampleLocalPairIndices(std::mt19937 &rng, const std::vector<std::size_t> &a
     return std::nullopt;
   }
 
-  auto localDistribution = std::uniform_int_distribution<std::size_t>{start, end};
-  auto secondPos = localDistribution(rng);
-  for (int retries = 0; retries < kDistinctSampleRetryCount && secondPos == firstPos; ++retries) {
-    secondPos = localDistribution(rng);
-  }
-  if (secondPos == firstPos) {
+  const auto secondPos = sampleDistinctIndexInRange(rng, firstPos, start, end);
+  if (!secondPos) {
     return std::nullopt;
   }
 
-  return std::pair<std::size_t, std::size_t>{activeIndices[firstPos], activeIndices[secondPos]};
+  return std::pair<std::size_t, std::size_t>{activeIndices[firstPos], activeIndices[*secondPos]};
+}
+
+auto makeExtractedLineCandidate(std::vector<std::size_t> inlierIndices,
+                                std::optional<ObservedLine> observedLine = std::nullopt)
+    -> ExtractedLineCandidate {
+  return ExtractedLineCandidate{.inlierIndices = std::move(inlierIndices),
+                                .observedLine = std::move(observedLine)};
 }
 
 auto collectHybridInlierIndices(const std::vector<ScanPoint> &points,
@@ -453,8 +429,7 @@ auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
   }
 
   if (bestInliers.size() < config.minInlierPoints) {
-    return ExtractedLineCandidate{.inlierIndices = std::move(bestInliers),
-                                  .observedLine = std::nullopt};
+    return makeExtractedLineCandidate(std::move(bestInliers));
   }
 
   auto supportPoints = std::vector<ad::types::Point>{};
@@ -465,13 +440,32 @@ auto extractOneLineCandidate(const std::vector<ScanPoint> &points,
 
   const auto refined = fitLineFromPoints(supportPoints);
   if (!refined) {
-    return ExtractedLineCandidate{.inlierIndices = std::move(bestInliers),
-                                  .observedLine = std::nullopt};
+    return makeExtractedLineCandidate(std::move(bestInliers));
   }
 
-  return ExtractedLineCandidate{
-      .inlierIndices = std::move(bestInliers),
-      .observedLine = buildObservedLine(supportPoints, *refined, config.minExtractedSegmentLength)};
+  return makeExtractedLineCandidate(
+      std::move(bestInliers),
+      buildObservedLine(supportPoints, *refined, config.minExtractedSegmentLength));
+}
+
+auto deactivateInliersAndCompact(const std::vector<std::size_t> &inlierIndices,
+                                 std::vector<bool> &activeMask,
+                                 std::vector<std::size_t> &activeIndices,
+                                 std::size_t &remainingCount) -> std::size_t {
+  std::size_t removedCount = 0U;
+  for (const auto index : inlierIndices) {
+    if (!activeMask[index]) {
+      continue;
+    }
+    activeMask[index] = false;
+    ++removedCount;
+    --remainingCount;
+  }
+
+  activeIndices.erase(std::remove_if(activeIndices.begin(), activeIndices.end(),
+                                     [&](const std::size_t index) { return !activeMask[index]; }),
+                      activeIndices.end());
+  return removedCount;
 }
 
 auto extractObservedLinesRansac(const ad::types::LidarScan &scan,
@@ -502,18 +496,8 @@ auto extractObservedLinesRansac(const ad::types::LidarScan &scan,
       break;
     }
 
-    std::size_t removedCount = 0U;
-    for (const auto index : candidate.inlierIndices) {
-      if (!activeMask[index]) {
-        continue;
-      }
-      activeMask[index] = false;
-      ++removedCount;
-      --remainingCount;
-    }
-    activeIndices.erase(std::remove_if(activeIndices.begin(), activeIndices.end(),
-                                       [&](const std::size_t index) { return !activeMask[index]; }),
-                        activeIndices.end());
+    const auto removedCount = deactivateInliersAndCompact(candidate.inlierIndices, activeMask,
+                                                          activeIndices, remainingCount);
 
     if (removedCount == 0U) {
       break;
@@ -662,6 +646,39 @@ auto evaluatePoseMatches(
   return matches;
 }
 
+auto evaluateAssociationHypothesis(
+    const std::pair<std::size_t, std::size_t> &observedSample,
+    const std::pair<std::size_t, std::size_t> &mapSample,
+    const std::vector<ObservedLine> &observedLines,
+    const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
+    const ad::types::Pose &predictedPose,
+    const ad::localization::CovarianceMatrix &predictedCovariance,
+    const ad::localization::RansacLineAssociationModelConfig &config)
+    -> std::optional<PoseMatchResult> {
+  const auto [observedFirstIndex, observedSecondIndex] = observedSample;
+  const auto [mapFirstIndex, mapSecondIndex] = mapSample;
+
+  const auto pose =
+      solvePoseFromLinePairs(observedLines[observedFirstIndex], observedLines[observedSecondIndex],
+                             mapLines[mapFirstIndex], mapLines[mapSecondIndex], config);
+  if (!pose) {
+    return std::nullopt;
+  }
+
+  const auto maha = computeMahalanobisDistanceSquared(*pose, predictedPose, predictedCovariance);
+  if (!maha || *maha > config.contextGateThreshold) {
+    return std::nullopt;
+  }
+
+  auto pairs = evaluatePoseMatches(*pose, observedLines, mapLines, config);
+  if (pairs.size() < config.minPoseInliers) {
+    return std::nullopt;
+  }
+
+  return PoseMatchResult{
+      .pose = *pose, .pairs = std::move(pairs), .mahalanobisDistanceSquared = *maha};
+}
+
 auto runAssociationRansac(
     const std::vector<ObservedLine> &observedLines,
     const std::vector<ad::localization::observation_model::util::MapLine> &mapLines,
@@ -673,47 +690,28 @@ auto runAssociationRansac(
     return std::nullopt;
   }
 
-  const auto baseSeed =
-      buildAssociationRansacSeed(observedLines.size(), mapLines.size(), predictedPose);
-  auto observedRng = std::mt19937{baseSeed ^ 0x9e3779b9U};
-  auto mapRng = std::mt19937{baseSeed ^ 0x85ebca6bU};
+  auto rng = std::mt19937{};
   const auto iterations = std::max(1, config.translationRansacMaxIterations);
 
   auto best = std::optional<PoseMatchResult>{};
   for (int iteration = 0; iteration < iterations; ++iteration) {
-    const auto observedSample = sampleDistinctIndices(observedRng, observedLines.size());
-    const auto mapSample = sampleDistinctIndices(mapRng, mapLines.size());
+    const auto observedSample = sampleDistinctIndices(rng, observedLines.size());
+    const auto mapSample = sampleDistinctIndices(rng, mapLines.size());
     if (!observedSample || !mapSample) {
       continue;
     }
 
-    const auto [observedFirstIndex, observedSecondIndex] = *observedSample;
-    const auto [mapFirstIndex, mapSecondIndex] = *mapSample;
-
-    const auto pose = solvePoseFromLinePairs(
-        observedLines[observedFirstIndex], observedLines[observedSecondIndex],
-        mapLines[mapFirstIndex], mapLines[mapSecondIndex], config);
-    if (!pose) {
+    auto hypothesis =
+        evaluateAssociationHypothesis(*observedSample, *mapSample, observedLines, mapLines,
+                                      predictedPose, predictedCovariance, config);
+    if (!hypothesis) {
       continue;
     }
 
-    const auto maha = computeMahalanobisDistanceSquared(*pose, predictedPose, predictedCovariance);
-    if (!maha) {
-      continue;
-    }
-    if (*maha > config.contextGateThreshold) {
-      continue;
-    }
-
-    auto pairs = evaluatePoseMatches(*pose, observedLines, mapLines, config);
-    if (pairs.size() < config.minPoseInliers) {
-      continue;
-    }
-
-    if (!best || pairs.size() > best->pairs.size() ||
-        (pairs.size() == best->pairs.size() && *maha < best->mahalanobisDistanceSquared)) {
-      best.emplace(PoseMatchResult{
-          .pose = *pose, .pairs = std::move(pairs), .mahalanobisDistanceSquared = *maha});
+    if (!best || hypothesis->pairs.size() > best->pairs.size() ||
+        (hypothesis->pairs.size() == best->pairs.size() &&
+         hypothesis->mahalanobisDistanceSquared < best->mahalanobisDistanceSquared)) {
+      best.emplace(std::move(*hypothesis));
     }
   }
 
