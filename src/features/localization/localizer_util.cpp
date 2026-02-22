@@ -1,5 +1,6 @@
 #include "localizer_util.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
