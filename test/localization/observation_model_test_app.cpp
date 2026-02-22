@@ -30,8 +30,9 @@ struct ProgramOptions {
   std::string scenarioPath = "test/localization/configs/localization.toml";
   std::optional<std::string> configPath = std::nullopt;
   std::string label = "simple_line_association";
-  std::string outputCsvPath = "test/localization/logs/observation_model_eval.csv";
-  std::string outputJsonPath = "test/localization/logs/observation_model_eval_metrics.json";
+  std::string outputCsvPath = "logs/analysis/observation_model_test/observation_model_eval.csv";
+  std::string outputJsonPath =
+      "logs/analysis/observation_model_test/observation_model_eval_metrics.json";
 };
 
 struct InputFrame {
