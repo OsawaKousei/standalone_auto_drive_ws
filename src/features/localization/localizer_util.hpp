@@ -60,7 +60,6 @@ struct ObservationNoiseConfig {
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double;
 [[nodiscard]] auto mapHasConsistentGrid(const types::MapData &map) -> bool;
-[[nodiscard]] auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Point>;
 [[nodiscard]] auto toLineModel(LineModel raw) -> LineModel;
 [[nodiscard]] auto fitLine(const std::vector<types::Point> &points) -> std::optional<LineFit>;
 [[nodiscard]] auto makeExpectedLine(const LineModel &mapLine, const types::Pose &pose)
@@ -70,9 +69,6 @@ struct ObservationNoiseConfig {
 auto applyObservationNoiseFromMse(LineObservation &observation,
                                   const ObservationNoiseConfig &config, double supportPointCount,
                                   double mse) -> void;
-auto applyObservationNoiseFromResidual(LineObservation &observation,
-                                       const ObservationNoiseConfig &config, double angleResidual,
-                                       double rhoResidual) -> void;
 auto buildMeasurementData(const std::vector<LineObservation> &observations, double score)
     -> ObservationUpdateInput;
 [[nodiscard]] auto mapSignatureFromMap(const types::MapData &map) -> Result<MapSignature>;

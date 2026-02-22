@@ -35,27 +35,6 @@ auto mapHasConsistentGrid(const types::MapData &map) -> bool {
   return map.grid.size() == expectedCells;
 }
 
-auto collectOccupiedPoints(const types::MapData &map) -> std::vector<types::Point> {
-  const auto width = static_cast<std::size_t>(map.width);
-  const auto height = static_cast<std::size_t>(map.height);
-  auto points = std::vector<types::Point>{};
-
-  for (std::size_t rowIndex = 0; rowIndex < height; ++rowIndex) {
-    for (std::size_t colIndex = 0; colIndex < width; ++colIndex) {
-      const auto index = (rowIndex * width) + colIndex;
-      if (map.grid[index] <= 0) {
-        continue;
-      }
-
-      const auto xValue = (static_cast<double>(colIndex) + 0.5) * map.resolution;
-      const auto yValue = (static_cast<double>(rowIndex) + 0.5) * map.resolution;
-      points.push_back(types::Point{.x = xValue, .y = yValue});
-    }
-  }
-
-  return points;
-}
-
 auto toLineModel(LineModel raw) -> LineModel {
   auto normalizedRho = raw.rho;
   auto normalizedAlpha = normalizeAngle(raw.alpha);
@@ -192,15 +171,6 @@ auto applyObservationNoiseFromMse(LineObservation &observation,
   observation.rangeVariance = std::max(minRangeVar, (baseRangeVar * scale) + mse);
   observation.angleVariance =
       std::max(minAngleVar, (baseAngleVar * scale) + (mse * kAngleMseScale));
-}
-
-auto applyObservationNoiseFromResidual(LineObservation &observation,
-                                       const ObservationNoiseConfig &config,
-                                       const double angleResidual, const double rhoResidual)
-    -> void {
-  const auto mseLike =
-      (rhoResidual * rhoResidual) + (angleResidual * angleResidual * kAngleMseScale);
-  applyObservationNoiseFromMse(observation, config, kReferencePoints, mseLike);
 }
 
 auto buildMeasurementData(const std::vector<LineObservation> &observations, const double score)
