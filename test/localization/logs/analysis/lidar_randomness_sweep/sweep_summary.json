@@ -1,0 +1,124 @@
+{
+  "fov_deg": 270.0,
+  "fov_min_angle_rad": -2.356194490192345,
+  "fov_max_angle_rad": 2.356194490192345,
+  "noise_levels": [
+    0.01,
+    0.02,
+    0.04,
+    0.06,
+    0.08,
+    0.1
+  ],
+  "eval_runs": 1,
+  "summary": [
+    {
+      "algorithm": "hough_ransac",
+      "noise_stddev": 0.01,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.8873081434004128,
+      "ate_mean": 0.8873081434004128,
+      "rmse_median": 1.4226851533950748
+    },
+    {
+      "algorithm": "hough_ransac",
+      "noise_stddev": 0.02,
+      "runs": 1,
+      "success_rate": 0.0,
+      "ate_median": null,
+      "ate_mean": null,
+      "rmse_median": null
+    },
+    {
+      "algorithm": "hough_ransac",
+      "noise_stddev": 0.04,
+      "runs": 1,
+      "success_rate": 0.0,
+      "ate_median": null,
+      "ate_mean": null,
+      "rmse_median": null
+    },
+    {
+      "algorithm": "hough_ransac",
+      "noise_stddev": 0.06,
+      "runs": 1,
+      "success_rate": 0.0,
+      "ate_median": null,
+      "ate_mean": null,
+      "rmse_median": null
+    },
+    {
+      "algorithm": "hough_ransac",
+      "noise_stddev": 0.08,
+      "runs": 1,
+      "success_rate": 0.0,
+      "ate_median": null,
+      "ate_mean": null,
+      "rmse_median": null
+    },
+    {
+      "algorithm": "hough_ransac",
+      "noise_stddev": 0.1,
+      "runs": 1,
+      "success_rate": 0.0,
+      "ate_median": null,
+      "ate_mean": null,
+      "rmse_median": null
+    },
+    {
+      "algorithm": "hough_only",
+      "noise_stddev": 0.01,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.10623312499469777,
+      "ate_mean": 0.10623312499469777,
+      "rmse_median": 0.12484579063554171
+    },
+    {
+      "algorithm": "hough_only",
+      "noise_stddev": 0.02,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.11107022695956874,
+      "ate_mean": 0.11107022695956874,
+      "rmse_median": 0.12492497761350228
+    },
+    {
+      "algorithm": "hough_only",
+      "noise_stddev": 0.04,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.12259650788657037,
+      "ate_mean": 0.12259650788657037,
+      "rmse_median": 0.14764634744891617
+    },
+    {
+      "algorithm": "hough_only",
+      "noise_stddev": 0.06,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.10695488304439746,
+      "ate_mean": 0.10695488304439746,
+      "rmse_median": 0.11716761389140434
+    },
+    {
+      "algorithm": "hough_only",
+      "noise_stddev": 0.08,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.13576547559187718,
+      "ate_mean": 0.13576547559187718,
+      "rmse_median": 0.16543174693302892
+    },
+    {
+      "algorithm": "hough_only",
+      "noise_stddev": 0.1,
+      "runs": 1,
+      "success_rate": 1.0,
+      "ate_median": 0.18079387525551371,
+      "ate_mean": 0.18079387525551371,
+      "rmse_median": 0.21198952188402276
+    }
+  ]
+}
