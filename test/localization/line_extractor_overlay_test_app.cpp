@@ -12,6 +12,8 @@
 
 namespace ad::line_extractor_overlay_test {
 
+constexpr double kEndpointMarkerSize = 30.0;
+
 struct ProgramOptions {
   std::string scenarioPath = "configs/scenario.toml";
   std::string outputPath = "test/localization/logs/line_extractor_overlay.png";
@@ -120,6 +122,17 @@ auto run(const ProgramOptions &options) -> Result<int> {
   for (const auto &line : *lines) {
     const auto path = std::vector<types::Point>{line.segment.start, line.segment.end};
     if (const auto status = visualizer.renderPath(path, prepared->geometry, "m-"); !status) {
+      return tl::make_unexpected(status.error());
+    }
+
+    if (const auto status = visualizer.renderMarker(line.segment.start, prepared->geometry,
+                                                    kEndpointMarkerSize, "lime");
+        !status) {
+      return tl::make_unexpected(status.error());
+    }
+    if (const auto status = visualizer.renderMarker(line.segment.end, prepared->geometry,
+                                                    kEndpointMarkerSize, "cyan");
+        !status) {
       return tl::make_unexpected(status.error());
     }
   }
