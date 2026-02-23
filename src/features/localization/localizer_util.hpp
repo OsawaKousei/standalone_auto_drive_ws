@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstddef>
+
+#include "../../shared/types.hpp"
+
 namespace ad::localization::util {
 
 struct LineModel {

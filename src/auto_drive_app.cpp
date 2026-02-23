@@ -245,15 +245,16 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
   auto renderElapsed = 0.0;
   auto lastScanWorldPoints = std::optional<std::vector<ad::types::Point>>{};
 
-  for (const auto step : std::views::iota(0, runtime.maxSteps)) {
-    const auto estimateResult = localizer->estimate();
-    if (!estimateResult) {
-      outcome.failure.emplace(estimateResult.error());
-      break;
-    }
+  const auto initialEstimate = localizer->estimate();
+  if (!initialEstimate) {
+    outcome.failure.emplace(initialEstimate.error());
+    return outcome;
+  }
+  auto currentEstimatedPose = std::optional<types::Pose>{initialEstimate->pose};
 
+  for (const auto step : std::views::iota(0, runtime.maxSteps)) {
     const auto input = ad::control::ControlInput{
-        .path = path, .currentPose = estimateResult->pose, .deltaSeconds = runtime.stepSeconds};
+        .path = path, .currentPose = *currentEstimatedPose, .deltaSeconds = runtime.stepSeconds};
     const auto commandResult = controller->computeCommand(input);
     if (!commandResult) {
       outcome.failure.emplace(commandResult.error());
@@ -329,6 +330,8 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
     appendLogEntry(logFile, step, distanceAfter, positionError, headingError,
                    updatedEstimate->score, trueState->pose, updatedEstimate->pose, appliedCommand,
                    lidarUpdated, *odometryDelta, scanPoints);
+
+    currentEstimatedPose.emplace(updatedEstimate->pose);
 
     if (distanceAfter <= runtime.goalTolerance) {
       outcome.reachedGoal = true;
