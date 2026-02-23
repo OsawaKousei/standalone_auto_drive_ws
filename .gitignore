@@ -9,5 +9,8 @@ tools/*pgm
 docs/
 .github/
 
-configs/*
+# 設定ファイル（デフォルトのみ追跡）
+configs/*/*
+configs/scenario.toml
 !configs/defaults/
+!*.gitkeep
