@@ -8,3 +8,6 @@ tools/*pgm
 .venv/
 docs/
 .github/
+
+configs/*
+!configs/defaults/
