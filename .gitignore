@@ -10,7 +10,7 @@ tools/*.pgm
 
 # ログやデータファイル
 *.log
-*.json
+logs/*.json
 *.csv
 *.png
 
