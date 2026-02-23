@@ -1,15 +1,29 @@
+# ビルド成果物
 build/
-*.png
-tools/*yaml
-tools/*pgm
+
+# マップ関連（デフォルトは残す）
+tools/*.yaml
+tools/*.pgm
+!tools/map.yaml
+!tools/map.pgm
+!tools/map_schema.yaml
+
+# ログやデータファイル
 *.log
 *.json
 *.csv
+*.png
+
+# python
 .venv/
+*.pyc
+__pycache__/
+
+# ワークスペース情報
 docs/
 .github/
 
-# 設定ファイル（デフォルトのみ追跡）
+# 設定ファイル（デフォルは残す）
 configs/*/*
 configs/scenario.toml
 !configs/defaults/
