@@ -7,6 +7,7 @@
 #include "shared/types.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fmt/core.h>
@@ -40,8 +41,49 @@ struct PlannerMetrics {
   double dijkstraOptimalityRatio;
 };
 
+auto printPlanningParameters(const scenario::ScenarioConfig &scenario, const types::MapData &map)
+    -> void {
+  fmt::print("=== Planning Parameters ===\n");
+  fmt::print("scenario.name={}\n", scenario.name);
+  fmt::print("planning.algorithm={}\n", scenario.planning.algorithm);
+  if (scenario.planning.configPath.has_value()) {
+    fmt::print("planning.config_path={}\n", *scenario.planning.configPath);
+  } else {
+    fmt::print("planning.config_path=<default>\n");
+  }
+
+  fmt::print("map.yaml_path={}\n", scenario.mapYamlPath);
+  fmt::print("map.size=({}, {})\n", map.width, map.height);
+  fmt::print("map.resolution={}\n", map.resolution);
+
+  fmt::print("robot.start=(x={}, y={}, theta={})\n", scenario.start.x, scenario.start.y,
+             scenario.start.theta);
+  fmt::print("robot.goal=(x={}, y={}, theta={})\n", scenario.goal.x, scenario.goal.y,
+             scenario.goal.theta);
+  fmt::print("robot.footprint.vertex_count={}\n", scenario.footprint.vertices.size());
+
+  if (!scenario.algorithmConfigDocs.planning.has_value()) {
+    fmt::print("planning.config=<none>\n");
+    fmt::print("===========================\n");
+    return;
+  }
+
+  constexpr auto kPlanningConfigKeys = std::array<std::string_view, 9>{
+      "collision_checker", "resolution",       "allow_diagonal", "weight",        "cost_straight",
+      "cost_diagonal",     "inflation_radius", "goal_tolerance", "max_iterations"};
+
+  for (const auto key : kPlanningConfigKeys) {
+    const auto value = scenario.algorithmConfigDocs.planning->findRaw("", key);
+    if (!value) {
+      continue;
+    }
+    fmt::print("planning.{}={}\n", key, *value);
+  }
+  fmt::print("===========================\n");
+}
+
 [[nodiscard]] auto parseProgramOptions(std::span<char *> arguments) -> Result<ProgramOptions> {
-  auto scenarioPath = std::string{"configs/scenario.toml"};
+  auto scenarioPath = std::string{"test/planning/configs/scenario.toml"};
 
   for (std::size_t index = 1; index < arguments.size(); ++index) {
     const auto argument = std::string_view{arguments[index]};
@@ -335,6 +377,8 @@ auto main(int argc, char **argv) -> int {
     return 1;
   }
   const auto &map = *mapResult;
+
+  ad::planning_test::printPlanningParameters(scenario, map);
 
   auto plannerResult = ad::scenario::createPlanner(scenario, map, scenario.footprint);
   if (!plannerResult) {
