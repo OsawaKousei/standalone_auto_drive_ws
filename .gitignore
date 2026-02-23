@@ -6,3 +6,5 @@ tools/*pgm
 *.json
 *.csv
 .venv/
+docs/
+.github/
