@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-namespace ad::demo {
+namespace ad::app {
 
 constexpr auto kAnglePeriod =
     2.0 *
@@ -93,14 +93,14 @@ struct LogSeries {
     return std::nullopt;
   }
 
-  auto logFile = std::ofstream{"logs/localization_control_lidar_demo.log"};
+  auto logFile = std::ofstream{"logs/auto_drive_app.log"};
   if (!logFile.is_open()) {
     fmt::print(stderr, "Log file error: failed to open log file.\n");
     return std::nullopt;
   }
 
   logFile << std::fixed << std::setprecision(kLogPrecision);
-  logFile << "# localization_control_lidar_demo log\n";
+  logFile << "# auto_drive_app log\n";
   logFile << "# odometry_dt=" << runtime.stepSeconds << ", lidar_dt=" << runtime.lidarDeltaT
           << ", render_dt=" << runtime.renderDeltaT << ", goal_tolerance=" << runtime.goalTolerance
           << ", max_steps=" << runtime.maxSteps << "\n";
@@ -342,7 +342,7 @@ runSimulationLoop(const SimulationEndpoints &endpoints, const RuntimeConfig &run
   return outcome;
 }
 
-} // namespace ad::demo
+} // namespace ad::app
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto main(int argc, char **argv) -> int {
@@ -434,27 +434,26 @@ auto main(int argc, char **argv) -> int {
   const auto renderDeltaT = scenario.runtime.renderDeltaT;
   const auto kGoalTolerance = scenario.runtime.goalTolerance;
   const auto kMaxSteps = scenario.runtime.maxSteps;
-  const auto runtime = ad::demo::RuntimeConfig{.stepSeconds = stepSeconds,
-                                               .lidarDeltaT = lidarDeltaT,
-                                               .renderDeltaT = renderDeltaT,
-                                               .goalTolerance = kGoalTolerance,
-                                               .maxSteps = kMaxSteps};
-  auto logFile =
-      ad::demo::initializeLogFile(runtime, ad::demo::LogSeries{.footprint = footprint.vertices,
-                                                               .path = std::span{*pathResult}});
+  const auto runtime = ad::app::RuntimeConfig{.stepSeconds = stepSeconds,
+                                              .lidarDeltaT = lidarDeltaT,
+                                              .renderDeltaT = renderDeltaT,
+                                              .goalTolerance = kGoalTolerance,
+                                              .maxSteps = kMaxSteps};
+  auto logFile = ad::app::initializeLogFile(
+      runtime, ad::app::LogSeries{.footprint = footprint.vertices, .path = std::span{*pathResult}});
   if (!logFile) {
     return 1;
   }
 
-  const auto initialRenderError = ad::demo::renderFrame(viz, preparedMap, std::span{*pathResult},
-                                                        std::nullopt, start, footprint);
+  const auto initialRenderError = ad::app::renderFrame(viz, preparedMap, std::span{*pathResult},
+                                                       std::nullopt, start, footprint);
   if (initialRenderError) {
     fmt::print(stderr, "Render error: {}\n", initialRenderError->message);
     return 1;
   }
 
-  const auto loopOutcome = ad::demo::runSimulationLoop(
-      ad::demo::SimulationEndpoints{.start = start, .goal = goal}, runtime, footprint,
+  const auto loopOutcome = ad::app::runSimulationLoop(
+      ad::app::SimulationEndpoints{.start = start, .goal = goal}, runtime, footprint,
       std::span{*pathResult}, map, collisionChecker, viz, preparedMap, controller, localizer,
       lidarSensor, odometrySensor, physics, *logFile);
   const auto reachedGoal = loopOutcome.reachedGoal;
@@ -473,7 +472,7 @@ auto main(int argc, char **argv) -> int {
     *logFile << "# error=" << failure->message << '\n';
   }
 
-  const auto saveStatus = viz.saveFigure("localization_control_lidar_path.png");
+  const auto saveStatus = viz.saveFigure("auto_drive_app_result.png");
   if (!saveStatus) {
     fmt::print(stderr, "Render error: {}\n", saveStatus.error().message);
     return 1;

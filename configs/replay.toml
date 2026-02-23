@@ -1,0 +1,8 @@
+[replay]
+log_path = "logs/auto_drive_app.log"
+map_path = "tools/map.yaml"
+delay_ms = 0
+
+[replay.runtime]
+odometry_delta_t = 0.02
+render_delta_t = 0.1
