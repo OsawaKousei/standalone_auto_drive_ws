@@ -1,5 +1,5 @@
 [scenario]
-name = "localization_control_demo"
+name = "default"
 
 [map]
 yaml_path = "../tools/map.yaml"
@@ -30,24 +30,24 @@ max_rotation_step = 0.05
 
 [localization]
 algorithm = "ekf"
-config_path = "localization/ekf.toml"
+config_path = "defaults/localization/ekf.toml"
 
 [planning]
 algorithm = "astar"
-config_path = "planning/astar.toml"
+config_path = "defaults/planning/astar.toml"
 
 [control]
 algorithm = "pure_pursuit"
-config_path = "control/pure_pursuit.toml"
+config_path = "defaults/control/pure_pursuit.toml"
 
 [lidar_sensor]
 algorithm = "lidar"
-config_path = "sensor/lidar.toml"
+config_path = "defaults/sensor/lidar.toml"
 
 [odometry_sensor]
 algorithm = "odometry"
-config_path = "sensor/odometry.toml"
+config_path = "defaults/sensor/odometry.toml"
 
 [physics]
 algorithm = "unicycle"
-config_path = "physics/unicycle.toml"
+config_path = "defaults/physics/unicycle.toml"

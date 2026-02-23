@@ -1,5 +1,5 @@
 [replay]
-log_path = "logs/localization_control_lidar_demo.log"
+log_path = "logs/auto_drive_app.log"
 map_path = "tools/map.yaml"
 delay_ms = 0
 

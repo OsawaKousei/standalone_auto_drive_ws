@@ -1,9 +1,0 @@
-lookahead_distance = 0.794897729617
-max_linear_speed = 2
-max_angular_speed = 1.2
-position_kp = 4.04888463247
-position_ki = 0.277394789317
-position_kd = 0.513788293252
-heading_kp = 1.21157370151
-heading_ki = 0.00133309194424
-heading_kd = 8.77982994459

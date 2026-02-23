@@ -1,22 +1,48 @@
+[localization]
+localizer = "ekf"
 observation_model = "simple_line_association"
 
-[line_extraction]
-max_lines = 40
-min_segment_length = 0.8
-
-[ekf]
+[localization.localizer.ekf]
 process_noise_translation = 0.05
 process_noise_rotation = 0.03
-measurement_noise_range = 0.12
-measurement_noise_angle = 0.12
 
-[association]
-max_association_distance = 0.3
-segment_margin = 0.3
-gate_threshold = 6.0
-min_observations = 3
-
-[initial_covariance]
+[localization.localizer.initial_covariance]
 xx = 0.5
 yy = 0.5
 tt = 0.2
+
+[localization.observation.line_based]
+measurement_noise_range = 0.12
+measurement_noise_angle = 0.12
+gate_threshold = 6.0
+min_observations = 3
+
+[localization.observation.line_based.map_line_extraction]
+max_lines = 40
+min_segment_length = 0.8
+
+[localization.observation.models.simple_line_association]
+max_association_distance = 0.3
+segment_margin = 0.3
+
+[localization.observation.models.ransac_line_association]
+
+[localization.observation.models.ransac_line_association.scan_line_extraction]
+point_distance_threshold = 0.08
+min_inlier_points = 12
+max_iterations = 80
+max_extracted_scan_lines = 12
+min_segment_length = 0.5
+min_remaining_points = 30
+max_continuity_gap = 2
+
+[localization.observation.models.ransac_line_association.line_association]
+segment_margin = 0.3
+translation_ransac_iterations = 180
+line_angle_threshold = 0.15
+line_rho_threshold = 0.3
+parallel_reject_threshold = 0.05
+min_pose_inliers = 3
+
+[localization.observation.models.ransac_line_association.pose_context_gate]
+context_gate_threshold = 9.21
