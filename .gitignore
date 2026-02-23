@@ -25,7 +25,7 @@ docs/
 
 # 設定ファイル（デフォルは残す）
 configs/*/*
-test/*/configs/
+test/*/configs/*
 configs/scenario.toml
 !configs/defaults/
 !*.gitkeep
