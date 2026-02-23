@@ -1,7 +1,4 @@
-#include "features/control/controller_factory.hpp"
-#include "features/planning/planner_factory.hpp"
 #include "features/simulation/collision_checker/collision_checker.hpp"
-#include "features/simulation/simulation_factory.hpp"
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -12,9 +9,10 @@
 #endif
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
-#include "shared/text_config.hpp"
+#include "shared/scenario_runtime.hpp"
 #include "shared/types.hpp"
 
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fmt/core.h>
@@ -34,37 +32,87 @@ constexpr auto kLogPrecision = 8;
 constexpr auto kAnglePeriod = 2.0 * std::numbers::pi;
 constexpr auto kRenderScheduleEpsilon = 1.0e-12;
 
-struct AlgorithmSpec {
-  std::string algorithm;
-  std::string configPath;
-};
-
-struct RuntimeConfig {
-  double stepSeconds;
-  double renderDeltaT;
-  int maxSteps;
-  double goalTolerance;
-};
-
-struct TestScenarioConfig {
-  std::string name;
-  std::string baseDir;
-  std::string mapYamlPath;
-  types::Footprint footprint;
-  types::Pose start;
-  types::Pose goal;
-  RuntimeConfig runtime;
-  simulation::CollisionCheckConfig collision;
-  AlgorithmSpec planning;
-  AlgorithmSpec control;
-  AlgorithmSpec odometrySensor;
-  AlgorithmSpec physics;
-};
-
 struct ProgramOptions {
   std::string scenarioPath;
   bool render;
 };
+
+auto printControlParameters(const scenario::ScenarioConfig &scenario, const types::MapData &map)
+    -> void {
+  fmt::print("=== Control Test Parameters ===\n");
+  fmt::print("scenario.name={}\n", scenario.name);
+  fmt::print("map.yaml_path={}\n", scenario.mapYamlPath);
+  fmt::print("map.size=({}, {})\n", map.width, map.height);
+  fmt::print("map.resolution={}\n", map.resolution);
+
+  fmt::print("robot.start=(x={}, y={}, theta={})\n", scenario.start.x, scenario.start.y,
+             scenario.start.theta);
+  fmt::print("robot.goal=(x={}, y={}, theta={})\n", scenario.goal.x, scenario.goal.y,
+             scenario.goal.theta);
+  fmt::print("robot.footprint.vertex_count={}\n", scenario.footprint.vertices.size());
+
+  fmt::print("simulation.runtime.step_seconds={}\n", scenario.runtime.stepSeconds);
+  fmt::print("simulation.runtime.render_delta_t={}\n", scenario.runtime.renderDeltaT);
+  fmt::print("simulation.runtime.max_steps={}\n", scenario.runtime.maxSteps);
+  fmt::print("simulation.runtime.goal_tolerance={}\n", scenario.runtime.goalTolerance);
+
+  fmt::print("simulation.collision.max_translation_step={}\n",
+             scenario.collision.maxTranslationStep);
+  fmt::print("simulation.collision.max_rotation_step={}\n", scenario.collision.maxRotationStep);
+
+  const auto printAlgorithmSpec = [](std::string_view section,
+                                     const scenario::AlgorithmSpec &spec) -> void {
+    fmt::print("{}.algorithm={}\n", section, spec.algorithm);
+    if (spec.configPath.has_value()) {
+      fmt::print("{}.config_path={}\n", section, *spec.configPath);
+    } else {
+      fmt::print("{}.config_path=<default>\n", section);
+    }
+  };
+
+  printAlgorithmSpec("planning", scenario.planning);
+  printAlgorithmSpec("control", scenario.control);
+  printAlgorithmSpec("odometry_sensor", scenario.odometrySensor);
+  printAlgorithmSpec("physics", scenario.physics);
+
+  const auto printConfigValues = [](std::string_view section,
+                                    const std::optional<config::TextConfig> &doc,
+                                    std::span<const std::string_view> keys) -> void {
+    if (!doc.has_value()) {
+      fmt::print("{}.config=<none>\n", section);
+      return;
+    }
+
+    for (const auto key : keys) {
+      const auto value = doc->findRaw("", key);
+      if (!value) {
+        continue;
+      }
+      fmt::print("{}.{}={}\n", section, key, *value);
+    }
+  };
+
+  constexpr auto kPlanningKeys = std::array<std::string_view, 9>{
+      "collision_checker", "resolution",       "allow_diagonal", "weight",        "cost_straight",
+      "cost_diagonal",     "inflation_radius", "goal_tolerance", "max_iterations"};
+  constexpr auto kControlKeys =
+      std::array<std::string_view, 9>{"lookahead_distance", "desired_linear_velocity",
+                                      "max_linear_speed",   "max_angular_speed",
+                                      "position_kp",        "position_ki",
+                                      "position_kd",        "heading_kp",
+                                      "heading_kd"};
+  constexpr auto kOdometryKeys = std::array<std::string_view, 3>{
+      "forward_noise_stddev", "lateral_noise_stddev", "theta_noise_stddev"};
+  constexpr auto kPhysicsKeys = std::array<std::string_view, 6>{
+      "max_linear_speed",         "max_angular_speed", "max_linear_acceleration",
+      "max_angular_acceleration", "tau_linear",        "tau_angular"};
+
+  printConfigValues("planning", scenario.algorithmConfigDocs.planning, kPlanningKeys);
+  printConfigValues("control", scenario.algorithmConfigDocs.control, kControlKeys);
+  printConfigValues("odometry_sensor", scenario.algorithmConfigDocs.odometrySensor, kOdometryKeys);
+  printConfigValues("physics", scenario.algorithmConfigDocs.physics, kPhysicsKeys);
+  fmt::print("===============================\n");
+}
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
   angle = std::fmod(angle + std::numbers::pi, kAnglePeriod);
@@ -126,232 +174,8 @@ struct ProgramOptions {
                      .theta = normalizeAngle(currentPose.theta + delta.deltaTheta)};
 }
 
-[[nodiscard]] auto requiredRaw(const config::TextConfig &cfg, std::string_view section,
-                               std::string_view key) -> Result<std::string_view> {
-  const auto raw = cfg.findRaw(section, key);
-  if (!raw) {
-    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                     .message = "Required config key is missing: " +
-                                                std::string{section} + "." + std::string{key}});
-  }
-  return *raw;
-}
-
-[[nodiscard]] auto requiredString(const config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key) -> Result<std::string> {
-  const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return config::parseQuotedString(*raw);
-}
-
-[[nodiscard]] auto requiredDouble(const config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key) -> Result<double> {
-  const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return config::parseDoubleValue(*raw);
-}
-
-[[nodiscard]] auto requiredInt(const config::TextConfig &cfg, std::string_view section,
-                               std::string_view key) -> Result<int> {
-  const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return config::parseIntValue(*raw);
-}
-
-[[nodiscard]] auto parsePose(const config::TextConfig &cfg, std::string_view section)
-    -> Result<types::Pose> {
-  const auto xValue = requiredDouble(cfg, section, "x");
-  if (!xValue) {
-    return tl::make_unexpected(xValue.error());
-  }
-
-  const auto yValue = requiredDouble(cfg, section, "y");
-  if (!yValue) {
-    return tl::make_unexpected(yValue.error());
-  }
-
-  const auto thetaValue = requiredDouble(cfg, section, "theta");
-  if (!thetaValue) {
-    return tl::make_unexpected(thetaValue.error());
-  }
-
-  return types::Pose{.x = *xValue, .y = *yValue, .theta = *thetaValue};
-}
-
-[[nodiscard]] auto parseFootprintVertices(const config::TextConfig &cfg)
-    -> Result<types::Footprint> {
-  const auto raw = requiredRaw(cfg, "robot.footprint", "vertices");
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-
-  const auto values = config::parseArrayFlat(*raw);
-  if (!values) {
-    return tl::make_unexpected(values.error());
-  }
-
-  if (values->size() < 6U || values->size() % 2U != 0U) {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "robot.footprint.vertices must contain N x 2 numeric values."});
-  }
-
-  auto vertices = std::vector<types::Point>{};
-  vertices.reserve(values->size() / 2U);
-  for (std::size_t index = 0; index < values->size(); index += 2U) {
-    vertices.push_back(types::Point{.x = (*values)[index], .y = (*values)[index + 1U]});
-  }
-
-  return types::Footprint{std::move(vertices)};
-}
-
-[[nodiscard]] auto parseAlgorithmSpec(const config::TextConfig &cfg, std::string_view section)
-    -> Result<AlgorithmSpec> {
-  const auto algorithm = requiredString(cfg, section, "algorithm");
-  if (!algorithm) {
-    return tl::make_unexpected(algorithm.error());
-  }
-
-  const auto configPath = requiredString(cfg, section, "config_path");
-  if (!configPath) {
-    return tl::make_unexpected(configPath.error());
-  }
-
-  return AlgorithmSpec{.algorithm = *algorithm, .configPath = *configPath};
-}
-
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-[[nodiscard]] auto resolvePath(std::string_view baseDir, std::string_view path) -> std::string {
-  const auto candidate = std::filesystem::path{std::string{path}};
-  if (candidate.is_absolute()) {
-    return candidate.lexically_normal().string();
-  }
-  const auto resolved = std::filesystem::path{std::string{baseDir}} / candidate;
-  return resolved.lexically_normal().string();
-}
-
-[[nodiscard]] auto loadScenario(std::string_view scenarioPath) -> Result<TestScenarioConfig> {
-  const auto scenarioFsPath = std::filesystem::path{std::string{scenarioPath}};
-  const auto baseDir = scenarioFsPath.parent_path().empty() ? std::filesystem::path{"."}
-                                                            : scenarioFsPath.parent_path();
-  const auto baseDirNormalized = baseDir.lexically_normal().string();
-
-  const auto cfg = config::loadTextConfig(scenarioFsPath.lexically_normal().string());
-  if (!cfg) {
-    return tl::make_unexpected(cfg.error());
-  }
-
-  const auto name = requiredString(*cfg, "scenario", "name");
-  if (!name) {
-    return tl::make_unexpected(name.error());
-  }
-
-  const auto mapYamlPath = requiredString(*cfg, "map", "yaml_path");
-  if (!mapYamlPath) {
-    return tl::make_unexpected(mapYamlPath.error());
-  }
-
-  const auto footprint = parseFootprintVertices(*cfg);
-  if (!footprint) {
-    return tl::make_unexpected(footprint.error());
-  }
-
-  const auto start = parsePose(*cfg, "robot.start");
-  if (!start) {
-    return tl::make_unexpected(start.error());
-  }
-
-  const auto goal = parsePose(*cfg, "robot.goal");
-  if (!goal) {
-    return tl::make_unexpected(goal.error());
-  }
-
-  const auto stepSeconds = requiredDouble(*cfg, "simulation.runtime", "step_seconds");
-  if (!stepSeconds) {
-    return tl::make_unexpected(stepSeconds.error());
-  }
-  const auto renderDeltaT = requiredDouble(*cfg, "simulation.runtime", "render_delta_t");
-  if (!renderDeltaT) {
-    return tl::make_unexpected(renderDeltaT.error());
-  }
-  const auto maxSteps = requiredInt(*cfg, "simulation.runtime", "max_steps");
-  if (!maxSteps) {
-    return tl::make_unexpected(maxSteps.error());
-  }
-  const auto goalTolerance = requiredDouble(*cfg, "simulation.runtime", "goal_tolerance");
-  if (!goalTolerance) {
-    return tl::make_unexpected(goalTolerance.error());
-  }
-
-  if (*stepSeconds <= 0.0 || *renderDeltaT <= 0.0 || *maxSteps <= 0 || *goalTolerance <= 0.0) {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "simulation.runtime values must be positive for step_seconds, "
-                         "render_delta_t, max_steps, and goal_tolerance."});
-  }
-
-  const auto maxTranslationStep =
-      requiredDouble(*cfg, "simulation.collision", "max_translation_step");
-  if (!maxTranslationStep) {
-    return tl::make_unexpected(maxTranslationStep.error());
-  }
-  const auto maxRotationStep = requiredDouble(*cfg, "simulation.collision", "max_rotation_step");
-  if (!maxRotationStep) {
-    return tl::make_unexpected(maxRotationStep.error());
-  }
-
-  const auto planning = parseAlgorithmSpec(*cfg, "planning");
-  if (!planning) {
-    return tl::make_unexpected(planning.error());
-  }
-
-  const auto control = parseAlgorithmSpec(*cfg, "control");
-  if (!control) {
-    return tl::make_unexpected(control.error());
-  }
-
-  const auto odometrySensor = parseAlgorithmSpec(*cfg, "odometry_sensor");
-  if (!odometrySensor) {
-    return tl::make_unexpected(odometrySensor.error());
-  }
-
-  const auto physics = parseAlgorithmSpec(*cfg, "physics");
-  if (!physics) {
-    return tl::make_unexpected(physics.error());
-  }
-
-  return TestScenarioConfig{
-      .name = *name,
-      .baseDir = baseDirNormalized,
-      .mapYamlPath = *mapYamlPath,
-      .footprint = *footprint,
-      .start = *start,
-      .goal = *goal,
-      .runtime = RuntimeConfig{.stepSeconds = *stepSeconds,
-                               .renderDeltaT = *renderDeltaT,
-                               .maxSteps = *maxSteps,
-                               .goalTolerance = *goalTolerance},
-      .collision = simulation::CollisionCheckConfig{.maxTranslationStep = *maxTranslationStep,
-                                                    .maxRotationStep = *maxRotationStep},
-      .planning = *planning,
-      .control = *control,
-      .odometrySensor = *odometrySensor,
-      .physics = *physics};
-}
-
-[[nodiscard]] auto loadAlgorithmConfig(std::string_view baseDir, std::string_view configPath)
-    -> Result<config::TextConfig> {
-  return config::loadTextConfig(resolvePath(baseDir, configPath));
-}
-
 [[nodiscard]] auto parseProgramOptions(std::span<char *> arguments) -> Result<ProgramOptions> {
-  auto scenarioPath = std::string{"test/control/configs/control.toml"};
+  auto scenarioPath = std::string{"test/control/configs/scenario.toml"};
   auto render = false;
 
   for (std::size_t index = 1; index < arguments.size(); ++index) {
@@ -457,20 +281,22 @@ int main(int argc, char **argv) {
   const auto &options = *optionsResult;
   const auto &scenarioPath = options.scenarioPath;
 
-  const auto scenarioResult = ad::control_test::loadScenario(scenarioPath);
+  const auto scenarioResult = ad::scenario::loadScenario(scenarioPath);
   if (!scenarioResult) {
     fmt::print(stderr, "Scenario load error: {}\n", scenarioResult.error().message);
     return 1;
   }
   const auto &scenario = *scenarioResult;
 
-  const auto mapPath = ad::control_test::resolvePath(scenario.baseDir, scenario.mapYamlPath);
+  const auto mapPath = ad::scenario::resolvePath(scenario, scenario.mapYamlPath);
   const auto mapResult = ad::loadMapFromYaml(mapPath);
   if (!mapResult) {
     fmt::print(stderr, "Map load error: {}\n", mapResult.error().message);
     return 1;
   }
   const auto &map = *mapResult;
+
+  ad::control_test::printControlParameters(scenario, map);
 
   auto visualizer = std::optional<ad::visualization::Visualizer>{};
   auto preparedMap = std::optional<ad::visualization::Visualizer::PreparedMap>{};
@@ -484,37 +310,7 @@ int main(int argc, char **argv) {
     preparedMap.emplace(*preparedMapResult);
   }
 
-  const auto planningConfig =
-      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.planning.configPath);
-  if (!planningConfig) {
-    fmt::print(stderr, "Planning config load error: {}\n", planningConfig.error().message);
-    return 1;
-  }
-
-  const auto controllerConfig =
-      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.control.configPath);
-  if (!controllerConfig) {
-    fmt::print(stderr, "Controller config load error: {}\n", controllerConfig.error().message);
-    return 1;
-  }
-
-  const auto odometryConfig =
-      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.odometrySensor.configPath);
-  if (!odometryConfig) {
-    fmt::print(stderr, "Odometry config load error: {}\n", odometryConfig.error().message);
-    return 1;
-  }
-
-  const auto physicsConfig =
-      ad::control_test::loadAlgorithmConfig(scenario.baseDir, scenario.physics.configPath);
-  if (!physicsConfig) {
-    fmt::print(stderr, "Physics config load error: {}\n", physicsConfig.error().message);
-    return 1;
-  }
-
-  auto plannerResult =
-      ad::planning::createPlannerFromConfig(scenario.planning.algorithm, map, scenario.footprint,
-                                            std::optional<ad::config::TextConfig>{*planningConfig});
+  auto plannerResult = ad::scenario::createPlanner(scenario, map, scenario.footprint);
   if (!plannerResult) {
     fmt::print(stderr, "Planner create error: {}\n", plannerResult.error().message);
     return 1;
@@ -527,24 +323,21 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  auto controllerResult = ad::control::createControllerFromConfig(
-      scenario.control.algorithm, std::optional<ad::config::TextConfig>{*controllerConfig});
+  auto controllerResult = ad::scenario::createController(scenario);
   if (!controllerResult) {
     fmt::print(stderr, "Controller create error: {}\n", controllerResult.error().message);
     return 1;
   }
   auto controller = std::move(*controllerResult);
 
-  auto odometrySensorResult = ad::simulation::createOdometrySensorFromConfig(
-      scenario.odometrySensor.algorithm, std::optional<ad::config::TextConfig>{*odometryConfig});
+  auto odometrySensorResult = ad::scenario::createOdometrySensor(scenario);
   if (!odometrySensorResult) {
     fmt::print(stderr, "Odometry sensor create error: {}\n", odometrySensorResult.error().message);
     return 1;
   }
   auto odometrySensor = std::move(*odometrySensorResult);
 
-  auto physicsResult = ad::simulation::createPhysicsFromConfig(
-      scenario.physics.algorithm, std::optional<ad::config::TextConfig>{*physicsConfig});
+  auto physicsResult = ad::scenario::createPhysics(scenario);
   if (!physicsResult) {
     fmt::print(stderr, "Physics create error: {}\n", physicsResult.error().message);
     return 1;

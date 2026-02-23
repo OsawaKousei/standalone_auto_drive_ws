@@ -3,10 +3,11 @@
 #include "features/visualization/visualizer.hpp"
 #include "shared/map_loader.hpp"
 #include "shared/result.hpp"
-#include "shared/text_config.hpp"
+#include "shared/scenario_runtime.hpp"
 #include "shared/types.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fmt/core.h>
@@ -25,23 +26,7 @@ namespace ad::planning_test {
 
 constexpr auto kNumericEpsilon = 1.0e-12;
 constexpr auto kMetricPrecision = 8;
-constexpr auto kMinFootprintVertexValueCount = std::size_t{6};
 constexpr auto kStartGoalMarkerSize = 26.0;
-
-struct AlgorithmSpec {
-  std::string algorithm;
-  std::string configPath;
-};
-
-struct TestScenarioConfig {
-  std::string name;
-  std::string baseDir;
-  std::string mapYamlPath;
-  types::Footprint footprint;
-  types::Pose start;
-  types::Pose goal;
-  AlgorithmSpec planning;
-};
 
 struct ProgramOptions {
   std::string scenarioPath;
@@ -56,162 +41,49 @@ struct PlannerMetrics {
   double dijkstraOptimalityRatio;
 };
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-[[nodiscard]] auto resolvePath(std::string_view baseDir, std::string_view path) -> std::string {
-  const auto candidate = std::filesystem::path{std::string{path}};
-  if (candidate.is_absolute()) {
-    return candidate.lexically_normal().string();
-  }
-  return (std::filesystem::path{std::string{baseDir}} / candidate).lexically_normal().string();
-}
-
-[[nodiscard]] auto requiredRaw(const config::TextConfig &cfg, std::string_view section,
-                               std::string_view key) -> Result<std::string_view> {
-  const auto raw = cfg.findRaw(section, key);
-  if (!raw) {
-    return tl::make_unexpected(Error{.code = ErrorCode::InvalidInput,
-                                     .message = "Required config key is missing: " +
-                                                std::string{section} + "." + std::string{key}});
-  }
-  return *raw;
-}
-
-[[nodiscard]] auto requiredString(const config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key) -> Result<std::string> {
-  const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return config::parseQuotedString(*raw);
-}
-
-[[nodiscard]] auto requiredDouble(const config::TextConfig &cfg, std::string_view section,
-                                  std::string_view key) -> Result<double> {
-  const auto raw = requiredRaw(cfg, section, key);
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-  return config::parseDoubleValue(*raw);
-}
-
-[[nodiscard]] auto parsePose(const config::TextConfig &cfg, std::string_view section)
-    -> Result<types::Pose> {
-  const auto xValue = requiredDouble(cfg, section, "x");
-  if (!xValue) {
-    return tl::make_unexpected(xValue.error());
+auto printPlanningParameters(const scenario::ScenarioConfig &scenario, const types::MapData &map)
+    -> void {
+  fmt::print("=== Planning Parameters ===\n");
+  fmt::print("scenario.name={}\n", scenario.name);
+  fmt::print("planning.algorithm={}\n", scenario.planning.algorithm);
+  if (scenario.planning.configPath.has_value()) {
+    fmt::print("planning.config_path={}\n", *scenario.planning.configPath);
+  } else {
+    fmt::print("planning.config_path=<default>\n");
   }
 
-  const auto yValue = requiredDouble(cfg, section, "y");
-  if (!yValue) {
-    return tl::make_unexpected(yValue.error());
+  fmt::print("map.yaml_path={}\n", scenario.mapYamlPath);
+  fmt::print("map.size=({}, {})\n", map.width, map.height);
+  fmt::print("map.resolution={}\n", map.resolution);
+
+  fmt::print("robot.start=(x={}, y={}, theta={})\n", scenario.start.x, scenario.start.y,
+             scenario.start.theta);
+  fmt::print("robot.goal=(x={}, y={}, theta={})\n", scenario.goal.x, scenario.goal.y,
+             scenario.goal.theta);
+  fmt::print("robot.footprint.vertex_count={}\n", scenario.footprint.vertices.size());
+
+  if (!scenario.algorithmConfigDocs.planning.has_value()) {
+    fmt::print("planning.config=<none>\n");
+    fmt::print("===========================\n");
+    return;
   }
 
-  const auto thetaValue = requiredDouble(cfg, section, "theta");
-  if (!thetaValue) {
-    return tl::make_unexpected(thetaValue.error());
+  constexpr auto kPlanningConfigKeys = std::array<std::string_view, 9>{
+      "collision_checker", "resolution",       "allow_diagonal", "weight",        "cost_straight",
+      "cost_diagonal",     "inflation_radius", "goal_tolerance", "max_iterations"};
+
+  for (const auto key : kPlanningConfigKeys) {
+    const auto value = scenario.algorithmConfigDocs.planning->findRaw("", key);
+    if (!value) {
+      continue;
+    }
+    fmt::print("planning.{}={}\n", key, *value);
   }
-
-  return types::Pose{.x = *xValue, .y = *yValue, .theta = *thetaValue};
-}
-
-[[nodiscard]] auto parseFootprintVertices(const config::TextConfig &cfg)
-    -> Result<types::Footprint> {
-  const auto raw = requiredRaw(cfg, "robot.footprint", "vertices");
-  if (!raw) {
-    return tl::make_unexpected(raw.error());
-  }
-
-  const auto values = config::parseArrayFlat(*raw);
-  if (!values) {
-    return tl::make_unexpected(values.error());
-  }
-
-  if (values->size() < kMinFootprintVertexValueCount || values->size() % 2U != 0U) {
-    return tl::make_unexpected(
-        Error{.code = ErrorCode::InvalidInput,
-              .message = "robot.footprint.vertices must contain N x 2 numeric values."});
-  }
-
-  auto vertices = std::vector<types::Point>{};
-  vertices.reserve(values->size() / 2U);
-  for (std::size_t index = 0; index < values->size(); index += 2U) {
-    vertices.push_back(types::Point{.x = (*values)[index], .y = (*values)[index + 1U]});
-  }
-  return types::Footprint{std::move(vertices)};
-}
-
-[[nodiscard]] auto parseAlgorithmSpec(const config::TextConfig &cfg, std::string_view section)
-    -> Result<AlgorithmSpec> {
-  const auto algorithm = requiredString(cfg, section, "algorithm");
-  if (!algorithm) {
-    return tl::make_unexpected(algorithm.error());
-  }
-
-  const auto configPath = requiredString(cfg, section, "config_path");
-  if (!configPath) {
-    return tl::make_unexpected(configPath.error());
-  }
-
-  return AlgorithmSpec{.algorithm = *algorithm, .configPath = *configPath};
-}
-
-[[nodiscard]] auto loadScenario(std::string_view scenarioPath) -> Result<TestScenarioConfig> {
-  const auto scenarioFsPath = std::filesystem::path{std::string{scenarioPath}};
-  const auto baseDir = scenarioFsPath.parent_path().empty() ? std::filesystem::path{"."}
-                                                            : scenarioFsPath.parent_path();
-  const auto baseDirNormalized = baseDir.lexically_normal().string();
-
-  const auto cfg = config::loadTextConfig(scenarioFsPath.lexically_normal().string());
-  if (!cfg) {
-    return tl::make_unexpected(cfg.error());
-  }
-
-  const auto name = requiredString(*cfg, "scenario", "name");
-  if (!name) {
-    return tl::make_unexpected(name.error());
-  }
-
-  const auto mapYamlPath = requiredString(*cfg, "map", "yaml_path");
-  if (!mapYamlPath) {
-    return tl::make_unexpected(mapYamlPath.error());
-  }
-
-  const auto footprint = parseFootprintVertices(*cfg);
-  if (!footprint) {
-    return tl::make_unexpected(footprint.error());
-  }
-
-  const auto start = parsePose(*cfg, "robot.start");
-  if (!start) {
-    return tl::make_unexpected(start.error());
-  }
-
-  const auto goal = parsePose(*cfg, "robot.goal");
-  if (!goal) {
-    return tl::make_unexpected(goal.error());
-  }
-
-  const auto planning = parseAlgorithmSpec(*cfg, "planning");
-  if (!planning) {
-    return tl::make_unexpected(planning.error());
-  }
-
-  return TestScenarioConfig{.name = *name,
-                            .baseDir = baseDirNormalized,
-                            .mapYamlPath = *mapYamlPath,
-                            .footprint = *footprint,
-                            .start = *start,
-                            .goal = *goal,
-                            .planning = *planning};
-}
-
-[[nodiscard]] auto loadAlgorithmConfig(std::string_view baseDir, std::string_view configPath)
-    -> Result<config::TextConfig> {
-  return config::loadTextConfig(resolvePath(baseDir, configPath));
+  fmt::print("===========================\n");
 }
 
 [[nodiscard]] auto parseProgramOptions(std::span<char *> arguments) -> Result<ProgramOptions> {
-  auto scenarioPath = std::string{"test/planning/configs/planning.toml"};
+  auto scenarioPath = std::string{"test/planning/configs/scenario.toml"};
 
   for (std::size_t index = 1; index < arguments.size(); ++index) {
     const auto argument = std::string_view{arguments[index]};
@@ -400,7 +272,7 @@ struct PlannerMetrics {
                         .dijkstraOptimalityRatio = pathLength / dijkstraPathLength};
 }
 
-[[nodiscard]] auto saveArtifacts(const TestScenarioConfig &scenario,
+[[nodiscard]] auto saveArtifacts(const scenario::ScenarioConfig &scenario,
                                  std::span<const types::Point> path, const PlannerMetrics &metrics,
                                  const types::MapData &map) -> Status {
   std::error_code fsError;
@@ -491,14 +363,14 @@ auto main(int argc, char **argv) -> int {
     return 1;
   }
 
-  const auto scenarioResult = ad::planning_test::loadScenario(optionsResult->scenarioPath);
+  const auto scenarioResult = ad::scenario::loadScenario(optionsResult->scenarioPath);
   if (!scenarioResult) {
     fmt::print(stderr, "Scenario load error: {}\n", scenarioResult.error().message);
     return 1;
   }
   const auto &scenario = *scenarioResult;
 
-  const auto mapPath = ad::planning_test::resolvePath(scenario.baseDir, scenario.mapYamlPath);
+  const auto mapPath = ad::scenario::resolvePath(scenario, scenario.mapYamlPath);
   const auto mapResult = ad::loadMapFromYaml(mapPath);
   if (!mapResult) {
     fmt::print(stderr, "Map load error: {}\n", mapResult.error().message);
@@ -506,16 +378,9 @@ auto main(int argc, char **argv) -> int {
   }
   const auto &map = *mapResult;
 
-  const auto planningConfig =
-      ad::planning_test::loadAlgorithmConfig(scenario.baseDir, scenario.planning.configPath);
-  if (!planningConfig) {
-    fmt::print(stderr, "Planning config load error: {}\n", planningConfig.error().message);
-    return 1;
-  }
+  ad::planning_test::printPlanningParameters(scenario, map);
 
-  auto plannerResult =
-      ad::planning::createPlannerFromConfig(scenario.planning.algorithm, map, scenario.footprint,
-                                            std::optional<ad::config::TextConfig>{*planningConfig});
+  auto plannerResult = ad::scenario::createPlanner(scenario, map, scenario.footprint);
   if (!plannerResult) {
     fmt::print(stderr, "Planner create error: {}\n", plannerResult.error().message);
     return 1;
@@ -529,7 +394,7 @@ auto main(int argc, char **argv) -> int {
   }
 
   auto dijkstraPlannerResult = ad::planning::createPlannerFromConfig(
-      "dijkstra", map, scenario.footprint, std::optional<ad::config::TextConfig>{*planningConfig});
+      "dijkstra", map, scenario.footprint, scenario.algorithmConfigDocs.planning);
   if (!dijkstraPlannerResult) {
     fmt::print(stderr, "Dijkstra planner create error: {}\n",
                dijkstraPlannerResult.error().message);

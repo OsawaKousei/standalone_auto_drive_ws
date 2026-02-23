@@ -4,24 +4,33 @@
 
 ## 1. 入出力
 
-- 入力ログ（既定）: `test/control/logs/control_test.log`
-- 出力ディレクトリ（既定）: `test/control/logs/analysis`
+- 入力ログ（既定）: `test/control/logs/control_test.log`（`--log` で変更可能）
+- 出力ディレクトリ（既定）: `test/control/logs/analysis`（`--out-dir` で変更可能）
+- 軌跡ソース（既定）: `true`（`--trajectory-source {true,odom}`）
 - 実行例:
   - `python3 test/control/analyze_control_log.py`
   - `python3 test/control/analyze_control_log.py --trajectory-source odom`
+  - `python3 test/control/analyze_control_log.py --log test/control/logs/control_test.log --out-dir test/control/logs/analysis`
 
 ### 1.1 必須ログ情報
 
 ログヘッダに以下が必要です。
 
-- `# scenario_config=...`
 - `# path=...`（生成経路の点列 `x:y;x:y;...`）
+
+`# scenario_config=...` は任意です。省略時は `test/control/configs/control.toml` を使用します。
 
 CSV列は少なくとも以下を必要とします。
 
 - `time`, `cross_track`, `cmd_v`, `cmd_vy`, `cmd_w`
-- `true_x`, `true_y`, `true_theta`
-- `odom_x`, `odom_y`, `odom_theta`
+- `true_x`, `true_y`, `odom_x`, `odom_y`
+- `--trajectory-source true` のとき: `true_theta`
+- `--trajectory-source odom` のとき: `odom_theta`
+
+補足:
+
+- CSVカラムは `# columns: ...` 行、または先頭のCSVカラム行のどちらでも読み取り可能です。
+- 列数不一致行や数値変換できない行はスキップされます。
 
 ## 2. 生成プロット
 
@@ -45,8 +54,12 @@ CSV列は少なくとも以下を必要とします。
 4. `acceleration_timeseries.png`
    - 追従軌跡から求めた加速度（速度の時間微分）
 
+- サンプル数が不足する場合（加速度系列が空）は出力されません
+
 5. `angular_acceleration_timeseries.png`
    - 追従軌跡から求めた角加速度（角速度の時間微分）
+
+- サンプル数が不足する場合（角加速度系列が空）は出力されません
 
 ## 3. メトリクス定義
 
@@ -72,11 +85,12 @@ CSV列は少なくとも以下を必要とします。
 `--trajectory-source` で選ばれた追従軌跡（`true` または `odom`）から算出します。
 
 - `mean_speed`
-  - 平均速度（位置差分から計算）
+  - 平均速度（位置差分）
+  - `NaN` を除外して平均（`np.nanmean`）
 - `max_speed`
   - 最大速度（絶対値最大）
 - `max_angular_speed`
-  - 最大角速度（姿勢角の差分から計算）
+  - 最大角速度（`unwrap` 後の姿勢角差分）
 - `max_acceleration`
   - 最大加速度（速度の差分）
 - `max_angular_acceleration`
@@ -101,10 +115,11 @@ CSV列は少なくとも以下を必要とします。
 
 - `goal_reach_time`
   - ログヘッダ `# result=success` の場合: 最終時刻 `time[-1]`
-  - 失敗の場合: `-1.0`
+  - それ以外（`failure` / 未設定）の場合: `-1.0`
 
 ## 4. 重要な注意点
 
 - 本スクリプトは matplotlib を `Agg` バックエンドで使用し、GUIを開かずに画像保存します。
 - `heading_error_timeseries` は「推定誤差」ではなく「経路接線に対する誤差」です。
 - 時間差分 $\Delta t \le 0$ の区間は `NaN` 扱いになり、最大値計算では有限値のみを対象にします。
+- map 描画に必要な `yaml_path`、`image`、`resolution`、`origin` を scenario/map YAML から取得します。これらが不足すると解析は失敗します。

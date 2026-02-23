@@ -28,4 +28,5 @@ configs/*/*
 test/*/configs/*
 configs/scenario.toml
 !configs/defaults/
+!test/*/configs/defaults/
 !*.gitkeep

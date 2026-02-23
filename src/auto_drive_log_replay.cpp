@@ -573,7 +573,7 @@ auto main() -> int {
     std::this_thread::sleep_for(std::chrono::milliseconds{delayMs});
   }
 
-  const auto saveStatus = viz.saveFigure("localization_control_lidar_log_replay.png");
+  const auto saveStatus = viz.saveFigure("auto_drive_log_replay_result.png");
   if (!saveStatus) {
     fmt::print(stderr, "Render error: {}\n", saveStatus.error().message);
     return 1;

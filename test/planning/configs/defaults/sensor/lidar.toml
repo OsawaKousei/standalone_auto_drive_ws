@@ -1,0 +1,6 @@
+ray_count = 720
+min_angle = -3.14159265358979323846
+max_angle = 3.14159265358979323846
+max_range = 30.0
+range_step = 0.02
+range_noise_stddev = 0.020

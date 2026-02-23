@@ -1,83 +1,105 @@
-# ワークスペース概要
+# 概要
 
-自律走行アルゴリズム PoC のための C++20 プロジェクトです。
+自律走行アルゴリズムの開発と検証のための、軽量で依存関係の少ない、CPP向けの2Dシミュレーター。
+Dockerを活用して構築されており、VScodeのdevcontainerが使用できればそれ以外の環境構築を必要としません。ただし、ホストマシンでビルド成果物を直接実行することも可能になっています。
+シミュレーターコア及びサンプルの自律走行スタックはCPPで記述されていますが、描画にはPython（matplotlib）を使用しています。
+configファイルの編集によって、mapやロボットの形状・使用するアルゴリズムやそのパラメータを編集できるようになっており、実用的な簡易検証環境となることを期待しています。
 
-## 前提条件
+※このシミュレーターはアルゴリズムの学習・検証を主な目的として作成されており、実機へのデプロイやROSとの統合は想定されておらず、実装に関してもデスクトップアプリケーションとしてのモジュール性と可読性、拡張性に重点が置かれています。
 
-- ホストに Docker が導入済み
-- ホストに `uv` が導入済み
-- VS Code の DevContainer 機能が利用可能
-- 実行にはマップファイル（YAML/PGM）が必要
+## このシミュレーターで想定する問題設定
 
-## 使い始める手順（最初に必ず実施）
+このシミュレーターでは静的な２D環境を想定しています。
+地図がグリッドマップで与えられ、センサーとして抽象化されたオドメトリセンサーとLidarセンサーを用いることを想定します。
+ロボットは１台で、スタートとゴールのみがワールド座標系で与えられ、ゴール到達判定はシミュレーターが行います。
+ロボットが壁に衝突した場合は即座に失敗とみなし、シミュレーションを終了します。
+経路生成・自己位置推定・経路追従の３つのアルゴリズムが実装されることを想定します。
+経路生成はシミュレーション開始時に一度だけ行い、その後は経路追従アルゴリズムに委ねます。
+オドメトリセンサーとLidarセンサーが異なる周期で値を返す状況を想定し、自己位置推定はこれら２つのセンサーによる入力を区別して受け取ります。センサーの周期はconfigで設定できます。
+ロボットの形状はconfigである程度自由に定義できます。運動モデルに関しては事前に実装されたモデルをconfigで選択します。
+オドメトリセンサー・Lidar・ロボットの制御コマンドに対する追従性に対してシンプルなノイズを付加します。この度合いはパラメータによって制御できます。
 
-1. ワークスペースをクローンする。
-2. クローン直後に依存関係を同期する（必須）。
+# 動作環境・バージョン
 
-- `uv sync`
+### 動作要件
 
-3. ホスト側で初回ビルドを実行して `compile_commands.json` と依存関係を生成する。
+- dockerが使用できること
 
-- `./scripts/build.sh`
+### 推奨要件
 
-4. ビルド完了後に DevContainer を開く。IntelliSense は生成された compile commands を前提とするため、先にビルドが必要。
-5. 以降の編集・開発は DevContainer 内で行う。ビルド時は実行環境に応じてスクリプトを使い分ける（下記参照）。
+- VScodeのdevcontainer拡張機能が使用できること
+- 実機またはWSLのUbuntu22.04
 
-## よく使うコマンド
+※動作確認は推奨要件の環境で行っています。devcontainerで開発を行う場合、VScodeのインテリセンスが動作することを確認しています。
 
-- 依存関係同期（クローン直後・更新時）: `uv sync`
-- ビルド（ホストで実行）: `./scripts/build.sh`
-- ビルド（コンテナ内で実行）: `./scripts/build_internal.sh`
-- 実行（ホスト・コンテナ共通）:
-  - `./build/auto_drive_app`
-  - `./build/auto_drive_log_replay`
+# 前提条件
 
-## ビルドスクリプトの使い分け
+C++での開発経験がある読者を想定する
 
-- `scripts/build.sh`: **ホスト OS から実行**するエントリポイント。ビルド用コンテナを起動し、使い捨て環境で `uv sync` と CMake ビルドを実行します。
-- `scripts/build_internal.sh`: **コンテナ内部で実行**するスクリプト。DevContainer やビルド用コンテナの中で、同様に `uv sync` を行ってから CMake ビルドします。
-- 使い分けを間違えると、想定外の環境（ホスト/コンテナ）でビルドされるため、原則として「ホストでは `build.sh`、コンテナ内では `build_internal.sh`」を守ってください。
+# コンテンツ
 
-## マップの準備（必須）
+## 導入方法
 
-実行には **マップファイル（YAML/PGM）が必須** です。既定のマップは `tools/map.yaml` と `tools/map.pgm` で、`tools/map_schema_editor.py` を使って作成・更新できます（`tools/map_schema.yaml` を編集するとリアルタイムでプレビュー更新）。
+### devcontainer使用の場合（推奨）
 
-## 設定ファイルのデフォルトマージ
+1. [このレポジトリ](https://github.com/OsawaKousei/standalone_auto_drive_ws)からソースコードを入手する
+1. VScodeでcloneしたワークスペースを開く
+1. ワークスペースをdevcontainerで開く（例：リモートエクスプローラ->「開発コンテナー」を選択->新しい開発コンテナー(+)->コンテナーで現在のフォルダを開く）
+   ※初回は時間がかかる
+1. ビルド：`bash scripts/build_internal.sh`
+1. 実行：`./build/auto_drive_app`
+   ※ウィンドウが立ち上がり、自律走行のデモが実行されれば成功
 
-- 実行時はまず `configs/defaults/` 配下のデフォルト設定を読み込みます。
-- その後、指定したシナリオ設定（既定: `configs/scenario.toml`）を同じキーで上書きマージします。
-- アルゴリズム個別設定も同様に、`configs/defaults/{localization|planning|control|sensor|physics}/` を初期値として、`scenario.toml` の `config_path` で指定したファイル内容を上書きします。
-- これにより、指定ファイルで省略されたパラメータはデフォルト設定値が利用されます。
+### ホストで実行する場合（追加の依存関係をインストールする必要があります）
 
-## 自律走行スタックの実装概要
+1. [このレポジトリ](https://github.com/OsawaKousei/standalone_auto_drive_ws)からソースコードを入手する
+1. 依存関係の入手：`uv sync`
+1. ビルド：`bash scripts/build.sh`
+1. 実行：`./build/auto_drive_app`
+   ※コンテナ内で生成されるGCC 12でコンパイルされたバイナリを実行できる環境が必要です
 
-本ワークスペースでは、計画・制御・自己位置推定・センサ・物理・可視化を分離した構成で自律走行スタックを実装しています。主要モジュールは以下に配置されています。
+## 使い方
 
-- 計画: グリッドベースの経路探索（A\* / Dijkstra）と衝突判定を実装（[src/features/planning](src/features/planning)）
-- 制御: Pure Pursuit による追従制御（[src/features/control](src/features/control)）
-- 自己位置推定: EKF による推定とユーティリティ（[src/features/localization](src/features/localization)）
-- シミュレーション: 二輪モデル、Lidar 生成、衝突チェック（[src/features/simulation](src/features/simulation)）
-- 可視化: matplotlib-cpp を使ったフレーム描画（[src/features/visualization](src/features/visualization)）
-- 共有データ型と入出力: マップ読み込み、幾何ユーティリティ（[src/shared](src/shared)）
+### メインとなるアプリケーションについて
 
-## 主要アプリ
+#### auto_drive_app
 
-- [src/auto_drive_app.cpp](src/auto_drive_app.cpp): 計画 → 自己位置推定 → 制御 → 物理更新 → 可視化を 1 ループで回す統合デモです。マップ読込、A\* で経路生成、EKF 推定の予測/更新、Pure Pursuit による指令生成、Unicycle モデルで状態更新、Lidar シミュレーションと衝突チェックを行い、フレーム描画とログ出力を行います。ログは [logs/localization_control_lidar_demo.log](logs/localization_control_lidar_demo.log) に、最終図は [localization_control_lidar_path.png](localization_control_lidar_path.png) に保存されます。
-- [src/auto_drive_log_replay.cpp](src/auto_drive_log_replay.cpp): 上記ログを読み込み、真値/推定軌跡、計画経路、スキャン点を再描画するリプレイツールです。ログとマップを指定して可視化し、最終図を [localization_control_lidar_log_replay.png](localization_control_lidar_log_replay.png) に保存します。
+scenario.tomlファイルに基づいて自律走行のシミュレーションを行います。
+実行方法：`./build/auto_drive_app`
+実行ログをauto_drive_app.logとして保存します。
+終了時のスナップショットをauto_drive_app_result.pngとして保存します。
 
-## ディレクトリ構成
+#### auto_drive_log_replay
 
-- `src/` — エントリポイントと機能モジュール（shared/types, result など）
-- `test/` — デモ/テストのエントリポイント
-- `docs/` — ビルド・コーディング・テストのガイドライン
-- `scripts/` — 自動化スクリプト（主要エントリポイント: `build.sh`）
-- `tools/` — 解析/補助ツール（例: マップ編集）
-- `build/` — ホスト側コンテナビルドの生成物出力先
+replay.tomlに基づいて、auto_drive_appの結果をリプレイできます。
+実行方法：`./build/auto_drive_log_replay`
+終了時のスナップショットをauto_drive_log_replay_result.pngとして保存します。
 
-## 開発メモ
+### configについて
 
-- ビルドは使い捨てコンテナで実行し、成果物はホストの `build/` に出力されます。
-- コーディングは DevContainer 内で行い、ホスト環境は最小限に保ちます。
-- 可視化は Python/NumPy に依存します（matplotlib-cpp 経由）。
-- マップは `tools/map_schema_editor.py` を使って作成できます（`tools/map_schema.yaml` を編集し、Save ボタンで `tools/map.yaml` / `tools/map.pgm` を出力）。
-- 詳細は [docs/BuildStrategy.md](docs/BuildStrategy.md) と [docs/CodingGuideline.md](docs/CodingGuideline.md) を参照してください。
+configs/scenario.toml及びconfigs/replay.tomlが起点となるconfigで、メインのアプリケーションで参照されています。
+実際にこれらのファイルにデフォルトで記載されている内容よりも遥かに多くの設定項目が必要ですが、記載が無い項目は内部でconfigs/defaults以下のconfigファイル群にフォールバックされます。
+ユーザーは変更したい項目についてのみ記述することで、設定を反映できます。
+具体的な設定項目やその意味については、デフォルトコンフィグのコメントを参照してください。
+
+### mapについて
+
+シミュレーターが使用する地図はROS 2で使用されるパターンを参考に、yaml形式のメタファイルとpgm形式の実体で構成されますが、互換性の検証はしていません。
+付属のmap_editor.pyを使用する（`uv run tools/map_editor.py`）ことで、mapを作成できます。これは、map_schema.yamlに記述されているマップの定義をリアルタイムでレンダリングし、任意のタイミングでこれを所定の形式にエクスポートできます。
+
+### 基本的なディレクトリ構造について
+
+src/以下に実装が置かれています。shared/以下には共通の部品や型定義が、features/以下には機能別の実装が置かれています。
+control/：経路追従
+localization/：自己位置推定
+planning/：経路生成
+simulation/：センサーや運動モデル、衝突判定
+visualization/：描画系
+
+※重要なポイントとして、本プロジェクトでは、シミュレーターとして統合されたオブジェクトやインタフェースは存在しません。ロボットの運動計算・衝突判定・センサーの再現・描画はそれぞれ完全に独立しており、メインアプリケーションが自己位置推定アルゴリズムの実行と併せてこれらを適切に呼び出す責務を負います。
+
+### サンプルとなるアルゴリズムの実装状況
+
+経路追従：Pure Pursuit
+自己位置推定：EKF
+経路生成：A\*

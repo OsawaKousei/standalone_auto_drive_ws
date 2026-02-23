@@ -11,6 +11,8 @@
 3. 各ステップのCSVデータ行
 4. 終了メタ情報（`# result=...`、必要に応じて `# error=...`）
 
+`test/control/control_test_app.cpp` の現行実装では、`# columns: ...` 行と同内容のCSVカラム名行の両方が出力されます。
+
 ### 1.1 ヘッダ例
 
 - `# control_test log`
@@ -54,7 +56,19 @@
 - `# result=success` または `# result=failure`
 - 失敗時のみ: `# error=<エラー内容>`
 
-## 4. 補足
+`# result=...` は常に追記されます。
+
+## 4. analyze_control_log.py との整合
+
+`test/control/analyze_control_log.py` が必要とする主な条件は以下です。
+
+- ヘッダ `# path=<x:y;...>` は必須です。
+- ヘッダ `# scenario_config=...` は任意です（未指定時は `test/control/configs/control.toml` を既定使用）。
+- 必須列: `time`, `cross_track`, `cmd_v`, `cmd_vy`, `cmd_w`, `true_x`, `true_y`, `odom_x`, `odom_y`
+- さらに `--trajectory-source true` では `true_theta`、`--trajectory-source odom` では `odom_theta` が必須です。
+- カラム名は `# columns: ...` 行またはCSVカラム名行のどちらからでも解釈されます。
+
+## 5. 補足
 
 - 1行の内容が長いため、ターミナル表示では折り返されて見える場合があります。
 - ログ自体は通常の1行CSVとして保存されます。
