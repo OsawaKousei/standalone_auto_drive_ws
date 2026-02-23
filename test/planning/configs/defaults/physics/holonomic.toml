@@ -1,0 +1,9 @@
+max_linear_speed_x = 2.0
+max_linear_speed_y = 2.0
+max_angular_speed = 2.0
+max_linear_acceleration_x = 2.0
+max_linear_acceleration_y = 2.0
+max_angular_acceleration = 4.0
+tau_linear_x = 0.0
+tau_linear_y = 0.0
+tau_angular = 0.0
