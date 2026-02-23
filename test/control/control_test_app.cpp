@@ -12,6 +12,7 @@
 #include "shared/scenario_runtime.hpp"
 #include "shared/types.hpp"
 
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fmt/core.h>
@@ -35,6 +36,83 @@ struct ProgramOptions {
   std::string scenarioPath;
   bool render;
 };
+
+auto printControlParameters(const scenario::ScenarioConfig &scenario, const types::MapData &map)
+    -> void {
+  fmt::print("=== Control Test Parameters ===\n");
+  fmt::print("scenario.name={}\n", scenario.name);
+  fmt::print("map.yaml_path={}\n", scenario.mapYamlPath);
+  fmt::print("map.size=({}, {})\n", map.width, map.height);
+  fmt::print("map.resolution={}\n", map.resolution);
+
+  fmt::print("robot.start=(x={}, y={}, theta={})\n", scenario.start.x, scenario.start.y,
+             scenario.start.theta);
+  fmt::print("robot.goal=(x={}, y={}, theta={})\n", scenario.goal.x, scenario.goal.y,
+             scenario.goal.theta);
+  fmt::print("robot.footprint.vertex_count={}\n", scenario.footprint.vertices.size());
+
+  fmt::print("simulation.runtime.step_seconds={}\n", scenario.runtime.stepSeconds);
+  fmt::print("simulation.runtime.render_delta_t={}\n", scenario.runtime.renderDeltaT);
+  fmt::print("simulation.runtime.max_steps={}\n", scenario.runtime.maxSteps);
+  fmt::print("simulation.runtime.goal_tolerance={}\n", scenario.runtime.goalTolerance);
+
+  fmt::print("simulation.collision.max_translation_step={}\n",
+             scenario.collision.maxTranslationStep);
+  fmt::print("simulation.collision.max_rotation_step={}\n", scenario.collision.maxRotationStep);
+
+  const auto printAlgorithmSpec = [](std::string_view section,
+                                     const scenario::AlgorithmSpec &spec) -> void {
+    fmt::print("{}.algorithm={}\n", section, spec.algorithm);
+    if (spec.configPath.has_value()) {
+      fmt::print("{}.config_path={}\n", section, *spec.configPath);
+    } else {
+      fmt::print("{}.config_path=<default>\n", section);
+    }
+  };
+
+  printAlgorithmSpec("planning", scenario.planning);
+  printAlgorithmSpec("control", scenario.control);
+  printAlgorithmSpec("odometry_sensor", scenario.odometrySensor);
+  printAlgorithmSpec("physics", scenario.physics);
+
+  const auto printConfigValues = [](std::string_view section,
+                                    const std::optional<config::TextConfig> &doc,
+                                    std::span<const std::string_view> keys) -> void {
+    if (!doc.has_value()) {
+      fmt::print("{}.config=<none>\n", section);
+      return;
+    }
+
+    for (const auto key : keys) {
+      const auto value = doc->findRaw("", key);
+      if (!value) {
+        continue;
+      }
+      fmt::print("{}.{}={}\n", section, key, *value);
+    }
+  };
+
+  constexpr auto kPlanningKeys = std::array<std::string_view, 9>{
+      "collision_checker", "resolution",       "allow_diagonal", "weight",        "cost_straight",
+      "cost_diagonal",     "inflation_radius", "goal_tolerance", "max_iterations"};
+  constexpr auto kControlKeys =
+      std::array<std::string_view, 9>{"lookahead_distance", "desired_linear_velocity",
+                                      "max_linear_speed",   "max_angular_speed",
+                                      "position_kp",        "position_ki",
+                                      "position_kd",        "heading_kp",
+                                      "heading_kd"};
+  constexpr auto kOdometryKeys = std::array<std::string_view, 3>{
+      "forward_noise_stddev", "lateral_noise_stddev", "theta_noise_stddev"};
+  constexpr auto kPhysicsKeys = std::array<std::string_view, 6>{
+      "max_linear_speed",         "max_angular_speed", "max_linear_acceleration",
+      "max_angular_acceleration", "tau_linear",        "tau_angular"};
+
+  printConfigValues("planning", scenario.algorithmConfigDocs.planning, kPlanningKeys);
+  printConfigValues("control", scenario.algorithmConfigDocs.control, kControlKeys);
+  printConfigValues("odometry_sensor", scenario.algorithmConfigDocs.odometrySensor, kOdometryKeys);
+  printConfigValues("physics", scenario.algorithmConfigDocs.physics, kPhysicsKeys);
+  fmt::print("===============================\n");
+}
 
 [[nodiscard]] auto normalizeAngle(double angle) -> double {
   angle = std::fmod(angle + std::numbers::pi, kAnglePeriod);
@@ -217,6 +295,8 @@ int main(int argc, char **argv) {
     return 1;
   }
   const auto &map = *mapResult;
+
+  ad::control_test::printControlParameters(scenario, map);
 
   auto visualizer = std::optional<ad::visualization::Visualizer>{};
   auto preparedMap = std::optional<ad::visualization::Visualizer::PreparedMap>{};
