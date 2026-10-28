@@ -5,6 +5,7 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE_NAME="cpp-simple-builder"
+AD_VISUALIZATION_BACKEND="${AD_VISUALIZATION_BACKEND:-wgpu}"
 
 # ホスト側の uv キャッシュパスと Python インストール先のパス
 UV_CACHE_HOST="${HOME}/.cache/uv"
@@ -22,6 +23,7 @@ docker run --rm \
     -v "${PROJECT_ROOT}:/workspace" \
     -v "${UV_CACHE_HOST}:/tmp/.cache/uv" \
     -v "${UV_PYTHON_HOST}:/tmp/.uv_python" \
+    -e "AD_VISUALIZATION_BACKEND=${AD_VISUALIZATION_BACKEND}" \
     -e "UV_CACHE_DIR=/tmp/.cache/uv" \
     -e "UV_PYTHON_INSTALL_DIR=/tmp/.uv_python" \
     -e "HOME=/tmp" \
@@ -35,7 +37,7 @@ docker run --rm \
             find build/_deps -maxdepth 1 -type d -name "*-src" -exec git config --global --add safe.directory {} \; || true
         fi
 
-        echo "1. 使い捨て仮想環境を構築中 (/tmp/.venv_build)..."
+        echo "1. 描画バックエンドの依存関係を確認中..."
         export UV_PROJECT_ENVIRONMENT=/tmp/.venv_build
         export VIRTUAL_ENV=/tmp/.venv_build
         export PATH=/tmp/.venv_build/bin:$PATH
@@ -43,15 +45,16 @@ docker run --rm \
         # [重要] システムのPythonを無視し、uvが管理する完全なPythonを強制する
         export UV_PYTHON_PREFERENCE=only-managed
 
-        uv sync --active
+        if [ "${AD_VISUALIZATION_BACKEND}" = "matplotlib" ]; then
+            uv sync --active
+        fi
 
         echo "2. CMake 構成中..."
-        # [重要] CMakeにも仮想環境のPythonだけを見るように強制する
         cmake -B build -S . \
+            -DAD_VISUALIZATION_BACKEND="${AD_VISUALIZATION_BACKEND}" \
             -DCMAKE_BUILD_TYPE=Debug \
             -DENABLE_SANITIZER=OFF \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DPython3_FIND_VIRTUALENV=ONLY
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
         echo "3. ビルド実行中..."
         cmake --build build -j$(nproc)

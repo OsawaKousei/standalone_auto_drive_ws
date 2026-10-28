@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
+    pkg-config \
     gcc-12 \
     g++-12 \
     git \
@@ -15,6 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     lsb-release \
     software-properties-common \
+    libvulkan1 \
+    mesa-vulkan-drivers \
+    libx11-6 \
+    libxrandr2 \
+    libxinerama1 \
+    libxcursor1 \
+    libxi6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. uv のインストール (公式推奨のマルチステージビルド形式でクリーンに取得)

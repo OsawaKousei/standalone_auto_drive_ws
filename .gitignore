@@ -30,3 +30,5 @@ configs/scenario.toml
 !configs/defaults/
 !test/*/configs/defaults/
 !*.gitkeep
+# Host X11 authentication copied for the devcontainer
+.devcontainer/.xauthority

@@ -1,6 +1,21 @@
 {
   "name": "Modern C++ Dev Env",
   "build": { "dockerfile": "../docker/Dockerfile.dev" },
+  "initializeCommand": [
+    "bash",
+    "${localWorkspaceFolder}/.devcontainer/prepare-x11.sh",
+    "${localEnv:DISPLAY}",
+    "${localEnv:XAUTHORITY}"
+  ],
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "XAUTHORITY": "/tmp/ad-xauthority",
+    "MESA_VK_WSI_DEBUG": "noshm"
+  },
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.devcontainer/.xauthority,target=/tmp/ad-xauthority,type=bind,readonly"
+  ],
   "remoteEnv": {
     "UV_PROJECT_ENVIRONMENT": "/workspace/.venv_docker",
     "VIRTUAL_ENV": "/workspace/.venv_docker",
