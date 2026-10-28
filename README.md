@@ -50,6 +50,22 @@ C++での開発経験がある読者を想定する
 1. 実行：`./build/auto_drive_app`
    ※ウィンドウが立ち上がり、自律走行のデモが実行されれば成功
 
+#### devcontainerからホスト画面へ表示する場合
+
+LinuxホストのローカルX11／XWaylandセッションを使用します。ホストに `xauth` が必要です（Ubuntuでは `sudo apt-get install xauth`）。ホストのデスクトップ端末で `DISPLAY` が設定されていることを確認してください。認証ファイルが標準の `~/.Xauthority` 以外にある場合は、そのセッションの `XAUTHORITY` もVS Codeへ引き継いでください。環境変数を設定し直した場合は、ホスト側のVS Codeを終了してデスクトップ端末から `code .` で開き直します。
+
+コンテナの起動前に `prepare-x11.sh` がホスト上で対象ディスプレイの認証Cookieを抽出し、`.devcontainer/.xauthority` に保存します。このファイルとX11ソケットをコンテナへ読み取り専用でマウントし、ホストの `DISPLAY` とコンテナ用の `XAUTHORITY` を設定します。生成した認証ファイルはGit管理の対象外です。
+
+MesaのソフトウェアVulkan描画では、コンテナとホストのIPC名前空間が異なるため、X11の共有メモリ（MIT-SHM）への接続が `BadAccess`（`X_ShmAttach`）で失敗する場合があります。`containerEnv` の `MESA_VK_WSI_DEBUG=noshm` でMesaの共有メモリ転送を無効にし、通常のX11転送で表示します。この設定はIPC名前空間の分離を維持します。
+
+現在のコンテナですぐに表示を確認する場合は、次のコマンドを実行します。
+
+```bash
+MESA_VK_WSI_DEBUG=noshm ./build/auto_drive_app
+```
+
+設定を反映するには、VS Codeの **Dev Containers: Rebuild and Reopen in Container** を実行してください。再構築後、コンテナ内で `./build/auto_drive_app` を実行できます。ディスプレイ番号が変わった場合も再構築が必要です。起動前にCookieが見つからない場合は、ホストの `XAUTHORITY` を確認してください。Waylandソケットの転送だけでは、X11を使用する現在のバックエンドには接続できません。
+
 ### ホストで実行する場合（追加の依存関係をインストールする必要があります）
 
 1. [このレポジトリ](https://github.com/OsawaKousei/standalone_auto_drive_ws)からソースコードを入手する
