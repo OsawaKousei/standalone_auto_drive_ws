@@ -6,7 +6,7 @@
 namespace ad {
 
 // 予測可能なエラーを明示するためのコード種別
-enum class ErrorCode { InvalidInput, EmptyCollection, SizeMismatch };
+enum class ErrorCode { InvalidInput, EmptyCollection, SizeMismatch, BackendFailure };
 
 // 失敗理由を伝搬するための不変データ
 struct Error {

@@ -3,17 +3,25 @@
 #include "../../shared/result.hpp"
 #include "../../shared/types.hpp"
 
-#include <matplotlibcpp.h>
-
+#include <memory>
 #include <span>
 #include <string_view>
-#include <vector>
+#include <utility>
 
 namespace ad::visualization {
 
+// Window presentation and destruction must run on the same thread.
 class Visualizer {
+  struct Backend;
+  struct MapStorage;
+
 public:
-  Visualizer() = default;
+  Visualizer();
+  ~Visualizer();
+  Visualizer(const Visualizer &) = delete;
+  auto operator=(const Visualizer &) -> Visualizer & = delete;
+  Visualizer(Visualizer &&) noexcept;
+  auto operator=(Visualizer &&) noexcept -> Visualizer &;
 
   struct MapGeometry {
     const int width;
@@ -23,7 +31,12 @@ public:
 
   struct PreparedMap {
     const MapGeometry geometry;
-    const std::vector<float> gridImage;
+
+  private:
+    PreparedMap(MapGeometry geometry, std::shared_ptr<const MapStorage> storage)
+        : geometry(geometry), storage_(std::move(storage)) {}
+    std::shared_ptr<const MapStorage> storage_;
+    friend class Visualizer;
   };
 
   [[nodiscard]] static auto prepareMap(const types::MapData &map) -> Result<PreparedMap>;
@@ -44,7 +57,8 @@ public:
   [[nodiscard]] auto saveFigure(std::string_view path) const -> Status;
 
 private:
-  [[nodiscard]] static auto configurePythonEnvironment() -> Status;
+  [[nodiscard]] auto ensureBackend() const -> Status;
+  mutable std::unique_ptr<Backend> backend_;
 };
 
 } // namespace ad::visualization

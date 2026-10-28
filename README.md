@@ -2,7 +2,7 @@
 
 自律走行アルゴリズムの開発と検証のための、軽量で依存関係の少ない、CPP向けの2Dシミュレーター。
 Dockerを活用して構築されており、VScodeのdevcontainerが使用できればそれ以外の環境構築を必要としません。ただし、ホストマシンでビルド成果物を直接実行することも可能になっています。
-シミュレーターコア及びサンプルの自律走行スタックはCPPで記述されていますが、描画にはPython（matplotlib）を使用しています。
+シミュレーターコア及びサンプルの自律走行スタックはCPPで記述されています。描画は既定でRustのwgpuバックエンドをC ABI経由で使用し、従来のPython（matplotlib）もビルド時に選択できます。
 configファイルの編集によって、mapやロボットの形状・使用するアルゴリズムやそのパラメータを編集できるようになっており、実用的な簡易検証環境となることを期待しています。
 
 ※このシミュレーターはアルゴリズムの学習・検証を主な目的として作成されており、実機へのデプロイやROSとの統合は想定されておらず、実装に関してもデスクトップアプリケーションとしてのモジュール性と可読性、拡張性に重点が置かれています。
@@ -53,10 +53,38 @@ C++での開発経験がある読者を想定する
 ### ホストで実行する場合（追加の依存関係をインストールする必要があります）
 
 1. [このレポジトリ](https://github.com/OsawaKousei/standalone_auto_drive_ws)からソースコードを入手する
-1. 依存関係の入手：`uv sync`
+1. 実行用のVulkanローダー・ドライバーとX11環境を用意する（Ubuntuでは `libvulkan1 mesa-vulkan-drivers libx11-6`）。Python製ツールも使用する場合は `uv sync`
 1. ビルド：`bash scripts/build.sh`
 1. 実行：`./build/auto_drive_app`
    ※コンテナ内で生成されるGCC 12でコンパイルされたバイナリを実行できる環境が必要です
+
+## 描画バックエンド
+
+既定は `ref/rust-wgpu-plotting` のwgpuバックエンドです。このディレクトリに参照ライブラリのソースを配置してください。外部に配置した場合はCMakeの `-DAD_RUST_SOURCE_DIR=/path/to/rust-wgpu-plotting` で指定できます。Rust側のソース変更は不要です。
+
+CMakeが `cargo build --locked -p ad-visualization-ffi --features native` を実行し、共有ライブラリをビルドディレクトリ内に生成します。Rust edition 2024に対応したツールチェーンが必要です。コンテナでは検証済みのRust 1.99.1を使用します。wgpuを選択したC++アプリのビルド・実行にはPython・NumPy・Matplotlibは不要です。
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DAD_VISUALIZATION_BACKEND=wgpu
+cmake --build build -j4
+./build/auto_drive_app
+```
+
+Linux x86_64 / Vulkan / X11を対象にしています。PNG保存にもVulkanアダプターが必要ですが、画面表示は不要です。GPUのない環境ではMesaのソフトウェアVulkanドライバーを使用できます。ビルドにはGLFWのX11開発ライブラリも必要です（依存一覧は `docker/Dockerfile` を参照）。ビルドしたアプリと `build/rust-visualization/` は一緒に保持してください。
+
+従来の描画は `-DAD_VISUALIZATION_BACKEND=matplotlib` で選択できます。スクリプトを使用する場合は `AD_VISUALIZATION_BACKEND=matplotlib bash scripts/build_internal.sh` または `AD_VISUALIZATION_BACKEND=matplotlib bash scripts/build.sh` とします。この場合はPython・NumPy・Matplotlibが必要です。Python製の解析・地図編集ツールの依存も引き続き `uv sync` で導入します。
+
+wgpuでは座標軸がメートル単位となり、占有セルは黒、空きセルは白で表示します。地図のセル境界が明示されるため、従来のMatplotlib画像とは表示位置・配色に差があります。ウィンドウ操作とVisualizerの破棄は同じスレッドで行ってください。
+
+C++アダプターのCPUテストはGPUなしで実行できます。PNG・ウィンドウの統合テストは明示的に有効化します。
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DAD_VISUALIZATION_BACKEND=wgpu \
+  -DAD_TEST_RENDER_OUTPUT=ON -DAD_TEST_RENDER_WINDOW=ON
+cmake --build build --target visualizer_test -j4
+ctest --test-dir build -R '^visualizer_(cpu|png)$' --output-on-failure
+xvfb-run -a ctest --test-dir build -R '^visualizer_window$' --output-on-failure
+```
 
 ## 使い方
 
