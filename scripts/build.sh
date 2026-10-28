@@ -49,7 +49,6 @@ docker run --rm \
             uv sync --active
         fi
 
-        export CARGO_HOME=/tmp/.cargo
         echo "2. CMake 構成中..."
         cmake -B build -S . \
             -DAD_VISUALIZATION_BACKEND="${AD_VISUALIZATION_BACKEND}" \

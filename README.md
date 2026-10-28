@@ -69,16 +69,18 @@ MESA_VK_WSI_DEBUG=noshm ./build/auto_drive_app
 ### ホストで実行する場合（追加の依存関係をインストールする必要があります）
 
 1. [このレポジトリ](https://github.com/OsawaKousei/standalone_auto_drive_ws)からソースコードを入手する
-1. 実行用のVulkanローダー・ドライバーとX11環境を用意する（Ubuntuでは `libvulkan1 mesa-vulkan-drivers libx11-6`）。Python製ツールも使用する場合は `uv sync`
+1. 実行用のVulkanローダー・ドライバーとX11環境を用意する（Ubuntuでは `libvulkan1 mesa-vulkan-drivers libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libxrender1`）。Python製ツールも使用する場合は `uv sync`
 1. ビルド：`bash scripts/build.sh`
 1. 実行：`./build/auto_drive_app`
    ※コンテナ内で生成されるGCC 12でコンパイルされたバイナリを実行できる環境が必要です
 
 ## 描画バックエンド
 
-既定は `ref/rust-wgpu-plotting` のwgpuバックエンドです。このディレクトリに参照ライブラリのソースを配置してください。外部に配置した場合はCMakeの `-DAD_RUST_SOURCE_DIR=/path/to/rust-wgpu-plotting` で指定できます。Rust側のソース変更は不要です。
+既定は [rust-wgpu-plotting v0.1.0](https://github.com/OsawaKousei/rust-wgpu-plotting/releases/tag/v0.1.0) の Linux x86_64 バイナリです。CMake の構成時に `ad-visualization-v0.1.0-linux-x86_64.tar.gz` を取得し、固定した SHA-256 を検証して `build/_deps/ad_visualization_bundle-src/` に展開します。初回は他の C++ 依存関係の取得にもネットワーク接続が必要です。`ref/` へのソース配置や Rust ツールチェーンは不要です。wgpu を選択した C++ アプリのビルド・実行には Python・NumPy・Matplotlib も不要です。
 
-CMakeが `cargo build --locked -p ad-visualization-ffi --features native` を実行し、共有ライブラリをビルドディレクトリ内に生成します。Rust edition 2024に対応したツールチェーンが必要です。コンテナでは検証済みのRust 1.99.1を使用します。wgpuを選択したC++アプリのビルド・実行にはPython・NumPy・Matplotlibは不要です。
+Docker／devcontainer は C++ ビルドツールと Vulkan・X11 の実行ライブラリを導入します。既存の開発コンテナは **Dev Containers: Rebuild and Reopen in Container** で再構築してください。
+
+コンテナ内で直接ビルドする場合：
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DAD_VISUALIZATION_BACKEND=wgpu
@@ -86,7 +88,21 @@ cmake --build build -j4
 ./build/auto_drive_app
 ```
 
-Linux x86_64 / Vulkan / X11を対象にしています。PNG保存にもVulkanアダプターが必要ですが、画面表示は不要です。GPUのない環境ではMesaのソフトウェアVulkanドライバーを使用できます。ビルドにはGLFWのX11開発ライブラリも必要です（依存一覧は `docker/Dockerfile` を参照）。ビルドしたアプリと `build/rust-visualization/` は一緒に保持してください。
+Linux x86_64 / Vulkan / X11 を対象にしています。PNG 保存にも Vulkan アダプターが必要ですが、画面表示は不要です。GPU のない環境では Mesa のソフトウェア Vulkan ドライバーを使用できます。実行時はビルドしたアプリと `build/_deps/ad_visualization_bundle-src/` を同じ位置関係で保持してください。
+
+手動取得済みの Release を使用する場合は、`.tar.gz.sha256` でアーカイブを検証し、展開先で `sha256sum -c SHA256SUMS` を実行した後、`-DAD_VISUALIZATION_ROOT=/absolute/path/to/ad-visualization-v0.1.0-linux-x86_64` を CMake に指定します。この指定では自動ダウンロードとアーカイブのハッシュ検証を行いません。
+
+以前のソースビルドのキャッシュを引き継がずにクリーンビルドを確認する場合は、未使用のビルドディレクトリを指定します：
+
+```bash
+cmake -S . -B build/release-clean -DCMAKE_BUILD_TYPE=Debug \
+  -DAD_VISUALIZATION_BACKEND=wgpu -DAD_TEST_RENDER_OUTPUT=ON -DAD_TEST_RENDER_WINDOW=ON
+cmake --build build/release-clean -j4
+ctest --test-dir build/release-clean -R '^visualizer_(cpu|png)$' --output-on-failure
+xvfb-run -a ctest --test-dir build/release-clean -R '^visualizer_window$' --output-on-failure
+```
+
+ウィンドウテストには `xvfb`・`xauth` が必要です（devcontainer に同梱）。ホスト／コンテナ間の CMake キャッシュは共有せず、環境を切り替える場合も新しいビルドディレクトリを使用してください。
 
 従来の描画は `-DAD_VISUALIZATION_BACKEND=matplotlib` で選択できます。スクリプトを使用する場合は `AD_VISUALIZATION_BACKEND=matplotlib bash scripts/build_internal.sh` または `AD_VISUALIZATION_BACKEND=matplotlib bash scripts/build.sh` とします。この場合はPython・NumPy・Matplotlibが必要です。Python製の解析・地図編集ツールの依存も引き続き `uv sync` で導入します。
 

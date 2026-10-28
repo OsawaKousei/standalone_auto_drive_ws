@@ -1,41 +1,34 @@
-# Build the existing C ABI without changing the reference Rust sources.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  message(FATAL_ERROR "The wgpu backend currently requires Linux. Use AD_VISUALIZATION_BACKEND=matplotlib on other platforms.")
+# Consume the pinned, prebuilt C ABI release; no Rust sources/toolchain are needed.
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+   NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+  message(FATAL_ERROR "The wgpu release requires Linux x86_64. Use AD_VISUALIZATION_BACKEND=matplotlib on other platforms.")
 endif()
-set(AD_RUST_SOURCE_DIR "${PROJECT_SOURCE_DIR}/ref/rust-wgpu-plotting" CACHE PATH
-    "Path to the rust-wgpu-plotting workspace")
-if(NOT EXISTS "${AD_RUST_SOURCE_DIR}/crates/ad-visualization-ffi/include/ad_visualization_ffi.h")
-  message(FATAL_ERROR "rust-wgpu-plotting is missing. Set AD_RUST_SOURCE_DIR to its workspace.")
-endif()
-find_program(AD_CARGO_EXECUTABLE cargo REQUIRED)
-set(_ad_rust_target_dir "${CMAKE_BINARY_DIR}/rust-visualization")
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-  set(_ad_cargo_profile dev)
-  set(_ad_rust_profile_dir debug)
+
+set(AD_VISUALIZATION_ROOT "" CACHE PATH "Path to an extracted ad-visualization v0.1.0 Linux x86_64 bundle (empty: download release)")
+if(AD_VISUALIZATION_ROOT)
+  set(_ad_visualization_root "${AD_VISUALIZATION_ROOT}")
 else()
-  set(_ad_cargo_profile release)
-  set(_ad_rust_profile_dir release)
+  FetchContent_Declare(ad_visualization_bundle
+    URL https://github.com/OsawaKousei/rust-wgpu-plotting/releases/download/v0.1.0/ad-visualization-v0.1.0-linux-x86_64.tar.gz
+    URL_HASH SHA256=c0ee20a3d46fb4f98a3f0d794e5ea7bd662c2dae9a7af76626930c641b462436
+    TLS_VERIFY TRUE)
+  FetchContent_GetProperties(ad_visualization_bundle)
+  if(NOT ad_visualization_bundle_POPULATED)
+    FetchContent_Populate(ad_visualization_bundle)
+  endif()
+  set(_ad_visualization_root "${ad_visualization_bundle_SOURCE_DIR}")
 endif()
-set(_ad_rust_library "${_ad_rust_target_dir}/${_ad_rust_profile_dir}/libad_visualization_ffi.so")
-file(GLOB_RECURSE _ad_rust_inputs CONFIGURE_DEPENDS
-  "${AD_RUST_SOURCE_DIR}/crates/*.rs"
-  "${AD_RUST_SOURCE_DIR}/crates/*/Cargo.toml"
-  "${AD_RUST_SOURCE_DIR}/crates/*.wgsl"
-  "${AD_RUST_SOURCE_DIR}/crates/*.ttf")
-add_custom_command(
-  OUTPUT "${_ad_rust_library}"
-  COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${_ad_rust_target_dir}"
-          "${AD_CARGO_EXECUTABLE}" build --locked --profile "${_ad_cargo_profile}"
-          --manifest-path "${AD_RUST_SOURCE_DIR}/Cargo.toml"
-          -p ad-visualization-ffi --features native
-  DEPENDS ${_ad_rust_inputs} "${AD_RUST_SOURCE_DIR}/Cargo.toml"
-          "${AD_RUST_SOURCE_DIR}/Cargo.lock"
-  COMMENT "Building the Rust wgpu visualization backend"
-  VERBATIM)
-add_custom_target(ad_rust_visualization_build DEPENDS "${_ad_rust_library}")
+
+foreach(_ad_file include/ad_visualization_ffi.h lib/libad_visualization_ffi.so)
+  if(NOT EXISTS "${_ad_visualization_root}/${_ad_file}")
+    message(FATAL_ERROR "Invalid ad-visualization bundle: missing ${_ad_visualization_root}/${_ad_file}")
+  endif()
+endforeach()
+message(STATUS "Visualization release: v0.1.0 (${_ad_visualization_root})")
 add_library(ad_rust_visualization SHARED IMPORTED GLOBAL)
+# The release library has no SONAME. Avoid recording an absolute build path in
+# DT_NEEDED; CMAKE_BUILD_RPATH_USE_ORIGIN keeps the downloaded bundle relocatable.
 set_target_properties(ad_rust_visualization PROPERTIES
-  IMPORTED_LOCATION "${_ad_rust_library}"
+  IMPORTED_LOCATION "${_ad_visualization_root}/lib/libad_visualization_ffi.so"
   IMPORTED_NO_SONAME TRUE
-  INTERFACE_INCLUDE_DIRECTORIES "${AD_RUST_SOURCE_DIR}/crates/ad-visualization-ffi/include")
-add_dependencies(ad_rust_visualization ad_rust_visualization_build)
+  INTERFACE_INCLUDE_DIRECTORIES "${_ad_visualization_root}/include")
